@@ -28,14 +28,43 @@ class Config:
     JSON_AS_ASCII = False
 
     # LLM configuration (unified OpenAI format)
-    LLM_API_KEY = os.environ.get('LLM_API_KEY')
-    LLM_BASE_URL = os.environ.get('LLM_BASE_URL', 'https://api.openai.com/v1')
-    LLM_MODEL_NAME = os.environ.get('LLM_MODEL_NAME', 'gpt-4o-mini')
+    # Default: route through OpenClaw gateway (local proxy → Claude Opus via OAuth, zero cost)
+    # Override with env vars to use a different provider
+    LLM_API_KEY = os.environ.get('LLM_API_KEY', 'openclaw')
+    LLM_BASE_URL = os.environ.get('LLM_BASE_URL', 'http://localhost:3000/v1')
+    LLM_MODEL_NAME = os.environ.get('LLM_MODEL_NAME', 'anthropic/claude-opus-4-6')
 
     # ChromaDB configuration (replaces Zep Cloud)
     CHROMADB_PERSIST_PATH = os.environ.get(
         'CHROMADB_PERSIST_PATH',
         os.path.join(os.path.dirname(__file__), '../../memory/.chromadb_data')
+    )
+
+    # ── SearXNG configuration ────────────────────────────────────
+    SEARXNG_URL = os.environ.get('SEARXNG_URL', 'http://localhost:8888')
+
+    # ── Mem0 configuration ───────────────────────────────────────
+    MEM0_API_KEY = os.environ.get('MEM0_API_KEY', '')
+    MEM0_ORG_ID = os.environ.get('MEM0_ORG_ID', '')
+    MEM0_USER_ID = os.environ.get('MEM0_USER_ID', 'mirai_bi')
+
+    # ── OpenBB configuration ─────────────────────────────────────
+    # OpenBB uses its own provider credentials (set via openbb CLI or env vars)
+    OPENBB_ENABLED = os.environ.get('OPENBB_ENABLED', 'true').lower() == 'true'
+
+    # ── E2B Sandbox configuration ────────────────────────────────
+    E2B_API_KEY = os.environ.get('E2B_API_KEY', '')
+
+    # ── Neo4j configuration (optional, for Mem0 graph store) ─────
+    NEO4J_URL = os.environ.get('NEO4J_URL', '')
+    NEO4J_USER = os.environ.get('NEO4J_USER', 'neo4j')
+    NEO4J_PASSWORD = os.environ.get('NEO4J_PASSWORD', '')
+
+    # ── OpenClaw configuration ───────────────────────────────────
+    OPENCLAW_GATEWAY_PORT = int(os.environ.get('OPENCLAW_GATEWAY_PORT', '3000'))
+    OPENCLAW_GATEWAY_URL = os.environ.get(
+        'OPENCLAW_GATEWAY_URL',
+        f'http://localhost:{os.environ.get("OPENCLAW_GATEWAY_PORT", "3000")}'
     )
 
     # File upload configuration
@@ -71,5 +100,5 @@ class Config:
         """Validate required configuration"""
         errors = []
         if not cls.LLM_API_KEY:
-            errors.append("LLM_API_KEY not configured")
+            errors.append("LLM_API_KEY not configured (set env var or run 'openclaw gateway')")
         return errors

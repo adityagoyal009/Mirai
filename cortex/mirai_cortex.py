@@ -1,10 +1,12 @@
 import asyncio
-import time
 import subprocess
 import json
 import re
 import sys
 import os
+
+import requests
+from openai import OpenAI
 
 from system_prompt import MIRAI_SYSTEM_PROMPT
 
@@ -25,39 +27,101 @@ _BLOCKED_RE = re.compile("|".join(_BLOCKED_COMMANDS), re.IGNORECASE)
 # ── Default MiroFish backend URL ─────────────────────────────────
 _SWARM_URL = os.environ.get("MIRAI_SWARM_URL", "http://localhost:5000")
 
+# ── LLM / Gateway configuration ─────────────────────────────────
+_LLM_API_KEY = os.environ.get("LLM_API_KEY", "openclaw")
+_LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "http://localhost:3000/v1")
+_GATEWAY_URL = _LLM_BASE_URL.replace("/v1", "")
+_GATEWAY_HEALTH_CHECK_INTERVAL = 10  # Check gateway every N cycles
+_OPENCLAW_WHATSAPP_NUMBER = os.environ.get("OPENCLAW_WHATSAPP_NUMBER", "")
+
 
 class MiraiBrain:
     """
-    Connects to the local OpenClaw Gateway to utilize the selected model.
-    By default, uses Claude 3 Opus via OAuth for zero-cost reasoning.
+    Connects to the local OpenClaw Gateway via the OpenAI SDK.
+    By default, uses Claude Opus 4.6 via OAuth for zero-cost reasoning.
     """
 
     def __init__(self, model="anthropic/claude-opus-4-6"):
         self.model = model
-        print(f"[MiraiBrain] Initialized Neural Link to OpenClaw Gateway via {self.model}")
+        self.client = OpenAI(api_key=_LLM_API_KEY, base_url=_LLM_BASE_URL)
+        print(f"[MiraiBrain] Initialized Neural Link to Gateway via {self.model}")
 
     def think(self, prompt: str) -> str:
-        """Send a prompt to the selected model via the OpenClaw CLI."""
+        """Send a prompt to the selected model via the OpenAI SDK."""
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": "You must reply ONLY in strict JSON."},
+                    {"role": "user", "content": prompt},
+                ],
+                max_tokens=4096,
+                temperature=0.7,
+                extra_body={"thinking": {"type": "enabled", "budget_tokens": 10000}},
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            print(f"[ERROR] Cortex LLM call failed: {e}")
+            return '{"action": "standby", "reason": "Brain disconnected"}'
+
+
+# ── Gateway Management ───────────────────────────────────────────
+
+class GatewayManager:
+    """
+    Manages gateway health checks and messaging.
+    LLM calls go through the OpenAI SDK; only messaging still uses the CLI.
+    """
+
+    def __init__(self):
+        self.gateway_url = _GATEWAY_URL
+        self._healthy = False
+
+    def check_health(self) -> bool:
+        """Check if the gateway is responding."""
+        try:
+            resp = requests.get(f"{self.gateway_url}/health", timeout=5)
+            self._healthy = resp.status_code == 200
+            return self._healthy
+        except Exception:
+            self._healthy = False
+            return False
+
+    def watchdog(self, cycle_number: int) -> None:
+        """
+        Gateway watchdog — runs every N cycles.
+        Checks gateway health and logs a warning if it's down.
+        """
+        if cycle_number % _GATEWAY_HEALTH_CHECK_INTERVAL != 0:
+            return
+
+        if not self.check_health():
+            print("[GATEWAY] Warning: gateway not responding. Restart it manually.")
+
+    def send_message(self, text: str, to: str = "") -> str:
+        """
+        Send a message using `openclaw message send` (only remaining CLI call).
+        Falls back to logging if the CLI is unavailable.
+        """
+        recipient = to or _OPENCLAW_WHATSAPP_NUMBER or "WhatsApp"
+
         try:
             result = subprocess.run(
-                [
-                    "openclaw", "agent",
-                    "--message", prompt,
-                    "--model", self.model,
-                    "--thinking", "high",
-                ],
+                ["openclaw", "message", "send", "--to", recipient, "--message", text],
                 capture_output=True,
                 text=True,
-                check=True,
-                timeout=120,
+                timeout=30,
             )
-            return result.stdout.strip()
-        except subprocess.TimeoutExpired:
-            print("[ERROR] Cortex timed out waiting for LLM response")
-            return '{"action": "standby", "reason": "Brain timed out"}'
-        except subprocess.CalledProcessError as e:
-            print(f"[ERROR] Cortex Disconnect: {e.stderr}")
-            return '{"action": "standby", "reason": "Brain disconnected"}'
+            if result.returncode == 0:
+                return f"Message sent to {recipient}: {text}"
+        except FileNotFoundError:
+            pass
+        except (subprocess.TimeoutExpired, subprocess.CalledProcessError):
+            pass
+
+        # Fallback: log the message (gateway HTTP messaging can be added later)
+        print(f"[COMMS] Message (not delivered — no messaging backend): {text}")
+        return f"Message logged (no messaging backend available): {text}"
 
 
 class MiraiCortex:
@@ -65,6 +129,7 @@ class MiraiCortex:
     The main autonomous loop (The Heartbeat).
     Orchestrates the Browser (Hands), the Brain (LLM), and the Subconscious (MiroFish).
     Now with self-learning: experience memory, reflection, skill gap detection, market radar.
+    Gateway health monitoring and E2B sandbox for code execution.
     """
 
     def __init__(self, model: str):
@@ -83,6 +148,26 @@ class MiraiCortex:
         self.reflection_engine = None
         self.skill_forge = None
         self.market_radar = None
+
+        # Gateway management
+        self.gateway = GatewayManager()
+
+        # E2B sandbox runner (lazy-initialized)
+        self._sandbox_runner = None
+        self._sandbox_checked = False
+
+    # ── Sandbox Runner ─────────────────────────────────────────────
+
+    def _get_sandbox(self):
+        """Lazy-init E2B sandbox runner."""
+        if not self._sandbox_checked:
+            self._sandbox_checked = True
+            try:
+                from sandbox_runner import SandboxRunner
+                self._sandbox_runner = SandboxRunner()
+            except Exception as e:
+                print(f"[WARNING] Sandbox runner unavailable: {e}")
+        return self._sandbox_runner
 
     # ── Learning System Init ─────────────────────────────────────
 
@@ -134,6 +219,8 @@ class MiraiCortex:
             self._handle_terminal_command(action_data)
         elif action_type == "swarm_predict":
             self._handle_swarm_predict(action_data)
+        elif action_type == "analyze_business":
+            self._handle_analyze_business(action_data)
         elif action_type == "message_human":
             self._handle_message_human(action_data)
         elif action_type == "standby":
@@ -189,6 +276,30 @@ class MiraiCortex:
             self.last_action_result = msg
             return
 
+        # Route through E2B sandbox if available
+        sandbox = self._get_sandbox()
+        if sandbox:
+            result = sandbox.execute(
+                command=command,
+                timeout=30,
+                cwd=working_dir,
+            )
+            stdout = result.get("stdout", "")
+            stderr = result.get("stderr", "")
+            exit_code = result.get("exit_code", -1)
+            method = result.get("execution_method", "unknown")
+
+            output = f"Exit code: {exit_code} (via {method})"
+            if stdout:
+                output += f"\nSTDOUT:\n{stdout}"
+            if stderr:
+                output += f"\nSTDERR:\n{stderr}"
+
+            print(f"[HANDS] Command result (exit={exit_code}, method={method}): {stdout[:200]}")
+            self.last_action_result = output
+            return
+
+        # Fallback: direct subprocess (original behavior)
         try:
             result = subprocess.run(
                 command, shell=True, capture_output=True, text=True,
@@ -218,7 +329,6 @@ class MiraiCortex:
         print(f"[SUBCONSCIOUS] Waking swarm to predict: {scenario[:100]}")
 
         try:
-            import requests
             resp = requests.post(
                 f"{_SWARM_URL}/api/predict/",
                 json={"scenario": scenario, "graph_id": graph_id},
@@ -241,19 +351,115 @@ class MiraiCortex:
         except Exception as e:
             self.last_action_result = f"Swarm prediction failed (is MiroFish running on {_SWARM_URL}?): {e}"
 
+    # ── analyze_business ────────────────────────────────────────
+
+    def _handle_analyze_business(self, data: dict):
+        exec_summary = data.get("exec_summary", "")
+        depth = data.get("depth", "standard")
+        print(f"[SUBCONSCIOUS] Business intelligence analysis: {exec_summary[:100]}")
+
+        try:
+            resp = requests.post(
+                f"{_SWARM_URL}/api/bi/analyze",
+                json={"exec_summary": exec_summary, "research_depth": depth},
+                timeout=180,
+            )
+            result = resp.json()
+
+            # Handle needs_more_info (422) — not enough data to analyze
+            if result.get("status") == "needs_more_info":
+                missing = result.get("missing_critical", [])
+                quality = result.get("data_quality", 0)
+                self.last_action_result = (
+                    f"BI: Insufficient data (quality: {quality:.0%}). "
+                    f"Missing critical fields: {', '.join(missing)}. "
+                    f"Need at minimum: company name, industry, product description.\n"
+                    f"Suggested template:\n{result.get('template', '')}"
+                )
+                return
+
+            resp.raise_for_status()
+
+            if result.get("success"):
+                analysis = result.get("analysis", {})
+                prediction = analysis.get("prediction", {})
+                plan = analysis.get("plan", {})
+                data_quality = analysis.get("data_quality", 1.0)
+
+                verdict = prediction.get("verdict", "Unknown")
+                score = prediction.get("overall_score", 0)
+                reasoning = prediction.get("reasoning", "")
+
+                # Format top dimension scores
+                dims = prediction.get("dimensions", [])
+                dim_lines = "\n".join(
+                    f"  - {d['name']}: {d['score']}/10 — {d['reasoning'][:80]}"
+                    for d in dims[:7]
+                )
+
+                # Format top next moves
+                moves = plan.get("next_moves", [])
+                move_lines = "\n".join(
+                    f"  {i+1}. {m.get('action', '')}"
+                    for i, m in enumerate(moves[:3])
+                )
+
+                quality_note = ""
+                if data_quality < 0.7:
+                    quality_note = (
+                        f"\n\n[WARNING] Data quality: {data_quality:.0%} — "
+                        f"results may be less reliable."
+                    )
+
+                # Council info
+                council_note = ""
+                council = prediction.get("council", {})
+                if council.get("used"):
+                    models = ", ".join(council.get("models", []))
+                    contested = council.get("contested_dimensions", [])
+                    council_note = f"\n\nLLM Council: {models}"
+                    if contested:
+                        contest_lines = ", ".join(
+                            f"{c['dimension']} (spread: {c['spread']})"
+                            for c in contested
+                        )
+                        council_note += f"\nContested: {contest_lines}"
+                    else:
+                        council_note += "\nAll models agree — high conviction."
+
+                # Data sources
+                sources = analysis.get("data_sources_used", [])
+                sources_note = ""
+                if sources:
+                    sources_note = f"\n\nData sources: {', '.join(sources)}"
+
+                output = (
+                    f"BI Verdict: {verdict} (score: {score}/10)\n"
+                    f"Data Quality: {data_quality:.0%}\n"
+                    f"Reasoning: {reasoning[:300]}\n\n"
+                    f"Dimension Scores:\n{dim_lines}\n\n"
+                    f"Top Recommendations:\n{move_lines}"
+                    f"{council_note}"
+                    f"{sources_note}"
+                    f"{quality_note}"
+                )
+                self.last_action_result = output[:3000]
+            else:
+                self.last_action_result = f"BI analysis failed: {result.get('error', 'unknown')}"
+
+        except Exception as e:
+            self.last_action_result = (
+                f"BI analysis failed (is MiroFish running on {_SWARM_URL}?): {e}"
+            )
+
     # ── message_human ────────────────────────────────────────────
 
     def _handle_message_human(self, data: dict):
         message_text = data.get("text", "")
+        recipient = data.get("to", "")
         print(f"[COMMS] Messaging Human: {message_text}")
-        try:
-            subprocess.run(
-                ["openclaw", "agent", "--message", message_text, "--to", "WhatsApp"],
-                capture_output=True, check=True, timeout=30,
-            )
-            self.last_action_result = f"Message sent to human: {message_text}"
-        except Exception as e:
-            self.last_action_result = f"Messaging failed: {e}"
+        result = self.gateway.send_message(text=message_text, to=recipient)
+        self.last_action_result = result
 
     # ── Experience formatting ────────────────────────────────────
 
@@ -282,6 +488,10 @@ class MiraiCortex:
         print(f"     Architecture: {self.brain.model} Cortex     ")
         print("=============================================\n")
 
+        # ── Gateway health check at boot ──────────────────────────
+        if not self.gateway.check_health():
+            print("[GATEWAY] Warning: gateway not responding at boot. LLM calls will fail.")
+
         # Start the API server for OpenClaw bridge
         try:
             from api_server import start_api_server
@@ -294,6 +504,9 @@ class MiraiCortex:
             self.cycle_number += 1
 
             print(f"[*] Cycle {self.cycle_number} | Objective: {self.objective}")
+
+            # ── Gateway watchdog ───────────────────────────────────
+            self.gateway.watchdog(self.cycle_number)
 
             # ── PRE-ACTION: Recall past experiences ──────────────
             past_experiences_text = ""
@@ -409,16 +622,16 @@ def choose_model():
     print("       Initialize Mirai Neural Link          ")
     print("=============================================")
     print("Select the LLM to power the Cortex:")
-    print("1. Claude 3 Opus via OAuth (Recommended - Best Logic, Zero Cost)")
-    print("2. ChatGPT Plus via OAuth (Zero Cost)")
+    print("1. Claude Opus 4.6 via OAuth (Recommended - Best Logic, Zero Cost)")
+    print("2. GPT-5.4 via OAuth (Zero Cost)")
     print("3. Custom OpenClaw Model String")
 
     choice = input("\nEnter choice [1]: ").strip()
 
     if choice == "2":
-        return "openai-codex:oauth"
+        return "openai/gpt-5.4"
     elif choice == "3":
-        return input("Enter OpenClaw model string (e.g., openai/gpt-4o): ").strip()
+        return input("Enter OpenClaw model string (e.g., openai/gpt-5.4): ").strip()
     else:
         return "anthropic/claude-opus-4-6"
 

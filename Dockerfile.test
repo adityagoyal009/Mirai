@@ -1,0 +1,26 @@
+# Lightweight test image — skips heavy deps (openbb, crawl4ai, crewai, playwright)
+# that need API keys or long install times. Tests: Flask backend, BI imports,
+# ChromaDB memory, SearXNG client, config loading.
+FROM python:3.10-slim
+
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app/Mirai
+COPY . /app/Mirai/
+
+# Core deps only — fast build (~30s)
+RUN pip install --no-cache-dir \
+    chromadb \
+    requests \
+    flask \
+    flask-cors \
+    openai \
+    python-dotenv
+
+RUN useradd -m -s /bin/bash mirai_user
+RUN chown -R mirai_user:mirai_user /app/Mirai
+USER mirai_user
+
+EXPOSE 5000 8100
+
+CMD ["/bin/bash"]

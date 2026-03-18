@@ -74,7 +74,10 @@ class LLMClient:
         max_tokens: int = 4096
     ) -> Dict[str, Any]:
         """
-        Send a chat request and return JSON
+        Send a chat request and return JSON.
+
+        Uses response_format for OpenAI models, falls back to prompt-based
+        JSON enforcement for Claude/other models via OpenClaw gateway.
 
         Args:
             messages: Message list
@@ -84,12 +87,31 @@ class LLMClient:
         Returns:
             Parsed JSON object
         """
-        response = self.chat(
-            messages=messages,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            response_format={"type": "json_object"}
-        )
+        # Detect if we're likely talking to Claude (via OpenClaw or Anthropic)
+        is_claude = "claude" in self.model.lower() or "anthropic" in self.base_url.lower()
+
+        if is_claude:
+            # Claude: enforce JSON via system prompt, no response_format
+            patched = list(messages)
+            json_instruction = "\n\nYou MUST respond with valid JSON only. No markdown, no explanation, no text before or after the JSON."
+            if patched and patched[0]["role"] == "system":
+                patched[0] = {**patched[0], "content": patched[0]["content"] + json_instruction}
+            else:
+                patched.insert(0, {"role": "system", "content": "Respond with valid JSON only." + json_instruction})
+            response = self.chat(
+                messages=patched,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+        else:
+            # OpenAI-compatible: use native JSON mode
+            response = self.chat(
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                response_format={"type": "json_object"}
+            )
+
         # Clean markdown code block markers
         cleaned_response = response.strip()
         cleaned_response = re.sub(r'^```(?:json)?\s*\n?', '', cleaned_response, flags=re.IGNORECASE)

@@ -31,6 +31,7 @@ _cortex_state = {
     "experience_count": 0,
 }
 _cortex_ref = None  # Will hold reference to MiraiCortex if available
+_main_loop = None   # Reference to the cortex's asyncio event loop
 
 
 def update_state(cortex):
@@ -45,6 +46,91 @@ def update_state(cortex):
         "learning_enabled": cortex.experience_store is not None,
         "experience_count": cortex.experience_store.get_count() if cortex.experience_store else 0,
     })
+
+
+# ── Browser research helpers ──────────────────────────────────────
+
+async def _async_browse(url: str, task: str, max_steps: int = 5) -> dict:
+    """
+    Use the full browser-use Agent to navigate a URL and extract content.
+    Reuses the cortex's BrowserSession if available, otherwise creates one.
+    """
+    from browser_engine import Agent, BrowserSession, BrowserProfile
+
+    # Reuse cortex's persistent session if available
+    session = None
+    if _cortex_ref and hasattr(_cortex_ref, '_browser_session') and _cortex_ref._browser_session:
+        session = _cortex_ref._browser_session
+    else:
+        profile = BrowserProfile(headless=True)
+        session = BrowserSession(browser_profile=profile)
+        await session.start()
+
+    try:
+        agent = Agent(
+            task=f"Navigate to {url} and {task}",
+            browser_session=session,
+        )
+        history = await agent.run(max_steps=max_steps)
+        final = history.final_result() if hasattr(history, "final_result") else str(history)
+        content = str(final)[:5000]
+        return {"success": True, "url": url, "content": content}
+    except Exception as e:
+        return {"success": False, "url": url, "error": str(e)}
+
+
+async def _async_browse_batch(urls: list, task: str, max_steps: int = 5) -> dict:
+    """Browse multiple URLs sequentially using the same browser session."""
+    from browser_engine import BrowserSession, BrowserProfile
+
+    session = None
+    if _cortex_ref and hasattr(_cortex_ref, '_browser_session') and _cortex_ref._browser_session:
+        session = _cortex_ref._browser_session
+    else:
+        profile = BrowserProfile(headless=True)
+        session = BrowserSession(browser_profile=profile)
+        await session.start()
+
+    results = []
+    for url in urls:
+        try:
+            from browser_engine import Agent
+            agent = Agent(
+                task=f"Navigate to {url} and {task}",
+                browser_session=session,
+            )
+            history = await agent.run(max_steps=max_steps)
+            final = history.final_result() if hasattr(history, "final_result") else str(history)
+            content = str(final)[:5000]
+            results.append({"url": url, "content": content, "success": True})
+        except Exception as e:
+            results.append({"url": url, "error": str(e), "success": False})
+
+    return {"success": True, "results": results, "count": len(results)}
+
+
+def _run_browse(url: str, task: str, max_steps: int = 5) -> dict:
+    """Bridge sync API handler → async browser engine."""
+    if _main_loop and _main_loop.is_running():
+        # Submit to the cortex's event loop
+        future = asyncio.run_coroutine_threadsafe(
+            _async_browse(url, task, max_steps), _main_loop
+        )
+        return future.result(timeout=120)
+    else:
+        # No cortex loop — create a temporary one
+        return asyncio.run(_async_browse(url, task, max_steps))
+
+
+def _run_browse_batch(urls: list, task: str, max_steps: int = 5) -> dict:
+    """Bridge sync API handler → async browser engine (batch)."""
+    if _main_loop and _main_loop.is_running():
+        future = asyncio.run_coroutine_threadsafe(
+            _async_browse_batch(urls, task, max_steps), _main_loop
+        )
+        return future.result(timeout=300)
+    else:
+        return asyncio.run(_async_browse_batch(urls, task, max_steps))
 
 
 class CortexAPIHandler(BaseHTTPRequestHandler):
@@ -155,6 +241,33 @@ class CortexAPIHandler(BaseHTTPRequestHandler):
             else:
                 self._send_json({"error": "Cortex not connected"}, 503)
 
+        elif path == "/api/browse":
+            url = body.get("url", "")
+            task = body.get("task", "Extract the main text content from this page")
+            max_steps = body.get("max_steps", 5)
+            if not url:
+                self._send_json({"error": "Missing 'url'"}, 400)
+                return
+            try:
+                result = _run_browse(url, task, max_steps)
+                self._send_json(result)
+            except Exception as e:
+                self._send_json({"success": False, "error": str(e)}, 500)
+
+        elif path == "/api/browse/batch":
+            # Batch browse: multiple URLs in parallel
+            urls = body.get("urls", [])
+            task = body.get("task", "Extract the main text content from this page")
+            max_steps = body.get("max_steps", 5)
+            if not urls:
+                self._send_json({"error": "Missing 'urls' list"}, 400)
+                return
+            try:
+                result = _run_browse_batch(urls, task, max_steps)
+                self._send_json(result)
+            except Exception as e:
+                self._send_json({"success": False, "error": str(e)}, 500)
+
         else:
             self._send_json({"error": "Not found"}, 404)
 
@@ -165,9 +278,14 @@ class CortexAPIHandler(BaseHTTPRequestHandler):
 
 def start_api_server(port=None, cortex=None):
     """Start the API server in a background thread."""
-    global _cortex_ref
+    global _cortex_ref, _main_loop
     if cortex:
         _cortex_ref = cortex
+    # Capture the running event loop so browse endpoints can submit async tasks
+    try:
+        _main_loop = asyncio.get_running_loop()
+    except RuntimeError:
+        _main_loop = None
 
     port = port or int(os.environ.get("MIRAI_API_PORT", "8100"))
     server = HTTPServer(("0.0.0.0", port), CortexAPIHandler)

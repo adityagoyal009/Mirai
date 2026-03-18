@@ -1,7 +1,7 @@
 # Use a lightweight Python base image
 FROM python:3.10-slim
 
-# Install system dependencies needed for Playwright (Browser hands) and Node.js (OpenClaw)
+# Install system dependencies needed for Playwright (Browser hands)
 RUN apt-get update && apt-get install -y \
     curl \
     gnupg \
@@ -22,27 +22,39 @@ RUN apt-get update && apt-get install -y \
     libasound2 \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Node.js (needed for OpenClaw Gateway)
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-    && apt-get install -y nodejs
-
 # Set up the working directory inside the sandbox
 WORKDIR /app/Mirai
 
 # Copy the Mirai codebase into the sandbox
 COPY . /app/Mirai/
 
-# Install Python dependencies (Playwright, ChromaDB, requests, etc.)
-RUN pip install --no-cache-dir playwright chromadb requests crewai
-RUN playwright install --with-deps chromium
+# Install Python dependencies
+# Core: Playwright, ChromaDB, requests, Flask
+# New: mem0ai (hybrid memory), openbb (financial data), crawl4ai (fast extraction),
+#      e2b-code-interpreter (sandbox), crewai (multi-agent)
+RUN pip install --no-cache-dir \
+    playwright \
+    chromadb \
+    requests \
+    flask \
+    flask-cors \
+    openai \
+    python-dotenv \
+    mem0ai \
+    openbb \
+    crawl4ai \
+    e2b-code-interpreter \
+    crewai
 
-# We install OpenClaw globally inside the container
-RUN npm install -g @openclaw/cli || echo "Will link local openclaw instead"
+RUN playwright install --with-deps chromium
 
 # Create a non-root user so Mirai cannot destroy the container's core OS
 RUN useradd -m -s /bin/bash mirai_user
 RUN chown -R mirai_user:mirai_user /app/Mirai
 USER mirai_user
+
+# Expose ports: Cortex API (8100), MiroFish (5000), SearXNG (8888 if co-deployed)
+EXPOSE 8100 5000
 
 # The default command starts the Mirai Cortex
 CMD ["python", "cortex/mirai_cortex.py"]
