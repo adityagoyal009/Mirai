@@ -8,73 +8,76 @@
 ---
 
 ## Phase 1: ChromaDB Episodic Memory System
-**Priority**: Highest (foundational for Phases 2-3)
+**Status**: COMPLETE
 
-- [ ] Create `subconscious/memory/__init__.py` — package init
-- [ ] Create `subconscious/memory/episodic_store.py` — `EpisodicMemoryStore` class
+- [x] Create `subconscious/memory/__init__.py` — package init
+- [x] Create `subconscious/memory/episodic_store.py` — `EpisodicMemoryStore` class
   - `PersistentClient` (survives restarts) at `subconscious/memory/.chromadb_data/`
-  - Collections: `{graph_id}_nodes` (entities), `{graph_id}_edges` (relationships), `{graph_id}_episodes` (raw text)
+  - Collections: `{graph_id}_nodes`, `{graph_id}_edges`, `{graph_id}_episodes`
   - Methods: `create_graph`, `add_episodes`, `search`, `add_nodes`, `add_edges`, `get_all_nodes`, `get_all_edges`, `get_node_edges`
   - Semantic search via ChromaDB's built-in sentence-transformer embeddings
 
 ## Phase 2: Strip Zep Cloud Dependency
-**Priority**: High (unblocks MiroFish running locally)
+**Status**: COMPLETE
 
-Files to modify (remove `from zep_cloud...` imports, replace with `EpisodicMemoryStore`):
-
-- [ ] `subconscious/swarm/config.py` — remove `ZEP_API_KEY`, add `CHROMADB_PERSIST_PATH`
-- [ ] `subconscious/swarm/utils/zep_paging.py` — rewrite to delegate to `EpisodicMemoryStore`
-- [ ] `subconscious/swarm/services/graph_builder.py` — use `EpisodicMemoryStore`
-- [ ] `subconscious/swarm/services/zep_entity_reader.py` — use `EpisodicMemoryStore`
-- [ ] `subconscious/swarm/services/zep_graph_memory_updater.py` — use `EpisodicMemoryStore`
-- [ ] `subconscious/swarm/services/zep_tools.py` — replace `Zep` client with ChromaDB search (biggest change: 65KB file)
-- [ ] `subconscious/swarm/api/graph.py` — remove `ZEP_API_KEY` guards
-- [ ] `subconscious/swarm/api/simulation.py` — remove `ZEP_API_KEY` guards
+- [x] `subconscious/swarm/config.py` — removed `ZEP_API_KEY`, added `CHROMADB_PERSIST_PATH`
+- [x] `subconscious/swarm/utils/zep_paging.py` — rewritten to delegate to `EpisodicMemoryStore`
+- [x] `subconscious/swarm/services/graph_builder.py` — uses `EpisodicMemoryStore`
+- [x] `subconscious/swarm/services/zep_entity_reader.py` — uses `EpisodicMemoryStore`
+- [x] `subconscious/swarm/services/zep_graph_memory_updater.py` — uses `EpisodicMemoryStore`
+- [x] `subconscious/swarm/services/zep_tools.py` — replaced `Zep` client with ChromaDB search
+- [x] `subconscious/swarm/services/oasis_profile_generator.py` — replaced Zep with ChromaDB
+- [x] `subconscious/swarm/services/ontology_generator.py` — removed Zep import reference
+- [x] `subconscious/swarm/api/graph.py` — removed `ZEP_API_KEY` guards
+- [x] `subconscious/swarm/api/simulation.py` — removed `ZEP_API_KEY` guards
 
 ## Phase 3: Wire `swarm_predict` to Cortex
-**Priority**: High (connects brain to subconscious)
+**Status**: COMPLETE
 
-- [ ] Create `subconscious/swarm/api/predict.py` — lightweight prediction endpoint
-  - `POST /api/predict` with `{"scenario": "...", "graph_id": "..."}`
-  - Uses ChromaDB search for context, LLM for synthesis
-- [ ] Update `subconscious/swarm/api/__init__.py` — register `predict_bp`
-- [ ] Update `cortex/mirai_cortex.py` — implement `swarm_predict` handler via HTTP
+- [x] Created `subconscious/swarm/api/predict.py` — `POST /api/predict`
+- [x] Updated `subconscious/swarm/api/__init__.py` — registered `predict_bp`
+- [x] Updated `subconscious/swarm/__init__.py` — registered blueprint at `/api/predict`
+- [x] Updated `cortex/mirai_cortex.py` — `swarm_predict` handler calls Flask via HTTP
 
 ## Phase 4: Implement `terminal_command` Handler
-**Priority**: Medium (standalone)
+**Status**: COMPLETE
 
-- [ ] Update `cortex/mirai_cortex.py` — execute commands via `subprocess.run()`
-  - Timeout: 30s, capture stdout/stderr
-  - Blocklist: `rm -rf /`, `shutdown`, `reboot`, `mkfs`, `dd if=`
-  - Feed output back to LLM in next cycle
-- [ ] Update `cortex/system_prompt.py` — add `working_directory` field to schema
+- [x] `cortex/mirai_cortex.py` — `subprocess.run()` with 30s timeout, stdout/stderr capture
+- [x] Regex blocklist for dangerous commands (rm -rf /, shutdown, dd, fork bomb, curl|bash, etc.)
+- [x] Command output fed back to LLM in next cycle via `self.last_action_result`
+- [x] `cortex/system_prompt.py` — added `working_directory` field
 
 ## Phase 5: Fix WebSocket Persistence
-**Priority**: Medium (standalone within browser engine)
+**Status**: COMPLETE
 
-- [ ] Update `cortex/browser_engine/dom/service.py`
-  - Add try/except around cached session usage with fallback to fresh session
-  - Add `clear_cdp_cache()` method
-  - Handle stale sessions when targets detach/reconnect
+- [x] `cortex/browser_engine/dom/service.py`
+  - Stale-session recovery in `_get_cdp_session()` with fallback to fresh session
+  - `clear_cdp_cache()` method for reconnect/target-detach scenarios
+  - `__aexit__` clears cache on context manager exit
 
 ## Phase 6: Implement `browser_navigate` Handler
-**Priority**: Medium (depends on Phase 5)
+**Status**: COMPLETE
 
-- [ ] Convert `cortex/mirai_cortex.py` main loop to async
-  - `run_forever()` → `async run_forever()` with `asyncio.run()`
-  - `brain.think()` → `await asyncio.to_thread(brain.think, ...)`
-- [ ] Implement browser_navigate handler
-  - Lazy-init persistent `BrowserSession` (headless)
-  - Create browser-use `Agent` with URL as task
-  - Return extracted content to cortex for next LLM cycle
-- [ ] Update `cortex/system_prompt.py` — add `task` field to `browser_navigate` schema
+- [x] Converted `cortex/mirai_cortex.py` to async (`asyncio.run()`)
+- [x] `brain.think()` wrapped in `asyncio.to_thread()` for non-blocking calls
+- [x] Lazy-init persistent headless `BrowserSession`
+- [x] browser-use `Agent` with URL + task, result fed back to LLM
+- [x] `cortex/system_prompt.py` — added `task` field to `browser_navigate` schema
 
 ---
+
+## Future Improvements
+
+- [ ] Add cross-encoder reranker for better semantic search quality
+- [ ] LLM-based entity extraction from episodes (automatic knowledge graph enrichment)
+- [ ] ChromaDB → PostgreSQL migration for production scale
+- [ ] Docker-compose for cortex + swarm co-deployment
+- [ ] WhatsApp/Telegram integration testing with OpenClaw
 
 ## Design Decisions
 
 1. **ChromaDB PersistentClient** over in-memory: data survives restarts
-2. **Separate processes**: cortex ↔ swarm communicate via HTTP (port 5000)
+2. **Separate processes**: cortex <-> swarm communicate via HTTP (port 5000)
 3. **Async cortex loop**: required for browser-use (Playwright is async)
 4. **No cross-encoder reranker for MVP**: ChromaDB cosine similarity is sufficient
 5. **Minimal browser engine changes**: only session cache fix in dom/service.py
