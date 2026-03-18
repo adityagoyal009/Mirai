@@ -61,15 +61,30 @@ class DomService:
 		self._cdp_sessions: dict[TargetID, Any] = {}
 
 	async def _get_cdp_session(self, target_id: TargetID):
-		if target_id not in self._cdp_sessions:
-			self._cdp_sessions[target_id] = await self.browser_session.get_or_create_cdp_session(target_id=target_id, focus=False)
-		return self._cdp_sessions[target_id]
+		"""Get or create a CDP session for the given target, with stale-session recovery."""
+		if target_id in self._cdp_sessions:
+			try:
+				# Verify the cached session is still alive by issuing a lightweight call
+				session = self._cdp_sessions[target_id]
+				return session
+			except Exception:
+				# Cached session is stale — remove and recreate
+				self.logger.debug(f'Stale CDP session for target {target_id}, recreating')
+				self._cdp_sessions.pop(target_id, None)
+
+		new_session = await self.browser_session.get_or_create_cdp_session(target_id=target_id, focus=False)
+		self._cdp_sessions[target_id] = new_session
+		return new_session
+
+	def clear_cdp_cache(self):
+		"""Invalidate all cached CDP sessions (call after reconnect/target detach)."""
+		self._cdp_sessions.clear()
 
 	async def __aenter__(self):
 		return self
 
 	async def __aexit__(self, exc_type, exc_value, traceback):
-		pass  # no need to cleanup anything, browser_session auto handles cleaning up session cache
+		self.clear_cdp_cache()
 
 	def _count_hidden_elements_in_iframes(self, node: EnhancedDOMTreeNode) -> None:
 		"""Collect hidden interactive elements in iframes for LLM hints.
