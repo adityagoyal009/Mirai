@@ -282,6 +282,13 @@ class MiraiCortex:
         print(f"     Architecture: {self.brain.model} Cortex     ")
         print("=============================================\n")
 
+        # Start the API server for OpenClaw bridge
+        try:
+            from api_server import start_api_server
+            start_api_server(cortex=self)
+        except Exception as e:
+            print(f"[WARNING] API server failed to start: {e}")
+
         while True:
             self._init_learning()
             self.cycle_number += 1
