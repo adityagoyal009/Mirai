@@ -1,0 +1,56 @@
+(version 1)
+(deny default)
+
+;; Allow basic system execution and libraries
+(allow process-exec)
+(allow process-fork)
+(allow sysctl-read)
+(allow signal)
+
+;; Allow reading of system libraries and dynamic linker
+(allow file-read*
+    (subpath "/usr/lib")
+    (subpath "/usr/share")
+    (subpath "/System")
+    (subpath "/Library")
+    (subpath "/bin")
+    (subpath "/sbin")
+    (subpath "/usr/bin")
+    (subpath "/usr/local/bin")
+    (subpath "/opt/homebrew")
+)
+
+;; CRITICAL: Allow Mirai to run its own Python binary and libraries
+(allow file-read* (subpath "/Users/adityagoyal/miniconda3"))
+(allow process-exec (subpath "/Users/adityagoyal/miniconda3/bin"))
+
+;; Allow Mirai full access to its own directory and temporary workspace
+(allow file-read* file-write*
+    (subpath "/Users/adityagoyal/.gemini/tmp/adityagoyal/Mirai")
+    (subpath "/Users/adityagoyal/.gemini/tmp/adityagoyal/openclaw")
+    (subpath "/Users/adityagoyal/.gemini/tmp/adityagoyal")
+    (subpath "/private/tmp")
+    (subpath "/var/folders")
+)
+
+;; Allow reading of user's home hidden files (like .bashrc, .zshrc) for environment
+(allow file-read*
+    (literal "/Users/adityagoyal/.zshrc")
+    (literal "/Users/adityagoyal/.zprofile")
+    (literal "/Users/adityagoyal/.profile")
+)
+
+;; DENY access to sensitive user data folders
+(deny file-read*
+    (subpath "/Users/adityagoyal/Documents")
+    (subpath "/Users/adityagoyal/Desktop")
+    (subpath "/Users/adityagoyal/Downloads")
+    (subpath "/Users/adityagoyal/Library")
+    (subpath "/Users/adityagoyal/Pictures")
+)
+
+;; Allow networking for Claude 3 Opus OAuth and Browser hands
+(allow network*)
+(allow system-socket)
+(allow mach-lookup)
+(allow ipc-posix*)
