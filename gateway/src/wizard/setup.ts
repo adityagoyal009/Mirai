@@ -514,10 +514,11 @@ export async function runSetupWizard(
   const councilModels: Array<{ provider: string; model: string; label: string }> = [];
 
   // Auto-add the primary model as first council member
-  const primaryModel = nextConfig.agents?.defaults?.model;
+  const primaryModelRaw = nextConfig.agents?.defaults?.model;
+  const primaryModel = typeof primaryModelRaw === "string" ? primaryModelRaw : String(primaryModelRaw ?? "");
   if (primaryModel) {
     councilModels.push({
-      provider: primaryModel.split("/")[0] ?? "default",
+      provider: primaryModel.includes("/") ? primaryModel.split("/")[0]! : "default",
       model: primaryModel,
       label: primaryModel,
     });
