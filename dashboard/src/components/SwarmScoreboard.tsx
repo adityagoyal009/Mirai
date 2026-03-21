@@ -8,7 +8,7 @@ interface SwarmState {
   positivePct: number
   negativePct: number
   avgConfidence: number
-  recentVotes: Array<{ id: number; persona: string; vote: string; confidence: number; reasoning: string }>
+  recentVotes: Array<{ id: number; persona: string; vote: string; confidence: number; reasoning: string; overall?: number }>
   result: SwarmResult | null
 }
 
@@ -108,7 +108,7 @@ export function SwarmScoreboard() {
         case 'agentVoted':
           setState(prev => ({ ...prev, agentsCompleted: prev.agentsCompleted + 1,
             recentVotes: [
-              { id: msg.id, persona: '', vote: msg.vote, confidence: msg.confidence, reasoning: msg.reasoning },
+              { id: msg.id, persona: '', vote: msg.vote, confidence: msg.confidence, reasoning: msg.reasoning, overall: (msg as any).overall },
               ...prev.recentVotes.slice(0, 14),
             ]}))
           break
@@ -303,32 +303,61 @@ export function SwarmScoreboard() {
             </div>
           </div>
 
-          {/* Consensus */}
-          <div style={{
-            display: 'flex', gap: 16, justifyContent: 'center',
-            padding: '14px 0', borderTop: '1px solid #1a1a2e', borderBottom: '1px solid #1a1a2e',
-          }}>
-            <div style={{ textAlign: 'center', flex: 1 }}>
-              <div style={{ fontSize: 'clamp(24px, 3vw, 40px)', fontWeight: 'bold', color: '#00ff88' }}>
-                {state.positivePct}%
+          {/* Verdict + Overall Score */}
+          {state.result && (
+            <div style={{ textAlign: 'center', padding: '12px 0', borderTop: '1px solid #1a1a2e', borderBottom: '1px solid #1a1a2e' }}>
+              <div style={{
+                fontSize: 'clamp(20px, 2.5vw, 32px)', fontWeight: 'bold', letterSpacing: 3,
+                color: state.result.median_overall >= 6 ? '#00ff88' : state.result.median_overall >= 4.5 ? '#ffaa00' : '#ff4444',
+              }}>
+                {state.result.verdict.toUpperCase()}
               </div>
-              <div style={{ fontSize: 11, color: '#00cc66', letterSpacing: 2 }}>POSITIVE</div>
-            </div>
-            <div style={{ width: 1, background: '#222' }} />
-            <div style={{ textAlign: 'center', flex: 1 }}>
-              <div style={{ fontSize: 'clamp(24px, 3vw, 40px)', fontWeight: 'bold', color: '#ff4444' }}>
-                {state.negativePct}%
+              <div style={{ fontSize: 'clamp(28px, 3.5vw, 48px)', fontWeight: 'bold', color: '#fff', marginTop: 4 }}>
+                {state.result.median_overall.toFixed(1)}<span style={{ fontSize: '50%', color: '#666' }}>/10</span>
               </div>
-              <div style={{ fontSize: 11, color: '#cc3333', letterSpacing: 2 }}>NEGATIVE</div>
             </div>
-            <div style={{ width: 1, background: '#222' }} />
-            <div style={{ textAlign: 'center', flex: 1 }}>
-              <div style={{ fontSize: 'clamp(24px, 3vw, 40px)', fontWeight: 'bold', color: '#ffaa00' }}>
-                {state.avgConfidence > 0 ? (state.avgConfidence * 100).toFixed(0) : '—'}%
+          )}
+
+          {/* Dimension Scores */}
+          {state.result?.avg_scores && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {['market', 'team', 'product', 'timing'].map(dim => {
+                const score = state.result!.avg_scores[dim] || 0
+                const color = score >= 7 ? '#00ff88' : score >= 5 ? '#ffaa00' : '#ff4444'
+                return (
+                  <div key={dim} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div style={{ width: 65, fontSize: 12, color: '#888', textTransform: 'uppercase' }}>{dim}</div>
+                    <div style={{ flex: 1, background: '#0d0d1a', height: 14, borderRadius: 3, overflow: 'hidden' }}>
+                      <div style={{ width: `${score * 10}%`, height: '100%', background: color, transition: 'width 0.3s' }} />
+                    </div>
+                    <div style={{ width: 30, fontSize: 13, fontWeight: 'bold', color, textAlign: 'right' }}>{score.toFixed(1)}</div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          {/* Quick stats when running (no result yet) */}
+          {!state.result && (
+            <div style={{
+              display: 'flex', gap: 16, justifyContent: 'center',
+              padding: '10px 0', borderTop: '1px solid #1a1a2e', borderBottom: '1px solid #1a1a2e',
+            }}>
+              <div style={{ textAlign: 'center', flex: 1 }}>
+                <div style={{ fontSize: 'clamp(20px, 2.5vw, 32px)', fontWeight: 'bold', color: '#00ff88' }}>
+                  {state.positivePct}%
+                </div>
+                <div style={{ fontSize: 11, color: '#666' }}>POSITIVE</div>
               </div>
-              <div style={{ fontSize: 11, color: '#cc8800', letterSpacing: 2 }}>CONFIDENCE</div>
+              <div style={{ width: 1, background: '#222' }} />
+              <div style={{ textAlign: 'center', flex: 1 }}>
+                <div style={{ fontSize: 'clamp(20px, 2.5vw, 32px)', fontWeight: 'bold', color: '#ff4444' }}>
+                  {state.negativePct}%
+                </div>
+                <div style={{ fontSize: 11, color: '#666' }}>NEGATIVE</div>
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Final Results */}
           {state.result && (
@@ -380,8 +409,8 @@ export function SwarmScoreboard() {
                   opacity: 1 - i * 0.05, borderBottom: '1px solid #0d0d1a',
                 }}>
                   <span style={{ color: '#555' }}>#{v.id}</span>{' '}
-                  <span style={{ fontWeight: 'bold' }}>{v.vote.toUpperCase()}</span>{' '}
-                  <span style={{ color: '#666' }}>({(v.confidence * 100).toFixed(0)}%)</span>{' '}
+                  <span style={{ fontWeight: 'bold' }}>{(v as any).overall?.toFixed(1) || v.vote.toUpperCase()}</span>
+                  <span style={{ color: '#666' }}>/10</span>{' '}
                   <span style={{ color: '#555' }}>— {v.reasoning.slice(0, 70)}</span>
                 </div>
               ))}

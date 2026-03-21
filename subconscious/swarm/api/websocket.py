@@ -147,6 +147,8 @@ def _handle_start_swarm(msg: dict):
             "type": "agentVoted",
             "id": agent.agent_id,
             "vote": agent.vote,
+            "overall": agent.overall,
+            "scores": agent.scores,
             "confidence": agent.confidence,
             "reasoning": agent.reasoning[:150],
         })

@@ -94,6 +94,75 @@ class Config:
     UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), '../uploads')
     ALLOWED_EXTENSIONS = {'pdf', 'md', 'txt', 'markdown'}
 
+    # ── Model tiering for swarm cost optimization ──────────────
+    # Tier 1 (premium): best reasoning, used for Wave 1 individual agents
+    # Tier 2 (standard): good quality, used for Wave 2 batches
+    # Tier 3 (cheap): volume diversity, used for large batch runs
+    MODEL_TIERS = {
+        "tier1": [  # Premium — Wave 1 individual calls
+            {"model": "anthropic/claude-opus-4-6", "label": "Claude Opus 4.6", "cost_per_1k": 0.075},
+            {"model": "openai/gpt-4o", "label": "GPT-4o", "cost_per_1k": 0.025},
+        ],
+        "tier2": [  # Standard — Wave 2 batches
+            {"model": "anthropic/claude-sonnet-4-6", "label": "Claude Sonnet 4.6", "cost_per_1k": 0.015},
+            {"model": "openai/gpt-4o-mini", "label": "GPT-4o-mini", "cost_per_1k": 0.0075},
+            {"model": "google/gemini-2.5-pro", "label": "Gemini 2.5 Pro", "cost_per_1k": 0.01},
+            {"model": "mistralai/mistral-large", "label": "Mistral Large", "cost_per_1k": 0.012},
+            {"model": "x-ai/grok-3", "label": "Grok 3", "cost_per_1k": 0.01},
+            {"model": "together/meta-llama/Meta-Llama-3.1-70B", "label": "Llama 3.1 70B", "cost_per_1k": 0.009},
+        ],
+        "tier3": [  # Cheap — volume batch agents
+            {"model": "anthropic/claude-haiku-4-5", "label": "Claude Haiku 4.5", "cost_per_1k": 0.005},
+            {"model": "google/gemini-2.5-flash", "label": "Gemini 2.5 Flash", "cost_per_1k": 0.003},
+            {"model": "mistralai/mistral-small", "label": "Mistral Small", "cost_per_1k": 0.005},
+        ],
+    }
+
+    @classmethod
+    def get_tiered_models(cls) -> dict:
+        """Get models per tier, filtered to only those available in gateway config."""
+        available = cls.get_council_models()
+        if not available:
+            # Fallback: use gateway default for all tiers
+            default = {
+                'model': cls.LLM_MODEL_NAME, 'label': 'Default',
+                'base_url': cls.LLM_BASE_URL, 'api_key': cls.LLM_API_KEY,
+            }
+            return {"tier1": [default], "tier2": [default], "tier3": [default]}
+
+        available_ids = {m['model'] for m in available}
+        available_map = {m['model']: m for m in available}
+
+        result = {}
+        for tier, models in cls.MODEL_TIERS.items():
+            matched = [available_map[m['model']] for m in models if m['model'] in available_ids]
+            if not matched:
+                # Fallback: use all available models for this tier
+                matched = available
+            result[tier] = matched
+
+        return result
+
+    @classmethod
+    def estimate_cost(cls, agent_count: int) -> dict:
+        """Estimate API cost for a swarm run."""
+        wave1 = min(agent_count, 100)
+        wave2 = agent_count - wave1
+        batches = (wave2 + 24) // 25 if wave2 > 0 else 0
+
+        tier1_cost = sum(m.get('cost_per_1k', 0.05) for m in cls.MODEL_TIERS['tier1']) / len(cls.MODEL_TIERS['tier1'])
+        tier2_cost = sum(m.get('cost_per_1k', 0.01) for m in cls.MODEL_TIERS['tier2']) / len(cls.MODEL_TIERS['tier2'])
+
+        est_wave1 = wave1 * tier1_cost * 2  # ~2K tokens per call
+        est_wave2 = batches * tier2_cost * 4  # ~4K tokens per batch
+
+        return {
+            "wave1_calls": wave1,
+            "wave2_batches": batches,
+            "estimated_cost_usd": round(est_wave1 + est_wave2, 2),
+            "breakdown": {"wave1": round(est_wave1, 2), "wave2": round(est_wave2, 2)},
+        }
+
     # Text processing configuration
     DEFAULT_CHUNK_SIZE = 500  # Default chunk size
     DEFAULT_CHUNK_OVERLAP = 50  # Default overlap size

@@ -26,14 +26,27 @@ logger = get_logger('mirofish.swarm')
 # ── Data classes ──────────────────────────────────────────────────
 
 
+SCORE_DIMENSIONS = ["market", "team", "product", "timing", "overall"]
+
+
 @dataclass
 class SwarmAgent:
     agent_id: int
     persona: str
-    vote: str  # "positive" or "negative"
-    confidence: float  # 0.0 - 1.0
+    scores: Dict[str, float]  # {market, team, product, timing, overall} each 1-10
+    overall: float  # shortcut for scores["overall"]
     reasoning: str
     model_used: str
+
+    @property
+    def vote(self) -> str:
+        """Backward compat — positive if overall >= 5.5"""
+        return "positive" if self.overall >= 5.5 else "negative"
+
+    @property
+    def confidence(self) -> float:
+        """Backward compat — map distance from 5.0 to confidence"""
+        return min(1.0, abs(self.overall - 5.0) / 5.0)
 
 
 @dataclass
@@ -41,36 +54,50 @@ class SwarmResult:
     total_agents: int
     wave1_individual: int
     wave2_batched: int
+    # Score-based metrics
+    avg_scores: Dict[str, float]  # {market, team, product, timing, overall}
+    median_overall: float
+    std_overall: float
+    score_distribution: Dict[str, int]  # {strong_hit, likely_hit, uncertain, likely_miss, strong_miss}
+    # Backward-compat vote metrics
     positive_pct: float
     negative_pct: float
     avg_confidence: float
-    confidence_distribution: Dict[str, int]
+    # Themes
     key_themes_positive: List[str]
     key_themes_negative: List[str]
     contested_themes: List[str]
+    # Meta
     agent_results: List[SwarmAgent]
     models_used: List[str]
     execution_time_seconds: float
+    verdict: str  # "Strong Hit" / "Likely Hit" / "Uncertain" / "Likely Miss" / "Strong Miss"
+    fact_check: Optional[Dict[str, Any]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
             "total_agents": self.total_agents,
             "wave1_individual": self.wave1_individual,
             "wave2_batched": self.wave2_batched,
+            "verdict": self.verdict,
+            "avg_scores": self.avg_scores,
+            "median_overall": self.median_overall,
+            "std_overall": self.std_overall,
+            "score_distribution": self.score_distribution,
             "positive_pct": self.positive_pct,
             "negative_pct": self.negative_pct,
             "avg_confidence": self.avg_confidence,
-            "confidence_distribution": self.confidence_distribution,
             "key_themes_positive": self.key_themes_positive,
             "key_themes_negative": self.key_themes_negative,
             "contested_themes": self.contested_themes,
             "models_used": self.models_used,
             "execution_time_seconds": self.execution_time_seconds,
             "sample_agents": [
-                {"persona": a.persona, "vote": a.vote,
-                 "confidence": a.confidence, "reasoning": a.reasoning[:200]}
+                {"persona": a.persona, "overall": a.overall,
+                 "scores": a.scores, "reasoning": a.reasoning[:200]}
                 for a in self.agent_results[:20]
             ],
+            "fact_check": self.fact_check,
         }
 
 
@@ -209,6 +236,7 @@ class SwarmPredictor:
 
     def __init__(self):
         self._models = None
+        self._tiered_models = None
         self._persona_engine = PersonaEngine()
 
     def _get_models(self) -> list:
@@ -223,6 +251,11 @@ class SwarmPredictor:
                 }]
         return self._models
 
+    def _get_tiered_models(self) -> dict:
+        if self._tiered_models is None:
+            self._tiered_models = Config.get_tiered_models()
+        return self._tiered_models
+
     def predict(self, exec_summary: str, research_context: str,
                 agent_count: int = 100,
                 on_agent_complete=None,
@@ -235,7 +268,9 @@ class SwarmPredictor:
         if agent_count not in VALID_COUNTS:
             agent_count = min(VALID_COUNTS, key=lambda x: abs(x - agent_count))
 
-        models = self._get_models()
+        tiered = self._get_tiered_models()
+        tier1_models = tiered.get('tier1', self._get_models())
+        tier2_models = tiered.get('tier2', tiered.get('tier3', self._get_models()))
         wave1_count = min(agent_count, WAVE1_MAX)
         wave2_remaining = agent_count - wave1_count
 
@@ -249,9 +284,10 @@ class SwarmPredictor:
             if 'product' in lower:
                 product = line.split(':', 1)[-1].strip() if ':' in line else ""
 
+        all_model_labels = [m['label'] for m in tier1_models] + [m['label'] for m in tier2_models]
         logger.info(f"[Swarm] Starting {agent_count} agents "
-                    f"(wave1={wave1_count}, wave2={wave2_remaining}) "
-                    f"across {len(models)} models")
+                    f"(wave1={wave1_count} via {len(tier1_models)} tier1, "
+                    f"wave2={wave2_remaining} via {len(tier2_models)} tier2/3)")
 
         # Select personas using PersonaEngine (dataset + generated mix)
         all_personas = self._persona_engine.select_personas(
@@ -272,7 +308,7 @@ class SwarmPredictor:
         with ThreadPoolExecutor(max_workers=min(WAVE1_WORKERS, wave1_count)) as pool:
             futures = []
             for i, persona in enumerate(wave1_personas):
-                model_cfg = models[i % len(models)]
+                model_cfg = tier1_models[i % len(tier1_models)]
                 if on_agent_start:
                     on_agent_start(persona['agent_id'], persona['name'], model_cfg['label'])
                 futures.append(pool.submit(
@@ -298,7 +334,7 @@ class SwarmPredictor:
                 for i in range(batch_count):
                     batch_sz = min(BATCH_SIZE, remaining)
                     remaining -= batch_sz
-                    model_cfg = models[i % len(models)]
+                    model_cfg = tier2_models[i % len(tier2_models)]
                     futures.append(pool.submit(
                         self._run_batch, batch_sz, exec_summary,
                         research_context, model_cfg,
@@ -313,8 +349,21 @@ class SwarmPredictor:
 
             logger.info(f"[Swarm] Wave 2 complete: {len(all_agents)} total agents")
 
+        # ── Fact check ─────────────────────────────────────────────
+        fact_check = None
+        if all_agents:
+            try:
+                from .fact_checker import check_facts
+                reasonings = [a.reasoning for a in all_agents if a.reasoning]
+                fact_check = check_facts(reasonings, research_context)
+            except Exception as e:
+                logger.warning(f"[Swarm] Fact check failed (non-fatal): {e}")
+
         elapsed = time.time() - start_time
-        return self._aggregate(all_agents, wave1_count, wave2_remaining, elapsed, models)
+        result = self._aggregate(all_agents, wave1_count, wave2_remaining, elapsed, tier1_models + tier2_models)
+        if fact_check:
+            result.fact_check = fact_check
+        return result
 
     def _run_individual(self, persona: dict, exec_summary: str,
                         research_context: str, model_cfg: dict) -> Optional[SwarmAgent]:
@@ -327,9 +376,14 @@ class SwarmPredictor:
             messages = [
                 {"role": "system", "content": (
                     f"{persona['prompt']}\n\n"
-                    "You are evaluating a startup. Give your honest assessment.\n"
-                    "Return ONLY JSON: {\"vote\": \"positive\" or \"negative\", "
-                    "\"confidence\": 0.0-1.0, \"reasoning\": \"2-3 sentences\"}"
+                    "You are evaluating a startup. Score it on each dimension from 1-10, "
+                    "relative to similar companies at this stage in this industry. "
+                    "5 = average, 7+ = strong, 3- = weak.\n"
+                    "Base your assessment ONLY on the research data provided. "
+                    "If you reference a fact not in the data, prefix with [UNVERIFIED].\n\n"
+                    "Return ONLY JSON:\n"
+                    "{\"market\": 1-10, \"team\": 1-10, \"product\": 1-10, "
+                    "\"timing\": 1-10, \"overall\": 1-10, \"reasoning\": \"2-3 sentences\"}"
                 )},
                 {"role": "user", "content": (
                     f"Executive Summary:\n{exec_summary}\n\n"
@@ -337,11 +391,12 @@ class SwarmPredictor:
                 )},
             ]
             result = llm.chat_json(messages=messages, temperature=0.8)
+            scores = {d: max(1, min(10, float(result.get(d, 5)))) for d in SCORE_DIMENSIONS}
             return SwarmAgent(
                 agent_id=persona['agent_id'],
                 persona=persona['name'],
-                vote=result.get('vote', 'negative').lower().strip(),
-                confidence=max(0.0, min(1.0, float(result.get('confidence', 0.5)))),
+                scores=scores,
+                overall=scores['overall'],
                 reasoning=result.get('reasoning', ''),
                 model_used=model_cfg['label'],
             )
@@ -363,10 +418,12 @@ class SwarmPredictor:
                     f"Simulate {batch_size} diverse startup evaluators. "
                     "Each has a different perspective (investor, customer, competitor, "
                     "analyst, operator, regulator, journalist, etc.).\n"
+                    "For each, score the startup 1-10 on each dimension "
+                    "(5=average, 7+=strong, 3-=weak).\n"
                     "For each, generate:\n"
-                    "- persona: brief role (e.g., 'Conservative PE investor')\n"
-                    "- vote: 'positive' or 'negative'\n"
-                    "- confidence: 0.0 to 1.0\n"
+                    "- persona: brief role\n"
+                    "- market: 1-10\n- team: 1-10\n- product: 1-10\n"
+                    "- timing: 1-10\n- overall: 1-10\n"
                     "- reasoning: 1-2 sentences\n\n"
                     f"Return JSON: {{\"agents\": [...]}} with exactly {batch_size} entries."
                 )},
@@ -378,11 +435,12 @@ class SwarmPredictor:
             result = llm.chat_json(messages=messages, temperature=0.9, max_tokens=4096)
             agents = []
             for i, ad in enumerate(result.get('agents', [])):
+                scores = {d: max(1, min(10, float(ad.get(d, 5)))) for d in SCORE_DIMENSIONS}
                 agents.append(SwarmAgent(
                     agent_id=start_id + i,
                     persona=ad.get('persona', f'Batch agent {start_id + i}'),
-                    vote=ad.get('vote', 'negative').lower().strip(),
-                    confidence=max(0.0, min(1.0, float(ad.get('confidence', 0.5)))),
+                    scores=scores,
+                    overall=scores['overall'],
                     reasoning=ad.get('reasoning', ''),
                     model_used=model_cfg['label'],
                 ))
@@ -394,34 +452,56 @@ class SwarmPredictor:
     def _aggregate(self, agents: List[SwarmAgent], wave1_count: int,
                    wave2_count: int, elapsed: float,
                    models: list) -> SwarmResult:
+        empty = SwarmResult(
+            total_agents=0, wave1_individual=wave1_count, wave2_batched=wave2_count,
+            avg_scores={d: 0 for d in SCORE_DIMENSIONS}, median_overall=0, std_overall=0,
+            score_distribution={"strong_hit": 0, "likely_hit": 0, "uncertain": 0, "likely_miss": 0, "strong_miss": 0},
+            positive_pct=0, negative_pct=0, avg_confidence=0,
+            key_themes_positive=[], key_themes_negative=[], contested_themes=[],
+            agent_results=[], models_used=[], execution_time_seconds=elapsed, verdict="Uncertain",
+        )
         if not agents:
-            return SwarmResult(
-                total_agents=0, wave1_individual=wave1_count,
-                wave2_batched=wave2_count, positive_pct=0, negative_pct=0,
-                avg_confidence=0, confidence_distribution={"high": 0, "medium": 0, "low": 0},
-                key_themes_positive=[], key_themes_negative=[],
-                contested_themes=[], agent_results=[], models_used=[],
-                execution_time_seconds=elapsed,
-            )
+            return empty
 
+        total = len(agents)
+        overall_scores = sorted([a.overall for a in agents])
+
+        # Dimensional averages
+        avg_scores = {}
+        for d in SCORE_DIMENSIONS:
+            vals = [a.scores.get(d, 5) for a in agents]
+            avg_scores[d] = round(sum(vals) / len(vals), 2)
+
+        median_overall = overall_scores[total // 2]
+        mean_overall = sum(overall_scores) / total
+        std_overall = round((sum((s - mean_overall) ** 2 for s in overall_scores) / total) ** 0.5, 2)
+
+        # Score distribution buckets
+        strong_hit = sum(1 for s in overall_scores if s >= 7.5)
+        likely_hit = sum(1 for s in overall_scores if 6.0 <= s < 7.5)
+        uncertain = sum(1 for s in overall_scores if 4.5 <= s < 6.0)
+        likely_miss = sum(1 for s in overall_scores if 3.0 <= s < 4.5)
+        strong_miss = sum(1 for s in overall_scores if s < 3.0)
+
+        # Verdict from median
+        if median_overall >= 7.5: verdict = "Strong Hit"
+        elif median_overall >= 6.0: verdict = "Likely Hit"
+        elif median_overall >= 4.5: verdict = "Uncertain"
+        elif median_overall >= 3.0: verdict = "Likely Miss"
+        else: verdict = "Strong Miss"
+
+        # Backward-compat vote metrics
         positive = [a for a in agents if a.vote == 'positive']
         negative = [a for a in agents if a.vote != 'positive']
-        total = len(agents)
-
         positive_pct = round(len(positive) / total * 100, 1)
         negative_pct = round(len(negative) / total * 100, 1)
         avg_confidence = round(sum(a.confidence for a in agents) / total, 3)
 
-        # Confidence distribution
-        high = sum(1 for a in agents if a.confidence > 0.7)
-        medium = sum(1 for a in agents if 0.4 <= a.confidence <= 0.7)
-        low = sum(1 for a in agents if a.confidence < 0.4)
-
-        # Extract themes from reasoning
-        pos_themes = self._extract_themes([a.reasoning for a in positive[:50]])
-        neg_themes = self._extract_themes([a.reasoning for a in negative[:50]])
-
-        # Find contested themes (appear in both)
+        # Themes from high vs low scorers
+        high_scorers = [a for a in agents if a.overall >= 6.0]
+        low_scorers = [a for a in agents if a.overall < 5.0]
+        pos_themes = self._extract_themes([a.reasoning for a in high_scorers[:50]])
+        neg_themes = self._extract_themes([a.reasoning for a in low_scorers[:50]])
         pos_set = set(t.lower() for t in pos_themes)
         neg_set = set(t.lower() for t in neg_themes)
         contested = list(pos_set & neg_set)
@@ -432,16 +512,23 @@ class SwarmPredictor:
             total_agents=total,
             wave1_individual=wave1_count,
             wave2_batched=wave2_count,
+            avg_scores=avg_scores,
+            median_overall=median_overall,
+            std_overall=std_overall,
+            score_distribution={
+                "strong_hit": strong_hit, "likely_hit": likely_hit,
+                "uncertain": uncertain, "likely_miss": likely_miss, "strong_miss": strong_miss,
+            },
             positive_pct=positive_pct,
             negative_pct=negative_pct,
             avg_confidence=avg_confidence,
-            confidence_distribution={"high": high, "medium": medium, "low": low},
             key_themes_positive=pos_themes[:10],
             key_themes_negative=neg_themes[:10],
             contested_themes=contested[:5],
             agent_results=agents,
             models_used=models_used,
             execution_time_seconds=round(elapsed, 2),
+            verdict=verdict,
         )
 
     @staticmethod

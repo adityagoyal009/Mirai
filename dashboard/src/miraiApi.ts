@@ -7,7 +7,7 @@ export type SwarmMessage =
   | { type: 'swarmStarted'; totalAgents: number; execSummary: string }
   | { type: 'agentSpawned'; id: number; persona: string; model: string }
   | { type: 'agentActive'; id: number; activity: 'researching' | 'evaluating' | 'reading' }
-  | { type: 'agentVoted'; id: number; vote: 'positive' | 'negative'; confidence: number; reasoning: string }
+  | { type: 'agentVoted'; id: number; vote: 'positive' | 'negative'; overall: number; scores: Record<string, number>; confidence: number; reasoning: string }
   | { type: 'agentDone'; id: number }
   | { type: 'agentError'; id: number; error: string }
   | { type: 'swarmProgress'; agentsCompleted: number; totalAgents: number; positivePct: number; negativePct: number; avgConfidence: number }
@@ -21,10 +21,14 @@ export type SwarmMessage =
 
 export interface SwarmResult {
   totalAgents: number
+  verdict: string
+  avg_scores: Record<string, number>
+  median_overall: number
+  std_overall: number
+  score_distribution: Record<string, number>
   positivePct: number
   negativePct: number
   avgConfidence: number
-  confidenceDistribution: { high: number; medium: number; low: number }
   keyThemesPositive: string[]
   keyThemesNegative: string[]
   contestedThemes: string[]
