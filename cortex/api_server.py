@@ -1,8 +1,8 @@
 """
 Mirai Cortex API Server — Python-Node bridge.
 
-Exposes the cortex capabilities as HTTP endpoints so the OpenClaw fork
-(Node.js gateway) can call into the Python cortex.
+Exposes the cortex capabilities as HTTP endpoints so the Mirai gateway
+(Node.js) can call into the Python cortex.
 
 Run alongside mirai_cortex.py:
     python cortex/api_server.py

@@ -37,12 +37,20 @@ _DEPTH_CONFIG = {
     "deep": {"search_limit": 30, "query_count": 12, "max_tokens": 4096, "council": True},
 }
 
-# ── LLM Council — models to consult in parallel (all via OpenClaw) ──
+# ── LLM Council — dynamically discovered from gateway config ──
 
-_COUNCIL_MODELS = [
-    {"model": "anthropic/claude-opus-4-6", "label": "Claude Opus 4.6"},
-    {"model": "openai/gpt-5.4", "label": "GPT-5.4"},
+_COUNCIL_DEFAULTS = [
+    {"model": "anthropic/claude-opus-4-6", "label": "Claude Opus 4.6",
+     "base_url": Config.LLM_BASE_URL, "api_key": Config.LLM_API_KEY},
+    {"model": "openai/gpt-5.4", "label": "GPT-5.4",
+     "base_url": Config.LLM_BASE_URL, "api_key": Config.LLM_API_KEY},
 ]
+
+
+def _get_council_models() -> list:
+    """Get council models from gateway config, falling back to defaults."""
+    models = Config.get_council_models()
+    return models if models else _COUNCIL_DEFAULTS
 
 # Dimensions where models disagree by more than this are flagged as "contested"
 _DISAGREEMENT_THRESHOLD = 3
@@ -726,7 +734,11 @@ class BusinessIntelEngine:
         def _query_model(model_cfg: dict):
             label = model_cfg["label"]
             try:
-                llm = LLMClient(model=model_cfg["model"])
+                llm = LLMClient(
+                    model=model_cfg["model"],
+                    base_url=model_cfg.get("base_url"),
+                    api_key=model_cfg.get("api_key"),
+                )
                 dims, reasoning, conf = self._predict_single(
                     exec_summary, research_context, llm
                 )
@@ -735,8 +747,10 @@ class BusinessIntelEngine:
                 logger.warning(f"[BI Council] {label} failed: {e}")
                 return label, None, str(e), 0.0
 
-        with ThreadPoolExecutor(max_workers=len(_COUNCIL_MODELS)) as pool:
-            futures = [pool.submit(_query_model, m) for m in _COUNCIL_MODELS]
+        council_models = _get_council_models()
+        logger.info(f"[BI Council] Using {len(council_models)} models: {[m['label'] for m in council_models]}")
+        with ThreadPoolExecutor(max_workers=len(council_models)) as pool:
+            futures = [pool.submit(_query_model, m) for m in council_models]
             for future in as_completed(futures):
                 label, dims, reasoning, conf = future.result()
                 if dims is not None:
@@ -928,7 +942,7 @@ class BusinessIntelEngine:
     # ── Orchestrator ──────────────────────────────────────────────
 
     def analyze(
-        self, exec_summary: str, depth: str = "standard"
+        self, exec_summary: str, depth: str = "standard", swarm_count: int = 0
     ) -> dict:
         """
         Full pipeline: extract → validate → research → predict → plan.
@@ -1010,6 +1024,30 @@ class BusinessIntelEngine:
 
         prediction = self.predict(exec_summary, research, use_council=use_council)
 
+        # Phase 2b: Swarm prediction (if requested)
+        swarm_result = None
+        if swarm_count > 0:
+            try:
+                from .swarm_predictor import SwarmPredictor
+                logger.info(
+                    f"[BI:{analysis_id}] Phase 2b: Swarm Prediction ({swarm_count} agents)"
+                )
+                swarm = SwarmPredictor()
+                research_context = json.dumps(research.to_dict(), indent=2)[:6000]
+                swarm_result = swarm.predict(
+                    exec_summary=exec_summary,
+                    research_context=research_context,
+                    agent_count=swarm_count,
+                )
+                logger.info(
+                    f"[BI:{analysis_id}] Swarm complete — "
+                    f"{swarm_result.positive_pct}% positive, "
+                    f"{swarm_result.negative_pct}% negative, "
+                    f"avg confidence: {swarm_result.avg_confidence}"
+                )
+            except Exception as e:
+                logger.warning(f"[BI:{analysis_id}] Swarm prediction failed (non-fatal): {e}")
+
         # Phase 3: Plan
         logger.info(f"[BI:{analysis_id}] Phase 3: Plan")
         strategy = self.plan(exec_summary, research, prediction)
@@ -1042,6 +1080,8 @@ class BusinessIntelEngine:
 
         result = analysis.to_dict()
         result["status"] = "complete"
+        if swarm_result:
+            result["swarm"] = swarm_result.to_dict()
         # Include quality metadata so consumers know how much to trust the output
         result["fields_present"] = extraction.fields_present
         result["fields_missing"] = extraction.fields_missing

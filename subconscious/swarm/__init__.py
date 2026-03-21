@@ -70,6 +70,23 @@ def create_app(config_class=Config):
     app.register_blueprint(predict_bp, url_prefix='/api/predict')
     app.register_blueprint(bi_bp, url_prefix='/api/bi')
 
+    # WebSocket support for swarm visualization
+    from .api.websocket import init_websocket
+    init_websocket(app)
+    if should_log_startup:
+        logger.info("WebSocket endpoint registered at /ws/swarm")
+
+    # Serve dashboard static files
+    dashboard_dir = os.path.join(os.path.dirname(__file__), '../../dashboard/dist')
+    if os.path.isdir(dashboard_dir):
+        from flask import send_from_directory
+        @app.route('/dashboard/')
+        @app.route('/dashboard/<path:path>')
+        def dashboard(path='index.html'):
+            return send_from_directory(dashboard_dir, path)
+        if should_log_startup:
+            logger.info(f"Dashboard serving from {dashboard_dir}")
+
     # Health check
     @app.route('/health')
     def health():

@@ -80,11 +80,13 @@ def analyze():
         {
             "exec_summary": "We are building...",
             "research_depth": "quick|standard|deep"   (optional, default: standard)
+            "swarm_count": 0|50|100|250|500|1000       (optional, default: 0)
         }
 
     Returns:
         - If critical fields missing: status=needs_more_info with template + guidance
         - If sufficient: status=complete with full analysis + data_quality score
+        - If swarm_count > 0: includes swarm prediction with agent consensus
     """
     try:
         data = request.get_json()
@@ -96,8 +98,16 @@ def analyze():
         if depth not in ('quick', 'standard', 'deep'):
             depth = 'standard'
 
+        swarm_count = data.get('swarm_count', 0)
+        try:
+            swarm_count = int(swarm_count)
+        except (TypeError, ValueError):
+            swarm_count = 0
+        if swarm_count not in (0, 50, 100, 250, 500, 1000):
+            swarm_count = 0
+
         engine = BusinessIntelEngine()
-        result = engine.analyze(exec_summary, depth=depth)
+        result = engine.analyze(exec_summary, depth=depth, swarm_count=swarm_count)
 
         if result.get("status") == "needs_more_info":
             return jsonify({"success": False, **result}), 422

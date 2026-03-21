@@ -1,0 +1,16 @@
+import type { Command } from "commander";
+import { formatDocsLink } from "../terminal/links.js";
+import { theme } from "../terminal/theme.js";
+import { registerQrCli } from "./qr-cli.js";
+
+export function registerClawbotCli(program: Command) {
+  const clawbot = program
+    .command("clawbot")
+    .description("Legacy clawbot command aliases")
+    .addHelpText(
+      "after",
+      () =>
+        `\n${theme.muted("Docs:")} ${formatDocsLink("/cli/clawbot", "github.com/adityagoyal009/Mirai/tree/main/gateway/docs/cli/clawbot")}\n`,
+    );
+  registerQrCli(clawbot);
+}

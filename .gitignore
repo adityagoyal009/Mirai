@@ -9,3 +9,17 @@ dist/
 build/
 .DS_Store
 uv.lock
+
+# Gateway (Node.js)
+gateway/node_modules/
+gateway/dist/
+gateway/coverage/
+gateway/gateway.log
+
+# Dashboard
+dashboard/node_modules/
+dashboard/dist/
+
+# Persona data (large, downloaded separately)
+subconscious/swarm/data/personas.jsonl
+subconscious/swarm/data/label_index.json

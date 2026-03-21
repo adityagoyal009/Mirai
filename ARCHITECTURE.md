@@ -2,7 +2,7 @@
 
 ## Overview
 
-Mirai is an autonomous, perpetual, predictive AI system with four subsystems:
+Mirai is an AI-powered startup prediction platform with four autonomous subsystems:
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
@@ -11,32 +11,42 @@ Mirai is an autonomous, perpetual, predictive AI system with four subsystems:
 │                                                                          │
 │  ┌──────────────┐  ┌────────────────┐  ┌───────────────────────────────┐ │
 │  │    Brain      │  │     Hands      │  │         Subconscious          │ │
-│  │  (OpenClaw)   │  │  (browser-use) │  │         (MiroFish)            │ │
-│  │→ Claude       │  │→ Playwright    │  │→ Swarm simulations            │ │
-│  │   Opus 4.6    │  │→ CDP/WebSocket │  │→ ChromaDB + Mem0 memory       │ │
-│  │→ GPT-5.4      │  │→ Vision DOM    │  │→ Business Intel (BI)          │ │
-│  │  (council)    │  │→ Crawl4AI      │  │→ SearXNG + OpenBB + CrewAI    │ │
+│  │(Mirai Gateway)│  │  (browser-use) │  │         (MiroFish)            │ │
+│  │→ Dynamic LLM  │  │→ Playwright    │  │→ Swarm Predictor (50-1000)    │ │
+│  │   Council     │  │→ CDP/WebSocket │  │→ ChromaDB + Mem0 memory       │ │
+│  │→ All logged-in│  │→ Vision DOM    │  │→ Business Intel (BI)          │ │
+│  │   models      │  │→ Crawl4AI      │  │→ SearXNG + OpenBB + CrewAI    │ │
 │  └──────┬───────┘  └───────┬────────┘  └──────────────┬────────────────┘ │
 │         │                  │                           │                  │
 │  ┌──────┴───────┐  ┌──────┴────────┐  ┌──────────────┴────────────────┐ │
-│  │  OpenClaw    │  │  E2B Sandbox  │  │     Self-Learning System       │ │
-│  │  Manager     │  │  (code exec)  │  │  ExperienceStore → Reflection  │ │
-│  │  doctor/     │  │  safe→subproc │  │  → SkillForge → MarketRadar    │ │
-│  │  update/     │  │  code→sandbox │  │  (every N cycles)              │ │
-│  │  watchdog    │  │               │  │                                │ │
+│  │  Gateway     │  │  E2B Sandbox  │  │     Self-Learning System       │ │
+│  │  Launcher    │  │  (code exec)  │  │  ExperienceStore → Reflection  │ │
+│  │  auto-start/ │  │  safe→subproc │  │  → SkillForge → MarketRadar    │ │
+│  │  watchdog    │  │  code→sandbox │  │  (every N cycles)              │ │
+│  │              │  │               │  │                                │ │
 │  └──────────────┘  └───────────────┘  └────────────────────────────────┘ │
 │                                                                          │
 │                    ┌────────────────────┐                                │
 │                    │  Cortex API Server │                                │
 │                    │  (port 8100)       │                                │
 │                    │  HTTP bridge for   │                                │
-│                    │  OpenClaw + swarm  │                                │
+│                    │  gateway + swarm   │                                │
 │                    └────────────────────┘                                │
 └──────────┬───────────────────┬──────────────────────────┬────────────────┘
            │                   │                          │
-      OpenClaw CLI       Chromium CDP             Flask API (port 5000)
-           │                   │                          │
-      Claude OAuth       Browser Engine           ChromaDB + Mem0 + LLM
+    Mirai Gateway         Chromium CDP             Flask API (port 5000)
+    (local, port 3000)         │                    ┌────┴────────────────┐
+           │             Browser Engine            │  /ws/swarm WebSocket │
+      Multi-model OAuth                            │  /dashboard/ static  │
+                                                   └────┬────────────────┘
+                                                        │
+                                              ┌─────────┴──────────┐
+                                              │  Pixel Art Dashboard│
+                                              │  (React + Canvas)  │
+                                              │  War Room: 5 zones │
+                                              │  Animated agents   │
+                                              │  Live vote feed    │
+                                              └────────────────────┘
 ```
 
 ## Directory Structure
@@ -44,10 +54,11 @@ Mirai is an autonomous, perpetual, predictive AI system with four subsystems:
 ```
 Mirai/
 ├── cortex/                        # THE BRAIN + HANDS
-│   ├── mirai_cortex.py            # Main heartbeat loop (async, 786 lines)
-│   │                              #   MiraiBrain — OpenClaw CLI LLM interface
-│   │                              #   OpenClawManager — doctor/update/watchdog/messaging
+│   ├── mirai_cortex.py            # Main heartbeat loop (async)
+│   │                              #   MiraiBrain — LLM interface via local Mirai Gateway
+│   │                              #   GatewayLauncher — auto-start/watchdog/messaging
 │   │                              #   MiraiCortex — heartbeat loop + action dispatch
+│   ├── gateway_launcher.py        # GatewayLauncher — auto-starts Mirai Gateway on boot
 │   ├── system_prompt.py           # LLM personality + 6 JSON action schemas
 │   ├── api_server.py              # HTTP bridge (port 8100) — browse, think, memory, objective
 │   ├── sandbox_runner.py          # E2B sandbox — safe→subprocess, code→Firecracker microVM
@@ -107,10 +118,15 @@ Mirai/
 │   │
 │   ├── swarm/                     # MiroFish social simulation engine (Flask, port 5000)
 │   │   ├── __init__.py            # Flask app factory (create_app)
-│   │   ├── config.py              # Config: LLM, ChromaDB, SearXNG, Mem0, OpenBB, E2B, Neo4j, OpenClaw
+│   │   ├── config.py              # Config: LLM, ChromaDB, SearXNG, Mem0, OpenBB, E2B, Neo4j, Gateway
+│   │   │                          #   Council model discovery via models.council.models
+│   │   │                          #   OAuth auto-discovery from ~/.openclaw/openclaw.json
 │   │   │
-│   │   ├── api/                   # REST endpoints (Flask Blueprints)
+│   │   ├── api/                   # REST + WebSocket endpoints (Flask Blueprints)
 │   │   │   ├── __init__.py        # Blueprint registration (graph, simulation, report, predict, bi)
+│   │   │   ├── websocket.py       # WS /ws/swarm — real-time swarm event streaming
+│   │   │   │                      #   Events: swarmStarted, agentSpawned, agentActive,
+│   │   │   │                      #   agentVoted, swarmProgress, swarmComplete
 │   │   │   ├── graph.py           # POST /api/graph/* — ontology + graph construction
 │   │   │   ├── simulation.py      # POST /api/simulation/* — simulation CRUD + execution
 │   │   │   ├── report.py          # POST /api/report/* — report generation
@@ -128,7 +144,15 @@ Mirai/
 │   │   │   └── task.py            # Task model
 │   │   │
 │   │   ├── services/              # Business logic
-│   │   │   ├── business_intel.py           # BI engine (1155 lines) — research → predict → plan
+│   │   │   ├── business_intel.py           # BI engine — research → predict → plan
+│   │   │   ├── swarm_predictor.py          # Swarm Predictor — 50-1000 agents, hybrid wave execution
+│   │   │   │                               #   Wave 1: up to 100 individual calls (3 concurrent workers)
+│   │   │   │                               #   Wave 2: batched 25 per call (2 concurrent workers)
+│   │   │   │                               #   Round-robin across models, throttled for rate limits
+│   │   │   ├── persona_engine.py           # Persona Engine — 2.3M+ real personas + trait generator
+│   │   │   │                               #   FinePersonas dataset (HuggingFace, stored locally)
+│   │   │   │                               #   Smart label-based matching to startup industry
+│   │   │   │                               #   Fallback: 60 roles x 16 MBTI x 5 risk x 5 exp x ...
 │   │   │   ├── web_researcher.py           # Multi-path web research (358 lines)
 │   │   │   │                               #   SearXNG → Crawl4AI → browser-use
 │   │   │   ├── search_engine.py            # SearXNG metasearch client (192 lines)
@@ -150,7 +174,8 @@ Mirai/
 │   │   └── utils/                 # Shared utilities
 │   │       ├── __init__.py
 │   │       ├── llm_client.py      # OpenAI-compatible API wrapper (LLMClient)
-│   │       │                      #   Unified chat/chat_json for Claude + OpenAI via OpenClaw
+│   │       │                      #   Unified chat/chat_json for Claude + OpenAI via Mirai Gateway
+│   │       │                      #   Strips text preamble before JSON (handles Claude reasoning output)
 │   │       ├── file_parser.py     # PDF/MD/TXT file extraction
 │   │       ├── logger.py          # Rotating file + console logging
 │   │       ├── retry.py           # Exponential backoff decorators
@@ -165,7 +190,29 @@ Mirai/
 │       ├── pyproject.toml         # Lab-specific dependencies
 │       └── progress.png           # Training progress visualization
 │
-├── gateway/                       # OpenClaw Node.js proxy (started externally, empty dir)
+├── dashboard/                     # Pixel Art War Room Dashboard (forked from pixel-agents, MIT)
+│   ├── src/                       # React + Canvas 2D + Vite application
+│   │   ├── api/
+│   │   │   └── miraiApi.ts        # REST + WebSocket client for Flask backend
+│   │   ├── hooks/
+│   │   │   └── useSwarmAgents.ts   # Agent lifecycle, spawning, animation state management
+│   │   ├── components/
+│   │   │   └── SwarmScoreboard.tsx  # Structured input form + live vote feed + consensus gauges
+│   │   └── ...                    # Canvas renderer, tile engine, sprite sheets
+│   ├── scripts/
+│   │   └── generate-warroom.py    # Generates 45x35 tile war room layout
+│   │                              #   5 color-coded zones: Investors, Customers, Operators,
+│   │                              #   Analysts, Contrarians
+│   │                              #   50 seats, 165 furniture items (desks, PCs, sofas, plants,
+│   │                              #   bookshelves, whiteboards, paintings, coffee tables)
+│   ├── package.json               # Vite + React dependencies
+│   └── vite.config.ts             # Build config (base: /dashboard/)
+│
+├── data/                          # Persona and index data
+│   ├── personas.jsonl             # 2.3M+ real personas from FinePersonas (HuggingFace)
+│   └── label_index.json           # Label index for smart persona-industry matching
+│
+├── gateway/                       # Mirai Gateway — in-house Node.js LLM proxy (forked from OpenClaw)
 ├── Dockerfile                     # Container: Python 3.10 + Node 20 + Playwright + all deps
 ├── mirai_sandbox.sb               # macOS Seatbelt sandbox profile (deny-default)
 ├── ARCHITECTURE.md                # This file
@@ -184,23 +231,22 @@ The cortex heartbeat loop processes these JSON actions from the LLM:
 | `terminal_command` | E2B sandbox / subprocess | Execute shell commands (code → sandbox, safe → subprocess) |
 | `swarm_predict` | HTTP → Flask `/api/predict/` | Wargame scenarios via MiroFish simulation |
 | `analyze_business` | HTTP → Flask `/api/bi/analyze` | BI engine: research → predict → plan |
-| `message_human` | `openclaw message send` | Send WhatsApp messages to operator (direct, no agent overhead) |
+| `message_human` | `mirai message send` | Send WhatsApp messages to operator (direct, no agent overhead) |
 | `standby` | (no-op) | Idle state |
 
 ## Cortex Heartbeat Cycle
 
 ```
 Boot:
-  1. OpenClaw auto-update (openclaw update --channel stable)
-  2. OpenClaw pre-flight (openclaw doctor → doctor --repair if unhealthy)
-  3. Start Cortex API server (port 8100, background thread)
+  1. GatewayLauncher auto-starts Mirai Gateway on port 3000 (if not already running)
+  2. Start Cortex API server (port 8100, background thread)
 
 Cycle N:
-  1. OpenClaw gateway watchdog (every 10 cycles: health check → restart if down)
+  1. Gateway watchdog (every 10 cycles: health check → auto-restart if down)
   2. Recall past experiences (semantic search via ExperienceStore)
   3. Load strategy journal (self-learned rules from ReflectionEngine)
   4. Build system prompt with objective + journal + experiences + last result
-  5. Query LLM (async via asyncio.to_thread → openclaw agent CLI)
+  5. Query LLM (async via local Mirai Gateway API)
   6. Parse JSON action from LLM response
   7. Execute action (browser/terminal/swarm/BI/messaging/standby)
   8. Store experience (action→outcome pair, heuristic success check)
@@ -212,7 +258,7 @@ Cycle N:
 
 ## Cortex API Server (port 8100)
 
-HTTP bridge so the OpenClaw Node.js gateway and MiroFish backend can call into the Python cortex.
+HTTP bridge so the Mirai Gateway and MiroFish backend can call into the Python cortex.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
@@ -230,18 +276,22 @@ HTTP bridge so the OpenClaw Node.js gateway and MiroFish backend can call into t
 
 | # | Connection | Protocol | Description |
 |---|-----------|----------|-------------|
-| 1 | Cortex ↔ Brain | subprocess | `openclaw agent --message ... --model ...` |
+| 1 | Cortex ↔ Brain | HTTP API | Local Mirai Gateway (localhost:3000/v1), OpenAI-compatible |
 | 2 | Cortex ↔ Hands | async/CDP | browser-use Agent with persistent BrowserSession |
 | 3 | Cortex ↔ Subconscious | HTTP | Calls to MiroFish Flask backend (port 5000) |
 | 4 | Cortex ↔ API Server | HTTP | Background thread on port 8100 |
 | 5 | Swarm ↔ ChromaDB | Python SDK | Episodic memory for simulation + BI storage |
 | 6 | Swarm ↔ Mem0 | Python SDK | Relationship-aware BI memory (alongside ChromaDB) |
-| 7 | Swarm ↔ LLM | OpenAI API | Via OpenClaw gateway (localhost:3000/v1) |
+| 7 | Swarm ↔ LLM | OpenAI API | Via local Mirai Gateway (localhost:3000/v1) |
 | 8 | Swarm ↔ SearXNG | HTTP JSON | `GET localhost:8888/search?q=...&format=json` |
 | 9 | Swarm ↔ OpenBB | Python SDK | Live financial data (stock, fundamentals, news) |
 | 10 | Swarm ↔ Crawl4AI | Python SDK | Fast LLM-optimized content extraction |
 | 11 | Swarm ↔ CrewAI | Python SDK | Multi-agent parallel analysis (deep mode) |
 | 12 | Cortex ↔ E2B | Python SDK | Sandboxed code execution (Firecracker microVMs) |
+| 13 | Swarm ↔ Swarm Predictor | Python | 50-1000 persona agents, round-robin across models |
+| 14 | Dashboard ↔ Flask | WebSocket | `/ws/swarm` — real-time agent spawn/vote/progress events |
+| 15 | Dashboard ↔ Flask | HTTP | REST API calls + static asset serving at `/dashboard/` |
+| 16 | Flask ↔ Gateway Config | File I/O | OAuth auto-discovery from `~/.openclaw/openclaw.json` |
 
 ## Self-Learning System
 
@@ -263,20 +313,63 @@ Three learning loops, all lazy-initialized on first cycle:
 - **SkillForge** (`learning/skill_forge.py`) — analyzes failure patterns to detect capability gaps
 - **MarketRadar** (`learning/market_radar.py`) — monitors configured market signals on schedule
 
-## OpenClaw Lifecycle Management
+## Gateway Management
 
-The `OpenClawManager` class in `mirai_cortex.py` handles:
+The `GatewayLauncher` class (in `cortex/gateway_launcher.py`, used by `mirai_cortex.py`) manages the in-house Mirai Gateway:
 
-| Feature | Command | When |
-|---------|---------|------|
-| Auto-update | `openclaw update --channel stable` | On boot (before first cycle) |
-| Pre-flight check | `openclaw doctor` | On boot (after update) |
-| Auto-repair | `openclaw doctor --repair` | On boot (if doctor reports unhealthy) |
-| Gateway watchdog | `GET localhost:3000/health` | Every 10 cycles |
-| Gateway restart | `openclaw gateway --port 3000 --verbose` | If watchdog detects gateway down |
-| OAuth repair | `openclaw doctor --repair` | If gateway won't start after restart |
-| Direct messaging | `openclaw message send --to [number] --message [text]` | On `message_human` action |
-| Fallback messaging | `openclaw agent --message [text] --to [recipient]` | If `message send` unavailable |
+| Feature | Behavior | When |
+|---------|----------|------|
+| Auto-start | Starts `gateway/mirai.mjs` as subprocess on configured port | On boot (if not already running) |
+| Gateway watchdog | `GET localhost:3000/health` → auto-restart if down | Every 10 cycles |
+| Direct messaging | `mirai message send --to [number] --message [text]` | On `message_human` action |
+
+## Dashboard Data Flow
+
+```
+User opens localhost:5000/dashboard/
+    │
+    ├→ React app loads (Vite build served as static assets by Flask)
+    ├→ SwarmScoreboard renders structured input form
+    │   Fields: Company Name, Industry (dropdown), Product/Service,
+    │   Target Market, Business Model, Stage (dropdown), Funding Raised,
+    │   Traction, Team, Ask, Competitive Advantage
+    │   Required fields validated before START
+    │
+    ├→ User fills form → clicks START
+    │   ├→ miraiApi.ts sends POST /api/bi/analyze (structured fields)
+    │   └→ miraiApi.ts opens WebSocket to /ws/swarm
+    │
+    ├→ Flask backend processes analysis
+    │   ├→ Emits swarmStarted (total agent count, zones)
+    │   ├→ Per agent: agentSpawned (persona, zone assignment)
+    │   ├→ Per agent: agentActive (agent begins evaluation)
+    │   ├→ Per agent: agentVoted (score, verdict, reasoning)
+    │   ├→ Periodic: swarmProgress (% complete, running consensus)
+    │   └→ Final: swarmComplete (aggregated verdict, scores, plan)
+    │
+    ├→ useSwarmAgents.ts receives WebSocket events
+    │   ├→ Spawns pixel character at zone entrance
+    │   ├→ Animates walk to assigned seat
+    │   ├→ Shows thinking animation while agentActive
+    │   └→ Displays vote result on agentVoted
+    │
+    └→ Dashboard renders in real time
+        ├→ Canvas 2D: war room with animated agents in 5 zones
+        ├→ Live vote feed (scrolling list of agent verdicts)
+        ├→ Consensus gauges (per-zone and overall)
+        └→ Progress bar (% of agents complete)
+```
+
+### WebSocket API (`/ws/swarm`)
+
+| Event | Direction | Payload | Description |
+|-------|-----------|---------|-------------|
+| `swarmStarted` | Server → Client | `{totalAgents, zones}` | Analysis begun, agent count confirmed |
+| `agentSpawned` | Server → Client | `{agentId, persona, zone, seatIndex}` | Agent created, assigned to zone seat |
+| `agentActive` | Server → Client | `{agentId}` | Agent is evaluating (thinking animation) |
+| `agentVoted` | Server → Client | `{agentId, score, verdict, reasoning}` | Agent completed evaluation |
+| `swarmProgress` | Server → Client | `{percent, consensus}` | Periodic progress update |
+| `swarmComplete` | Server → Client | `{verdict, scores, plan, confidence}` | Final aggregated result |
 
 ## Security Model
 
@@ -312,11 +405,24 @@ Phase 2: Predict
     │   business_model_viability (20%), team_execution_signals (10%),
     │   regulatory_news_environment (10%), social_proof_demand (10%),
     │   pattern_match (15%)
-    ├→ Single LLM (quick/standard) or LLM Council (deep)
-    │   Council: Opus 4.6 + GPT-5.4 in parallel → reconcile → detect disagreements
+    ├→ Single LLM (quick/standard) or Dynamic LLM Council (deep)
+    │   Council: uses ALL logged-in models (discovered from models.council.models)
+    │   Models queried in parallel → reconcile → detect disagreements
     │   Disagreement threshold: ≥3 points spread → contested dimension
     │   Confidence penalty: -0.05 per contested dimension
     └→ Verdict: Strong Hit / Likely Hit / Uncertain / Likely Miss / Strong Miss
+    ↓
+Phase 2b (optional): Swarm Prediction
+    ├→ Triggered by swarm_count parameter (0, 50, 100, 250, 500, 1000)
+    ├→ Persona Engine selects diverse agents:
+    │   Primary: FinePersonas dataset (2.3M+ real personas, data/personas.jsonl)
+    │   Smart label-based matching to startup industry
+    │   Fallback: trait-based generator (60 roles x 16 MBTI x 5 risk x 5 exp x ...)
+    ├→ Hybrid wave execution:
+    │   Wave 1: up to 100 individual LLM calls with unique persona prompts
+    │   Wave 2: remaining agents batched (25 per call)
+    ├→ Round-robin model distribution across all logged-in providers
+    └→ Aggregated swarm verdict merged into final prediction
     ↓
 Phase 3: Plan
     ├→ Top 3 risks (severity + mitigation)
@@ -332,11 +438,11 @@ Full Analysis Response (with data_quality, data_sources_used, quality_warning if
 
 ### Depth Levels
 
-| Depth | Queries | Search Limit | Max Tokens | Council | Web Research | CrewAI | Time |
-|-------|---------|-------------|------------|---------|--------------|--------|------|
-| quick | 4 | 5 | 1500 | No | News only | No | ~30s |
-| standard | 8 | 15 | 3000 | No | News only | No | ~1min |
-| deep | 12 | 30 | 4096 | Yes | All queries | Yes | ~5min |
+| Depth | Queries | Search Limit | Max Tokens | Council | Swarm | Web Research | CrewAI | Time |
+|-------|---------|-------------|------------|---------|-------|--------------|--------|------|
+| quick | 4 | 5 | 1500 | No | Optional | News only | No | ~30s |
+| standard | 8 | 15 | 3000 | No | Optional | News only | No | ~1min |
+| deep | 12 | 30 | 4096 | Yes (dynamic) | Optional | All queries | Yes | ~5min |
 
 ## Data Flow for Simulation
 
@@ -353,9 +459,9 @@ Documents → Ontology (LLM) → Knowledge Graph (ChromaDB) → Entity Extractio
 | `MIRAI_SWARM_URL` | `http://localhost:5000` | MiroFish Flask backend URL |
 | `MIRAI_CORTEX_URL` | `http://localhost:8100` | Cortex API server URL |
 | `MIRAI_API_PORT` | `8100` | Cortex API server port |
-| `LLM_API_KEY` | `openclaw` | API key for LLM calls |
-| `LLM_BASE_URL` | `http://localhost:3000/v1` | OpenAI-compatible LLM endpoint |
-| `LLM_MODEL_NAME` | `anthropic/claude-opus-4-6` | Model identifier |
+| `LLM_API_KEY` | auto-discovered | API key for LLM calls (auto-read from `~/.openclaw/openclaw.json`) |
+| `LLM_BASE_URL` | auto-discovered | OpenAI-compatible LLM endpoint (auto-read from gateway config) |
+| `LLM_MODEL_NAME` | auto-discovered | Model identifier (auto-read from gateway config) |
 | `CHROMADB_PERSIST_PATH` | `subconscious/memory/.chromadb_data` | ChromaDB storage path |
 | `SEARXNG_URL` | `http://localhost:8888` | SearXNG metasearch instance |
 | `MEM0_API_KEY` | (empty) | Mem0 cloud API key (optional) |
@@ -363,15 +469,29 @@ Documents → Ontology (LLM) → Knowledge Graph (ChromaDB) → Entity Extractio
 | `OPENBB_ENABLED` | `true` | Enable OpenBB financial data |
 | `E2B_API_KEY` | (empty) | E2B sandbox API key |
 | `NEO4J_URL` | (empty) | Neo4j URL for Mem0 graph store (optional) |
-| `OPENCLAW_GATEWAY_PORT` | `3000` | OpenClaw gateway port |
-| `OPENCLAW_WHATSAPP_NUMBER` | (empty) | Default WhatsApp recipient |
+| `MIRAI_GATEWAY_PORT` | `3000` | Mirai Gateway port |
+| `MIRAI_WHATSAPP_NUMBER` | (empty) | Default WhatsApp recipient |
 | `FLASK_DEBUG` | `True` | Flask debug mode |
+
+## Gateway OAuth Auto-Discovery
+
+`Config.LLM_API_KEY`, `Config.LLM_BASE_URL`, and `Config.LLM_MODEL_NAME` are automatically read from `~/.openclaw/openclaw.json` at startup. The gateway's `/v1/chat/completions` HTTP endpoint is used for all LLM calls. No separate API key configuration is needed -- all calls route through the gateway's OAuth tokens.
+
+## Performance Throttling
+
+The Swarm Predictor limits concurrent LLM workers to prevent CPU hang and API rate limits:
+- **Wave 1** (individual persona calls): 3 concurrent workers
+- **Wave 2** (batched calls): 2 concurrent workers
+
+## JSON Parse Hardening
+
+`llm_client.py` strips any text preamble before JSON in LLM responses. This handles Claude's reasoning/thinking output that may precede the JSON payload, preventing parse failures.
 
 ## Autoresearch Lab (Parked)
 
 The lab (`subconscious/lab/`) trains small GPT models from scratch for architecture
 research. It is **not wired into the active system** — the LLM (Claude/GPT via
-OpenClaw) is far more capable at BI and reasoning tasks. The lab is kept as
+Mirai Gateway) is far more capable at BI and reasoning tasks. The lab is kept as
 reference for future model architecture experiments. If Mirai needs local models,
 fine-tuning an existing small model (Phi-3, Llama) on experience data is the
 recommended path.

@@ -1,4 +1,5 @@
 import asyncio
+import shutil
 import subprocess
 import json
 import re
@@ -9,6 +10,7 @@ import requests
 from openai import OpenAI
 
 from system_prompt import MIRAI_SYSTEM_PROMPT
+from gateway_launcher import GatewayLauncher
 
 # ── Dangerous command patterns (defense-in-depth) ────────────────
 _BLOCKED_COMMANDS = [
@@ -32,12 +34,13 @@ _LLM_API_KEY = os.environ.get("LLM_API_KEY", "openclaw")
 _LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "http://localhost:3000/v1")
 _GATEWAY_URL = _LLM_BASE_URL.replace("/v1", "")
 _GATEWAY_HEALTH_CHECK_INTERVAL = 10  # Check gateway every N cycles
-_OPENCLAW_WHATSAPP_NUMBER = os.environ.get("OPENCLAW_WHATSAPP_NUMBER", "")
+_WHATSAPP_NUMBER = os.environ.get("MIRAI_WHATSAPP_NUMBER",
+                   os.environ.get("OPENCLAW_WHATSAPP_NUMBER", ""))
 
 
 class MiraiBrain:
     """
-    Connects to the local OpenClaw Gateway via the OpenAI SDK.
+    Connects to the local Mirai Gateway via the OpenAI SDK.
     By default, uses Claude Opus 4.6 via OAuth for zero-cost reasoning.
     """
 
@@ -87,41 +90,57 @@ class GatewayManager:
             self._healthy = False
             return False
 
-    def watchdog(self, cycle_number: int) -> None:
+    def watchdog(self, cycle_number: int, launcher=None) -> None:
         """
         Gateway watchdog — runs every N cycles.
-        Checks gateway health and logs a warning if it's down.
+        Checks gateway health and attempts restart via launcher if down.
         """
         if cycle_number % _GATEWAY_HEALTH_CHECK_INTERVAL != 0:
             return
 
         if not self.check_health():
-            print("[GATEWAY] Warning: gateway not responding. Restart it manually.")
+            if launcher:
+                print("[GATEWAY] Watchdog: gateway down, attempting restart...")
+                launcher.start(timeout=15)
+            else:
+                print("[GATEWAY] Warning: gateway not responding.")
 
     def send_message(self, text: str, to: str = "") -> str:
         """
-        Send a message using `openclaw message send` (only remaining CLI call).
-        Falls back to logging if the CLI is unavailable.
+        Send a message via the local Mirai gateway CLI.
+        Tries local gateway/mirai.mjs first, then global mirai/openclaw binary.
         """
-        recipient = to or _OPENCLAW_WHATSAPP_NUMBER or "WhatsApp"
+        recipient = to or _WHATSAPP_NUMBER or "WhatsApp"
+
+        mirai_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        local_binary = os.path.join(mirai_root, "gateway", "mirai.mjs")
+        node_path = shutil.which("node")
+
+        cmd = None
+        if node_path and os.path.exists(local_binary):
+            cmd = [node_path, local_binary, "message", "send",
+                   "--to", recipient, "--message", text]
+        else:
+            for binary_name in ["mirai", "openclaw"]:
+                binary_path = shutil.which(binary_name)
+                if binary_path:
+                    cmd = [binary_path, "message", "send",
+                           "--to", recipient, "--message", text]
+                    break
+
+        if cmd is None:
+            print(f"[COMMS] No gateway binary found for messaging")
+            return f"Message logged (no messaging binary): {text}"
 
         try:
-            result = subprocess.run(
-                ["openclaw", "message", "send", "--to", recipient, "--message", text],
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
             if result.returncode == 0:
                 return f"Message sent to {recipient}: {text}"
-        except FileNotFoundError:
-            pass
-        except (subprocess.TimeoutExpired, subprocess.CalledProcessError):
+        except (FileNotFoundError, subprocess.TimeoutExpired, subprocess.CalledProcessError):
             pass
 
-        # Fallback: log the message (gateway HTTP messaging can be added later)
-        print(f"[COMMS] Message (not delivered — no messaging backend): {text}")
-        return f"Message logged (no messaging backend available): {text}"
+        print(f"[COMMS] Message (not delivered): {text}")
+        return f"Message logged (delivery failed): {text}"
 
 
 class MiraiCortex:
@@ -151,6 +170,7 @@ class MiraiCortex:
 
         # Gateway management
         self.gateway = GatewayManager()
+        self.gateway_launcher = GatewayLauncher()
 
         # E2B sandbox runner (lazy-initialized)
         self._sandbox_runner = None
@@ -488,11 +508,16 @@ class MiraiCortex:
         print(f"     Architecture: {self.brain.model} Cortex     ")
         print("=============================================\n")
 
-        # ── Gateway health check at boot ──────────────────────────
+        # ── Start gateway if not already running ──────────────────
         if not self.gateway.check_health():
-            print("[GATEWAY] Warning: gateway not responding at boot. LLM calls will fail.")
+            print("[GATEWAY] Gateway not detected. Attempting to start...")
+            if self.gateway_launcher.start(timeout=30):
+                print("[GATEWAY] Gateway started successfully.")
+            else:
+                print("[GATEWAY] WARNING: Gateway failed to start. LLM calls will fail.")
+                print("[GATEWAY] Manual start: cd gateway && pnpm install && pnpm build && node mirai.mjs gateway run")
 
-        # Start the API server for OpenClaw bridge
+        # Start the API server
         try:
             from api_server import start_api_server
             start_api_server(cortex=self)
@@ -506,7 +531,7 @@ class MiraiCortex:
             print(f"[*] Cycle {self.cycle_number} | Objective: {self.objective}")
 
             # ── Gateway watchdog ───────────────────────────────────
-            self.gateway.watchdog(self.cycle_number)
+            self.gateway.watchdog(self.cycle_number, launcher=self.gateway_launcher)
 
             # ── PRE-ACTION: Recall past experiences ──────────────
             past_experiences_text = ""
@@ -624,14 +649,14 @@ def choose_model():
     print("Select the LLM to power the Cortex:")
     print("1. Claude Opus 4.6 via OAuth (Recommended - Best Logic, Zero Cost)")
     print("2. GPT-5.4 via OAuth (Zero Cost)")
-    print("3. Custom OpenClaw Model String")
+    print("3. Custom Model String")
 
     choice = input("\nEnter choice [1]: ").strip()
 
     if choice == "2":
         return "openai/gpt-5.4"
     elif choice == "3":
-        return input("Enter OpenClaw model string (e.g., openai/gpt-5.4): ").strip()
+        return input("Enter model string (e.g., openai/gpt-5.4): ").strip()
     else:
         return "anthropic/claude-opus-4-6"
 

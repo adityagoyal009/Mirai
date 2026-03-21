@@ -112,13 +112,20 @@ class LLMClient:
                 response_format={"type": "json_object"}
             )
 
-        # Clean markdown code block markers
+        # Clean markdown code block markers and any preamble text before JSON
         cleaned_response = response.strip()
         cleaned_response = re.sub(r'^```(?:json)?\s*\n?', '', cleaned_response, flags=re.IGNORECASE)
         cleaned_response = re.sub(r'\n?```\s*$', '', cleaned_response)
         cleaned_response = cleaned_response.strip()
 
+        # Strip any text preamble before the first { or [
+        first_brace = cleaned_response.find('{')
+        first_bracket = cleaned_response.find('[')
+        starts = [i for i in [first_brace, first_bracket] if i >= 0]
+        if starts and min(starts) > 0:
+            cleaned_response = cleaned_response[min(starts):]
+
         try:
             return json.loads(cleaned_response)
         except json.JSONDecodeError:
-            raise ValueError(f"Invalid JSON format returned by LLM: {cleaned_response}")
+            raise ValueError(f"Invalid JSON format returned by LLM: {cleaned_response[:200]}")

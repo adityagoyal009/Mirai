@@ -1,7 +1,7 @@
 # Use a lightweight Python base image
 FROM python:3.10-slim
 
-# Install system dependencies needed for Playwright (Browser hands)
+# Install system dependencies needed for Playwright + Node.js
 RUN apt-get update && apt-get install -y \
     curl \
     gnupg \
@@ -22,11 +22,21 @@ RUN apt-get update && apt-get install -y \
     libasound2 \
     && rm -rf /var/lib/apt/lists/*
 
+# Install Node.js 22 for the gateway
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y nodejs \
+    && npm install -g pnpm
+
 # Set up the working directory inside the sandbox
 WORKDIR /app/Mirai
 
 # Copy the Mirai codebase into the sandbox
 COPY . /app/Mirai/
+
+# Build the Mirai gateway
+WORKDIR /app/Mirai/gateway
+RUN pnpm install --frozen-lockfile && pnpm build
+WORKDIR /app/Mirai
 
 # Install Python dependencies
 # Core: Playwright, ChromaDB, requests, Flask
@@ -53,8 +63,8 @@ RUN useradd -m -s /bin/bash mirai_user
 RUN chown -R mirai_user:mirai_user /app/Mirai
 USER mirai_user
 
-# Expose ports: Cortex API (8100), MiroFish (5000), SearXNG (8888 if co-deployed)
-EXPOSE 8100 5000
+# Expose ports: Gateway (3000), Cortex API (8100), MiroFish (5000)
+EXPOSE 3000 8100 5000
 
 # The default command starts the Mirai Cortex
 CMD ["python", "cortex/mirai_cortex.py"]
