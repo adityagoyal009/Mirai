@@ -1,5 +1,196 @@
 # Mirai Changelog
 
+## [0.7.1] — 2026-03-23
+
+### Added — Research & Council Upgrades
+- **Source credibility weighting** — 31 premium domains (Gartner, SEC, Bloomberg, EPA) get 1.5-3x score boost. Results re-sorted by credibility-weighted score.
+- **Industry-specific dimension weights** — 12 industry profiles (HealthTech, BioTech, FinTech, CleanTech, AI, SaaS, Cybersecurity, EdTech, Hardware, Marketplace). CleanTech weights regulatory 20% vs default 10%. BioTech weights team 20% vs default 10%. Auto-normalized to sum 1.0.
+- **Fact-checker integrated into council** — Contradicted research claims now penalize council confidence (-5% per contradiction). Critical contradictions surfaced in reasoning.
+- **Research-council feedback loop** — When council dimensions are contested (3+ point spread), system auto-generates follow-up search queries to re-research those specific topics.
+- **Content truncation expanded** — Crawled web content limit doubled (3000→6000 chars), search snippets tripled (500→1500 chars). Regulatory documents and financial reports no longer gutted.
+
+### Added — Critical Bug Fixes
+- **CRITICAL: Verdict override** — PDF verdict now uses MORE CONSERVATIVE of council vs swarm. 19% swarm HIT → can't be "Likely Hit" regardless of council score. New "Mixed Signal" verdict for split decisions.
+- **CRITICAL: Data pipe** — Divergence, deliberation, swarm verdict, and swarm confidence now flow through to PDF report. Previously computed but never sent to report generator.
+- **CRITICAL: Confidence** — Blended council + swarm agreement-based confidence. No more static 72%.
+- **Role deduplication** — Up to 5 retries per zone to avoid duplicate roles at 100 agents.
+- **Heatmap agent names** — "[Zone] Role" format instead of truncated backstory text.
+- **Zone rebalancing at 100 agents** — Investor 20→12, Analyst 15→18, Contrarian 15→18, Wildcard 20→25.
+- **Wild card pool** — Expanded from 12 to 35 roles (utility worker, EPA admin, fishing guide, tribal advocate, etc.).
+- **Non-competitor filter** — Scatter plot excludes research firms and consultancies.
+- **Convergence fix** — Zone-specific evaluation angles force domain vocabulary. Anti-convergence directive prevents generic VC-speak.
+
+### Added — Persona Engine (v2)
+- **Full VC committee deliberation** — 5-6 member roundtable (strongest bull, strongest bear, most conflicted, zone dissenter, unique wild card, operator). 2 rounds + chair synthesis. 6-7 LLM calls.
+- **Contextual persona curation** — 10 industry mappings with priority roles per zone.
+- **"Stay in your lane"** directive enforces domain-specific reasoning.
+- **Customer geography weighting** — 70% of customer personas from target market region.
+- **Industry role exclusion** — No Crypto VCs on CleanTech panels.
+
+## [0.7.0] — 2026-03-22
+
+### Added — Persona Engine Overhaul (88.5B+ unique personas)
+- **11-dimension trait generator** — roles (142), MBTI behavioral (16 with scoring tendencies), risk profiles (7), experience levels (7 with role compatibility), cognitive biases (22, categorized), geographic lens (28 with behavioral notes), industry focus (26), fund/budget context (zone-specific), backstories/scar tissue (77 across 6 zones, balanced bull/bear), decision frameworks (58 across 6 zones, categorized), portfolio composition (investor-only)
+- **Role-experience compatibility** — PE Partners can't have "early career" experience, Sovereign Wealth Fund Managers need veteran+. 32 roles with experience floors.
+- **Bias-framework anti-redundancy** — biases and frameworks categorized, never drawn from same category
+- **Geographic behavioral notes** — "Tel Aviv: evaluate through exit velocity toward US/EU acquirers" not just "based in Tel Aviv"
+- **Portfolio composition** — investor-only dimension: "Your portfolio has 2 investments in this sector" affects evaluation
+
+### Added — Contextual Persona Curation
+- **Industry-role priority mapping** — 10 industries (healthtech, fintech, ai, saas, cleantech, cybersecurity, marketplace, biotech, edtech, hardware) with curated priority roles per zone
+- **Fuzzy industry matching** — "CleanTech / Environmental Water Monitoring" matches to cleantech via keyword containment
+- **60/40 priority/random split** — curated roles fill 60% of zone slots, 40% remain random for diversity
+- **"Stay in your lane" directive** — persona prompt tells agents to focus on domain expertise, not generic startup advice
+- **Clean data flow** — extraction.industry/product passed from websocket to swarm predictor to persona engine (replaces naive regex parsing)
+
+### Added — Consensus vs Divergence Highlighting
+- **Per-agent z-score computation** — identifies critical outliers (|z| > 1.5 SD from median)
+- **Zone agreement tracking** — within each zone, what % voted the same way
+- **Most divided dimension** — dimension with highest std across agents
+- **Critical Divergence PDF section** — outlier cards with z-score, zone agreement table
+- **`divergence` field** in swarmComplete WebSocket event (backward compatible)
+
+### Added — Simulated Deliberation (Investment Committee)
+- **2-round debate** — most bullish and most bearish outliers challenge each other (2 parallel LLM calls)
+- **Committee chair synthesis** — summarizes key tension, resolution status, recommendation (1 LLM call)
+- **Score adjustment** — defenders can adjust their score during deliberation, affecting final aggregation
+- **Trigger condition** — only fires when divergence finds >= 2 critical outliers (no artificial conflict)
+- **Investment Committee Deliberation PDF section** — debate dialogue with concessions, maintained positions, score changes, and chair synthesis
+
+### Added — OASIS Improvements
+- **Graduated scoring** — agents return -2.0 to +2.0 adjustments (0.5 increments) instead of binary IMPROVED/WORSENED
+- **Running scores with inertia** — each agent maintains a persistent 1-10 score, no more 0-100% swings
+- **Agent-to-agent visibility** — panel summary (bull/bear quotes, sentiment breakdown, minority amplification) fed into next round
+- **Anti-herding safeguards** — minority views explicitly flagged as worth considering, lopsided splits highlighted
+
+### Added — Dashboard & UX
+- **Manual form with field cards** — green border when filled, OK indicator, required counter
+- **Additional Context textarea** — raw text passed verbatim to API, nothing lost
+- **OASIS toggle** — off by default in form, "+10-15 min" note
+- **Panel scroll fix** — onWheel stopPropagation so canvas doesn't steal scroll
+- **Dark dropdown backgrounds** — select options match dark theme
+
+### Added — PDF Report Improvements
+- General Info on page 1 (no leak to page 2), company name bold
+- Market Analysis: key figures as summary cards, full text in Appendix A
+- Competitive Analysis: short summary inline, full text in Appendix B
+- Competitor table: page-break-inside avoid
+- Council reasoning shown below chart
+- No em dashes in swarm reasoning, risk assessment, strategy
+- Risk Assessment and Strategic Recommendations with proper section headings
+- Paragraphed narratives throughout (auto-split long text blocks)
+- OASIS events: markdown stripped, em dashes removed
+- Critical Divergence section (zone agreement + outlier cards)
+- Investment Committee Deliberation section (debate dialogue + chair synthesis)
+
+### Added — Infrastructure
+- **Backtest script** (`backtest.py`) — 30 Tier 1 companies (15 successes, 15 failures) + 10 Tier 2, checkpoint/resume support
+- **Landing page** (`website/index.html`) — dark theme, pipeline visualization, report preview, submit form
+
+### Fixed
+- **SwarmAgent zone field** — zone was never persisted on SwarmAgent objects, now a proper dataclass field
+- **OASIS sentiment swings** — binary voting (0% or 100%) replaced with graduated scoring (smooth 35-75% range)
+
+### Changed
+- Persona generator: 7 dimensions (163M combos) → 11 dimensions (88.5B+ combos)
+- Persona prompts: ~80 tokens → ~300-350 tokens (behavioral descriptions, backstories, frameworks)
+- OASIS: 12 binary votes per round → 12 graduated adjustments with running scores
+- Dashboard: Smart Paste primary → Manual form primary with Additional Context
+- Reframed: "AI Startup Prediction" → "AI Due Diligence"
+- SwarmResult.to_dict() now includes divergence and deliberation fields
+- Report footer: "AI Startup Prediction System" → "AI Due Diligence Platform"
+
+## [0.6.0] — 2026-03-22
+
+### Added
+- **Multi-model parallel research** — Claude, GPT, Gemini research simultaneously with different perspectives, findings merged
+- **OASIS market simulation** — 6-month multi-round simulation with evolving agent opinions and market events
+- **ReACT report agent** — 6 LLM-generated professional report sections (Executive Summary, Market Analysis, etc.)
+- **Agent chat** — click any agent post-analysis to ask follow-up questions via WebSocket
+- **Smart paste** — paste pitch deck text, AI auto-fills all form fields via `/api/bi/validate`
+- **Research agent in war room** — pixel character wanders during research phase
+- **Live research feed** — round-by-round research progress in scoreboard
+- **OASIS timeline in dashboard** — month-by-month sentiment with events
+- **PDF export gating** — button disabled until full pipeline completes (including OASIS)
+- **Per-tile floor color tinting** — subtle color variation per room (tileColors array)
+- **Original pixel-agents furniture style** — desk pairs, mirrored variants, sofa corners
+- **Room labels on walls** — blue text on corridor wall bars
+- **Agent vote tags** — HIT/MISS visible after voting without hover
+- **Agents wander after voting** — 30 seconds of walking, then sit back down
+- **Action logging** — per-analysis JSONL in `~/.mirai/logs/`
+
+### Fixed
+- **CRITICAL: PDF data pipeline** — `'swarm_result' in dir()` always returned False, making swarm_dict empty. Fixed to direct variable check.
+- **PDF competitor type crash** — `'int' object is not subscriptable` when competitors contained non-string values
+- **LLM chat method signature** — `llm.chat()` requires messages list, not string
+- **Funding signals keyword** — `limit` → `max_results` parameter name
+- **Persona industry variable** — `industry` → `focus_industry` in `_generate_personas()`
+- **WebSocket disconnect race** — removed duplicate `mirai.disconnect()` from scoreboard
+
+### Changed
+- Research: single-model → 3 models in parallel
+- Layout: 45x35 → 52x35 grid, 7 rooms with unique themes
+- Default zoom: auto-fit to screen with 0.5-step rounding
+- Agent lifecycle: TYPE → IDLE → WANDER after voting
+- Floor sprites: 9 → 14 (tiles 0-13 for all zones)
+
+## [0.5.0] — 2026-03-21
+
+### Added
+
+- **5-Model Council** across 3 providers
+  - Claude Opus 4.6 + Sonnet 4.6 (Anthropic)
+  - GPT-5.4 (OpenAI Codex OAuth)
+  - Gemini 3.1 Pro (Google OAuth via Gemini CLI)
+  - Config at `~/.mirai/council.json`
+
+- **Full Pipeline via WebSocket** (`startAnalysis` message type)
+  - Research → Council → Swarm → Plan streamed as live events
+  - Dashboard shows phase progress bar with real-time updates
+  - Swarm agents receive enriched context from research + council verdict
+
+- **7-Room War Room** (52x35 grid)
+  - Added Council room with 4 Elder agents at meeting table
+  - Added Wild Card room (creative lounge theme)
+  - Each room has unique decoration theme (boardroom, lab, bullpen, library, war room, lounge)
+
+- **Zone-Based Persona Selection**
+  - 12 investors, 8 customers, 8 operators, 7 analysts, 7 contrarians, 8 wild card (for 50 agents)
+  - Zone-specific evaluation prompts that force score diversity
+  - Investors: "would you write a check?", Contrarians: "find the fatal flaw"
+
+- **1.6M Real Personas**
+  - 1.2M FinePersonas (Argilla/HuggingFace)
+  - 238K Tencent PersonaHub Elite (top 1% domain experts)
+  - 200K Tencent PersonaHub regular
+
+- **231K Company Database** (SQLite)
+  - YC-OSS API (5,690 companies with outcomes)
+  - Crunchbase datasets (66K + 160K companies)
+  - Unicorns 2021 (534 companies)
+  - 22,818 companies with known outcomes for backtesting
+
+- **Funding Signals Service** — SearXNG news search for live funding rounds
+- **PDF Report Generator** — HTML→PDF with verdict, dimensions, research, agent table, suggestions
+- **Feedback API** — `/api/bi/feedback` + `/api/bi/accuracy` for tracking prediction outcomes
+- **Hover Tooltips** — mouse over pixel agents to see persona, zone, model, vote, reasoning
+- **SearXNG** — Docker container on port 8888, JSON API enabled
+
+### Changed
+
+- Gateway port: 3000 → 19789 (avoids conflict with OpenClaw on 18789)
+- State directory: `~/.openclaw/` → `~/.mirai/`
+- Config file: `openclaw.json` → `mirai.json`
+- All env vars: `OPENCLAW_*` → `MIRAI_*`
+- Swarm workers: 3 → 25 parallel (faster execution)
+- Default agent count: 100 → 25
+- Chat completions endpoint enabled on gateway (`gateway.http.endpoints.chatCompletions.enabled: true`)
+
+### Fixed
+
+- White screen on swarm complete (snake_case → camelCase key mapping)
+- WebSocket disconnect race condition (removed duplicate mirai.disconnect())
+
 ## [0.4.0] — 2026-03-21
 
 ### Added

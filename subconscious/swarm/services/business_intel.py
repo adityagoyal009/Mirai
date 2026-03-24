@@ -237,6 +237,36 @@ _DIMENSION_WEIGHTS = {
     "pattern_match": 0.15,
 }
 
+# Industry-specific weight adjustments — merge with base, auto-normalize
+_INDUSTRY_WEIGHT_ADJUSTMENTS = {
+    "healthtech": {"regulatory_news_environment": 0.20, "team_execution_signals": 0.15, "market_timing": 0.15},
+    "health": {"regulatory_news_environment": 0.20, "team_execution_signals": 0.15},
+    "biotech": {"regulatory_news_environment": 0.25, "team_execution_signals": 0.20, "pattern_match": 0.10, "market_timing": 0.10},
+    "fintech": {"competition_landscape": 0.20, "regulatory_news_environment": 0.15, "business_model_viability": 0.20},
+    "cleantech": {"regulatory_news_environment": 0.20, "market_timing": 0.20, "social_proof_demand": 0.15},
+    "clean": {"regulatory_news_environment": 0.20, "market_timing": 0.20},
+    "ai": {"competition_landscape": 0.20, "pattern_match": 0.20, "team_execution_signals": 0.15},
+    "saas": {"business_model_viability": 0.25, "competition_landscape": 0.20, "social_proof_demand": 0.10},
+    "cybersecurity": {"competition_landscape": 0.20, "regulatory_news_environment": 0.15, "team_execution_signals": 0.15},
+    "edtech": {"social_proof_demand": 0.15, "market_timing": 0.15, "business_model_viability": 0.25},
+    "hardware": {"team_execution_signals": 0.20, "pattern_match": 0.15, "market_timing": 0.15},
+    "marketplace": {"business_model_viability": 0.25, "social_proof_demand": 0.20, "competition_landscape": 0.15},
+}
+
+
+def _get_industry_weights(industry: str) -> dict:
+    """Return dimension weights tuned for the startup's industry."""
+    base = dict(_DIMENSION_WEIGHTS)
+    if not industry:
+        return base
+    ind_lower = industry.lower()
+    for key, adjustments in _INDUSTRY_WEIGHT_ADJUSTMENTS.items():
+        if key in ind_lower:
+            merged = {**base, **adjustments}
+            total = sum(merged.values())
+            return {k: round(v / total, 3) for k, v in merged.items()}
+    return base
+
 
 class BusinessIntelEngine:
     """
@@ -588,6 +618,22 @@ class BusinessIntelEngine:
                 + "\n".join(f"- {f[:300]}" for f in web_findings[:10])
             )
 
+        # Funding signals (live funding rounds, acquisitions)
+        try:
+            from .funding_signals import FundingSignals
+            fs = FundingSignals()
+            funding_data = fs.search_funding(
+                company_name=extraction.company,
+                industry=extraction.industry,
+            )
+            funding_text = fs.format_for_prompt(funding_data)
+            if funding_text:
+                context_block += f"\n\n{funding_text}"
+                data_sources_used.append("funding_signals")
+                logger.info(f"[BI] Funding signals: {funding_data.get('signal_count', 0)} found")
+        except Exception as e:
+            logger.warning(f"Funding signals failed (non-fatal): {e}")
+
         synthesis = self.llm.chat_json(
             messages=[
                 {
@@ -693,17 +739,19 @@ class BusinessIntelEngine:
             return "Strong Miss"
 
     @staticmethod
-    def _calc_weighted_score(dimensions: List[DimensionScore]) -> float:
+    def _calc_weighted_score(dimensions: List[DimensionScore], industry: str = "") -> float:
+        weights = _get_industry_weights(industry)
         total_weight = 0.0
         weighted_sum = 0.0
         for dim in dimensions:
-            weight = _DIMENSION_WEIGHTS.get(dim.name, 1.0 / 7)
+            weight = weights.get(dim.name, 1.0 / 7)
             weighted_sum += dim.score * weight
             total_weight += weight
         return round(weighted_sum / total_weight, 2) if total_weight > 0 else 5.0
 
     def predict(
-        self, exec_summary: str, research: ResearchReport, use_council: bool = False
+        self, exec_summary: str, research: ResearchReport, use_council: bool = False,
+        industry: str = ""
     ) -> Prediction:
         """
         Score across 7 dimensions, classify hit/miss.
@@ -716,7 +764,7 @@ class BusinessIntelEngine:
             dimensions, reasoning, confidence = self._predict_single(
                 exec_summary, research_context, self.llm
             )
-            overall = self._calc_weighted_score(dimensions)
+            overall = self._calc_weighted_score(dimensions, industry)
             return Prediction(
                 dimensions=dimensions,
                 overall_score=overall,
@@ -764,7 +812,7 @@ class BusinessIntelEngine:
             dimensions, reasoning, confidence = self._predict_single(
                 exec_summary, research_context, self.llm
             )
-            overall = self._calc_weighted_score(dimensions)
+            overall = self._calc_weighted_score(dimensions, industry)
             return Prediction(
                 dimensions=dimensions,
                 overall_score=overall,
@@ -777,7 +825,7 @@ class BusinessIntelEngine:
         if len(model_results) == 1:
             label = list(model_results.keys())[0]
             dims, reasoning, conf = model_results[label]
-            overall = self._calc_weighted_score(dims)
+            overall = self._calc_weighted_score(dims, industry)
             return Prediction(
                 dimensions=dims,
                 overall_score=overall,
@@ -800,7 +848,7 @@ class BusinessIntelEngine:
         # Per-model overall scores for output
         per_model_scores: Dict[str, Dict[str, float]] = {}
         for label, (dims, _, _) in model_results.items():
-            overall = self._calc_weighted_score(dims)
+            overall = self._calc_weighted_score(dims, industry)
             per_model_scores[label] = {
                 "overall": overall,
                 **{d.name: d.score for d in dims},
@@ -847,14 +895,28 @@ class BusinessIntelEngine:
                 })
 
         # Overall score from reconciled dimensions
-        overall = self._calc_weighted_score(reconciled_dims)
+        overall = self._calc_weighted_score(reconciled_dims, industry)
 
         # Confidence: base on average model confidence, penalize disagreements
         avg_confidence = sum(
             conf for _, (_, _, conf) in model_results.items()
         ) / len(model_results)
-        # Each contested dimension lowers confidence by 0.05
         confidence_penalty = len(contested) * 0.05
+
+        # Fact-check research claims against exec summary
+        fact_check_result = None
+        try:
+            from .fact_checker import check_facts
+            research_claims = [str(research_context[:3000])]
+            fact_check_result = check_facts(research_claims, exec_summary)
+            if fact_check_result:
+                contradicted = fact_check_result.get('contradicted', 0)
+                if contradicted > 0:
+                    confidence_penalty += contradicted * 0.05
+                    logger.info(f"[Council] Fact-check: {contradicted} contradicted claims, penalty +{contradicted * 0.05:.2f}")
+        except Exception as e:
+            logger.warning(f"[Council] Fact-check failed (non-fatal): {e}")
+
         final_confidence = round(max(0.1, min(1.0, avg_confidence - confidence_penalty)), 2)
 
         # Combine reasoning
@@ -870,6 +932,22 @@ class BusinessIntelEngine:
                 f"where models disagreed by {_DISAGREEMENT_THRESHOLD}+ points: "
                 + ", ".join(c["dimension"] for c in contested)
             )
+
+        # Research-council feedback: re-research contested dimensions
+        if contested:
+            try:
+                from .search_engine import SearchEngine
+                search = SearchEngine()
+                company_name = exec_summary.split('\n')[0].split(':')[-1].strip()[:30] if ':' in exec_summary else ''
+                for c in contested[:3]:
+                    dim_name = c.get('dimension', '') if isinstance(c, dict) else str(c)
+                    query = f"{company_name} {dim_name.replace('_', ' ')} analysis"
+                    extra = search.search(query, max_results=3, time_range='year')
+                    for r in extra:
+                        combined_overall_reasoning += f" [FOLLOW-UP {dim_name}]: {r.get('content', '')[:300]}"
+                logger.info(f"[Council] Re-researched {len(contested)} contested dimensions")
+            except Exception as e:
+                logger.warning(f"[Council] Re-research failed (non-fatal): {e}")
 
         return Prediction(
             dimensions=reconciled_dims,
@@ -895,7 +973,7 @@ class BusinessIntelEngine:
         context = (
             f"Executive summary:\n{exec_summary}\n\n"
             f"Research sentiment: {research.sentiment}\n"
-            f"Competitors: {', '.join(research.competitors[:5])}\n"
+            f"Competitors: {', '.join(c if isinstance(c, str) else c.get('name', str(c)) for c in research.competitors[:5])}\n"
             f"Key trends: {', '.join(research.trends[:5])}\n\n"
             f"Prediction verdict: {prediction.verdict} (score: {prediction.overall_score}/10)\n"
             f"Prediction reasoning: {prediction.reasoning}\n"
@@ -1022,7 +1100,8 @@ class BusinessIntelEngine:
                 f"Multi-agent analysis: {crew_output[:2000]}"
             )
 
-        prediction = self.predict(exec_summary, research, use_council=use_council)
+        prediction = self.predict(exec_summary, research, use_council=use_council,
+                                   industry=extraction.industry if extraction else '')
 
         # Phase 2b: Swarm prediction (if requested)
         swarm_result = None

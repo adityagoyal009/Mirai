@@ -47,9 +47,9 @@ const btnActive: React.CSSProperties = {
 };
 
 export function BottomToolbar({
-  isEditMode,
+  isEditMode: _isEditMode,
   onOpenClaude,
-  onToggleEditMode,
+  onToggleEditMode: _onToggleEditMode,
   isDebugMode,
   onToggleDebugMode,
   alwaysShowOverlay,
@@ -150,22 +150,7 @@ export function BottomToolbar({
           </div>
         )}
       </div>
-      <button
-        onClick={onToggleEditMode}
-        onMouseEnter={() => setHovered('edit')}
-        onMouseLeave={() => setHovered(null)}
-        style={
-          isEditMode
-            ? { ...btnActive }
-            : {
-                ...btnBase,
-                background: hovered === 'edit' ? 'var(--pixel-btn-hover-bg)' : btnBase.background,
-              }
-        }
-        title="Edit office layout"
-      >
-        Layout
-      </button>
+      {/* Editor hidden from user-facing dashboard */}
       <div style={{ position: 'relative' }}>
         <button
           onClick={() => setIsSettingsOpen((v) => !v)}

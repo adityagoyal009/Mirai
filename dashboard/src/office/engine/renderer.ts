@@ -689,5 +689,29 @@ export function renderFrame(
     }
   }
 
+  // Room labels — rendered LAST so they're on top of walls
+  const labelS = TILE_SIZE * zoom;
+  const roomLabels: Array<{ text: string; col: number; row: number }> = [
+    { text: 'INVESTORS', col: 7, row: 0 },
+    { text: 'CUSTOMERS', col: 20, row: 0 },
+    { text: 'OPERATORS', col: 33, row: 0 },
+    { text: 'COUNCIL', col: 45, row: 0 },
+    { text: 'ANALYSTS', col: 7, row: 16 },
+    { text: 'CONTRARIANS', col: 20, row: 16 },
+    { text: 'WILD CARD', col: 39, row: 16 },
+  ];
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const labelFontSize = Math.max(9, Math.round(7 * zoom));
+  ctx.font = `bold ${labelFontSize}px 'Segoe UI', system-ui, sans-serif`;
+  ctx.fillStyle = '#4488ff';
+  for (const label of roomLabels) {
+    const lx = offsetX + label.col * labelS;
+    const ly = offsetY + label.row * labelS + labelS * 0.55;
+    ctx.fillText(label.text, lx, ly);
+  }
+  ctx.restore();
+
   return { offsetX, offsetY };
 }

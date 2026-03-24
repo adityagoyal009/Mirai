@@ -1,0 +1,303 @@
+#!/usr/bin/env python3
+"""
+Mirai Backtest — Run predictions against companies with known outcomes.
+
+Usage:
+    python3 backtest.py                  # Run Tier 1 (30 companies)
+    python3 backtest.py --tier 2         # Run Tier 2 (30 more)
+    python3 backtest.py --tier all       # Run all 100
+    python3 backtest.py --resume         # Resume from last checkpoint
+    python3 backtest.py --report         # Just print results from saved data
+
+Results saved to: backtest_results.json (auto-checkpointed after each company)
+"""
+
+import json
+import time
+import sys
+import os
+import requests
+from datetime import datetime
+
+API_BASE = "http://localhost:5000"
+DB_PATH = os.path.join(os.path.dirname(__file__), "subconscious/swarm/data/companies.db")
+RESULTS_FILE = os.path.join(os.path.dirname(__file__), "backtest_results.json")
+
+# ── Tier 1: Must-Test (30) — Famous outcomes, maximum signal ──
+
+TIER1_SUCCESSES = [
+    {"name": "Airbnb", "one_liner": "Online marketplace for short-term home rentals", "industry": "Consumer/Travel", "stage": "MVP", "business_model": "Commission on bookings (3% host, up to 14.2% guest)", "target_market": "Travelers seeking alternatives to hotels, homeowners with spare space", "expected": "success", "actual_outcome": "IPO — $75B+ market cap"},
+    {"name": "Dropbox", "one_liner": "Backup and share files in the cloud", "industry": "B2B/Cloud Storage", "stage": "MVP", "business_model": "Freemium SaaS — free tier + $10/mo pro", "target_market": "Individual users and businesses needing file sync across devices", "expected": "success", "actual_outcome": "IPO — $10B+ market cap"},
+    {"name": "Coinbase", "one_liner": "Buy, sell, and manage cryptocurrencies", "industry": "Fintech/Crypto", "stage": "MVP", "business_model": "Transaction fees on crypto trades", "target_market": "Retail and institutional crypto investors", "expected": "success", "actual_outcome": "IPO — $50B+ peak market cap"},
+    {"name": "DoorDash", "one_liner": "Restaurant delivery platform", "industry": "Consumer/Food Delivery", "stage": "MVP", "business_model": "Commission on restaurant orders + delivery fees + DashPass subscription", "target_market": "Consumers ordering food delivery, restaurants wanting delivery reach", "expected": "success", "actual_outcome": "IPO — $50B+ peak market cap"},
+    {"name": "Instacart", "one_liner": "Marketplace for grocery delivery and pickup", "industry": "Consumer/Grocery", "stage": "MVP", "business_model": "Delivery fees + service fees + Instacart+ subscription + advertising", "target_market": "Consumers who want groceries delivered from local stores", "expected": "success", "actual_outcome": "IPO — $10B+ market cap"},
+    {"name": "GitLab", "one_liner": "A complete DevOps platform delivered as a single application", "industry": "B2B/Developer Tools", "stage": "Revenue", "business_model": "Open core SaaS — free tier + Premium $29/user/mo + Ultimate $99/user/mo", "target_market": "Software development teams needing integrated CI/CD, source control, and security", "expected": "success", "actual_outcome": "IPO — $15B+ peak market cap"},
+    {"name": "Brex", "one_liner": "Business accounts, corporate cards, and spend management", "industry": "Fintech", "stage": "Revenue", "business_model": "Interchange fees on card transactions + SaaS subscription for spend management", "target_market": "Startups and growth-stage companies needing corporate cards without personal guarantees", "expected": "success", "actual_outcome": "$12B+ valuation"},
+    {"name": "Deel", "one_liner": "All-in-one HR and payroll platform for global teams", "industry": "B2B/HR Tech", "stage": "Revenue", "business_model": "SaaS — per-contractor and per-employee fees for global payroll and compliance", "target_market": "Companies hiring remote workers internationally", "expected": "success", "actual_outcome": "$12B+ valuation"},
+    {"name": "Rippling", "one_liner": "One place to run all your HR, IT, and Finance globally", "industry": "B2B/HR Tech", "stage": "Revenue", "business_model": "SaaS — per-employee pricing for unified HR, IT, and finance platform", "target_market": "Mid-market and enterprise companies wanting unified employee management", "expected": "success", "actual_outcome": "$13B+ valuation"},
+    {"name": "Faire", "one_liner": "Online wholesale marketplace empowering independent retail", "industry": "B2B/Marketplace", "stage": "Revenue", "business_model": "Commission on wholesale orders between brands and retailers", "target_market": "Independent retailers sourcing products and brands seeking distribution", "expected": "success", "actual_outcome": "$12B+ valuation"},
+    {"name": "PagerDuty", "one_liner": "Real-time visibility into critical apps and services", "industry": "B2B/DevOps", "stage": "Revenue", "business_model": "SaaS — tiered pricing for incident management and on-call scheduling", "target_market": "Engineering and IT operations teams managing service reliability", "expected": "success", "actual_outcome": "IPO"},
+    {"name": "Razorpay", "one_liner": "Full-stack financial solutions for businesses in India", "industry": "Fintech", "stage": "Revenue", "business_model": "Transaction fees on payment processing (2% per transaction)", "target_market": "Indian businesses needing online payment acceptance", "expected": "success", "actual_outcome": "$7.5B valuation"},
+    {"name": "Groww", "one_liner": "Making financial services simple, transparent and delightful", "industry": "Fintech", "stage": "Revenue", "business_model": "Brokerage fees on stock/mutual fund trades", "target_market": "Indian retail investors seeking simple investment platform", "expected": "success", "actual_outcome": "IPO"},
+    {"name": "Vercel", "one_liner": "Frontend cloud platform — deploy web apps instantly", "industry": "B2B/Developer Tools", "stage": "Revenue", "business_model": "Freemium — free tier + Pro $20/user/mo + Enterprise custom", "target_market": "Frontend developers and teams deploying Next.js and web applications", "expected": "success", "actual_outcome": "$2.5B+ valuation"},
+    {"name": "Amplitude", "one_liner": "Digital analytics platform for product teams", "industry": "B2B/Analytics", "stage": "Revenue", "business_model": "SaaS — usage-based pricing for product analytics", "target_market": "Product and growth teams at digital companies", "expected": "success", "actual_outcome": "IPO"},
+]
+
+TIER1_FAILURES = [
+    {"name": "Moxion Power", "one_liner": "Mobile energy storage technology — battery-electric alternatives to diesel generators", "industry": "CleanTech/Energy Storage", "stage": "MVP", "business_model": "Hardware sales + rental of mobile battery units to construction and events", "target_market": "Construction sites, outdoor events, film sets needing temporary power", "expected": "failure", "actual_outcome": "Failed — YC top company, shut down"},
+    {"name": "Lantern", "one_liner": "Postgres vector database extension to build AI applications", "industry": "B2B/Database", "stage": "MVP", "business_model": "Open source with managed cloud service", "target_market": "Developers building AI apps who already use Postgres", "expected": "failure", "actual_outcome": "Failed — YC W24"},
+    {"name": "RadMate AI", "one_liner": "Copilot for radiologists — AI-assisted medical image reading", "industry": "Healthcare/AI", "stage": "MVP", "business_model": "SaaS per-radiologist seat license", "target_market": "Radiology practices and hospital imaging departments", "expected": "failure", "actual_outcome": "Failed — YC W24"},
+    {"name": "BiteSight", "one_liner": "Video-first food delivery app — TikTok meets DoorDash", "industry": "Consumer/Food Delivery", "stage": "Idea", "business_model": "Commission on food orders placed through video content", "target_market": "Gen Z consumers who discover restaurants through short-form video", "expected": "failure", "actual_outcome": "Failed — YC W24"},
+    {"name": "Lumona", "one_liner": "AI-enabled search engine featuring insights from social media", "industry": "Consumer/Search", "stage": "MVP", "business_model": "Freemium search with premium insights subscription", "target_market": "Consumers wanting search results enriched with social media perspectives", "expected": "failure", "actual_outcome": "Failed — YC W24"},
+    {"name": "Parabolic", "one_liner": "AI assistant for customer support teams", "industry": "B2B/Customer Support", "stage": "MVP", "business_model": "SaaS per-agent pricing", "target_market": "Customer support teams looking to automate ticket responses", "expected": "failure", "actual_outcome": "Failed — YC W23"},
+    {"name": "crmCopilot", "one_liner": "Give Salesforce the AI upgrade it deserves", "industry": "B2B/CRM", "stage": "MVP", "business_model": "SaaS add-on to Salesforce — per-user pricing", "target_market": "Salesforce users wanting AI-powered CRM automation", "expected": "failure", "actual_outcome": "Failed — YC W24"},
+    {"name": "Toolify", "one_liner": "Build internal tools with AI — describe what you need, get a working app", "industry": "B2B/No-Code", "stage": "MVP", "business_model": "SaaS — freemium with paid tiers for team usage", "target_market": "Non-technical teams needing internal tools without developer resources", "expected": "failure", "actual_outcome": "Failed — YC W24"},
+    {"name": "Celest", "one_liner": "The Vercel of Flutter — deploy Flutter apps to the cloud instantly", "industry": "B2B/Developer Tools", "stage": "MVP", "business_model": "Freemium cloud hosting — free tier + usage-based pricing", "target_market": "Flutter developers wanting serverless backend deployment", "expected": "failure", "actual_outcome": "Failed — YC W24"},
+    {"name": "Fileforge", "one_liner": "API for PDF document workflows — generate, merge, sign PDFs programmatically", "industry": "B2B/Developer Tools", "stage": "MVP", "business_model": "Usage-based API pricing — per-document processed", "target_market": "Developers needing programmatic PDF generation and manipulation", "expected": "failure", "actual_outcome": "Failed — YC W24"},
+    {"name": "Sublingual", "one_liner": "Daily productivity tracker for individuals and teams", "industry": "B2B/Productivity", "stage": "MVP", "business_model": "SaaS subscription — $10/mo individual, $25/user/mo team", "target_market": "Knowledge workers and remote teams tracking daily output", "expected": "failure", "actual_outcome": "Failed — YC W25"},
+    {"name": "Lavo Life Sciences", "one_liner": "AI for drug formulation — predict optimal drug delivery mechanisms", "industry": "Healthcare/Pharma", "stage": "MVP", "business_model": "Enterprise SaaS for pharmaceutical companies", "target_market": "Pharmaceutical R&D teams working on drug formulation", "expected": "failure", "actual_outcome": "Failed — YC W23"},
+    {"name": "Rubber Ducky Labs", "one_liner": "AI-powered product discovery for e-commerce", "industry": "B2B/E-commerce", "stage": "MVP", "business_model": "SaaS for e-commerce retailers — usage-based pricing", "target_market": "E-commerce merchants wanting AI-powered product recommendations", "expected": "failure", "actual_outcome": "Failed — YC W23"},
+    {"name": "Struct", "one_liner": "Multi-lingual AI voice agents for customer service", "industry": "B2B/AI", "stage": "MVP", "business_model": "Per-minute pricing for AI voice agent calls", "target_market": "Companies needing multilingual phone-based customer support", "expected": "failure", "actual_outcome": "Failed — YC W23"},
+    {"name": "Blyss", "one_liner": "End-to-end encrypted AI — run AI models on encrypted data", "industry": "B2B/Security", "stage": "MVP", "business_model": "Enterprise SaaS for privacy-preserving AI inference", "target_market": "Enterprises needing AI on sensitive data without exposure", "expected": "failure", "actual_outcome": "Failed — YC W23"},
+]
+
+# ── Tier 2: Nuanced Cases (30) ──
+
+TIER2_ACQUISITIONS = [
+    {"name": "Cruise Automation", "one_liner": "Self-driving car technology for autonomous ride-hailing", "industry": "Auto/Autonomous Vehicles", "stage": "MVP", "business_model": "Autonomous ride-hailing fleet operations", "target_market": "Urban commuters in dense cities", "expected": "acquired", "actual_outcome": "Acquired by GM for $1B+"},
+    {"name": "Bear Flag Robotics", "one_liner": "Autonomous driving technology for farm tractors", "industry": "AgTech/Robotics", "stage": "MVP", "business_model": "Retrofit kit for existing tractors + autonomous operation service", "target_market": "Large-scale farms needing autonomous tractor operation", "expected": "acquired", "actual_outcome": "Acquired by John Deere for $250M"},
+    {"name": "Paystack", "one_liner": "Modern payments infrastructure for Africa", "industry": "Fintech", "stage": "Revenue", "business_model": "Transaction fees on payment processing (1.5% + flat fee)", "target_market": "African businesses needing online and offline payment acceptance", "expected": "acquired", "actual_outcome": "Acquired by Stripe for $200M+"},
+    {"name": "Truebill", "one_liner": "App to manage subscriptions, lower bills, and track spending", "industry": "Fintech/Consumer", "stage": "Revenue", "business_model": "Freemium — free tracking + premium $12/mo for bill negotiation", "target_market": "Consumers wanting to cancel unwanted subscriptions and lower bills", "expected": "acquired", "actual_outcome": "Acquired by Rocket Companies for $1.3B"},
+    {"name": "Sqreen", "one_liner": "Application security platform for the modern enterprise", "industry": "B2B/Security", "stage": "Revenue", "business_model": "SaaS — per-app pricing for runtime application security", "target_market": "Engineering teams needing in-app security monitoring", "expected": "acquired", "actual_outcome": "Acquired by Datadog"},
+]
+
+TIER2_UNCERTAIN = [
+    {"name": "Whatnot", "one_liner": "Largest livestream shopping platform in the US", "industry": "Consumer/E-commerce", "stage": "Revenue", "business_model": "Commission on livestream sales (typically 8%)", "target_market": "Collectors, hobbyists, and sellers of cards, collectibles, fashion", "expected": "uncertain", "actual_outcome": "Active — $3.7B valuation but US livestream commerce adoption unclear"},
+    {"name": "Zepto", "one_liner": "10-minute grocery delivery in India", "industry": "Consumer/Grocery", "stage": "Revenue", "business_model": "Delivery fees + product margins on quick-commerce grocery", "target_market": "Urban Indian consumers wanting near-instant grocery delivery", "expected": "uncertain", "actual_outcome": "Active — $5B valuation but massive burn rate, unit economics questioned"},
+    {"name": "Ginkgo Bioworks", "one_liner": "Making biology easier to engineer — cell programming platform", "industry": "Healthcare/Biotech", "stage": "Revenue", "business_model": "Platform fees for cell engineering + royalties on downstream products", "target_market": "Companies in pharma, agriculture, and industrial bio needing organism engineering", "expected": "uncertain", "actual_outcome": "Public via SPAC — stock down 95% from peak, revenue struggles"},
+    {"name": "Rigetti Computing", "one_liner": "Quantum coherent supercomputing — full-stack quantum computing", "industry": "DeepTech/Quantum", "stage": "MVP", "business_model": "Quantum computing as a service via cloud API", "target_market": "Researchers and enterprises needing quantum computation", "expected": "uncertain", "actual_outcome": "Public via SPAC — pre-revenue for years, speculative"},
+    {"name": "Momentus", "one_liner": "Space infrastructure services — in-space transportation", "industry": "Space/Industrials", "stage": "MVP", "business_model": "Fees for satellite deployment and repositioning services", "target_market": "Satellite operators needing last-mile orbital delivery", "expected": "uncertain", "actual_outcome": "Public via SPAC — stock cratered, regulatory issues"},
+]
+
+ALL_COMPANIES = {
+    "tier1": TIER1_SUCCESSES + TIER1_FAILURES,
+    "tier2": TIER2_ACQUISITIONS + TIER2_UNCERTAIN,
+}
+
+
+def run_analysis(company: dict, depth: str = "quick", swarm_count: int = 25) -> dict:
+    """Run Mirai analysis on a single company."""
+    exec_summary = (
+        f"Company name: {company['name']}\n"
+        f"Industry: {company['industry']}\n"
+        f"Product/Service: {company['one_liner']}\n"
+        f"Target market: {company.get('target_market', 'Not specified')}\n"
+        f"Business model: {company.get('business_model', 'Not specified')}\n"
+        f"Stage: {company.get('stage', 'MVP')}\n"
+    )
+
+    try:
+        resp = requests.post(
+            f"{API_BASE}/api/bi/analyze",
+            json={
+                "exec_summary": exec_summary,
+                "depth": depth,
+                "swarm_count": swarm_count,
+            },
+            timeout=600,
+        )
+        data = resp.json()
+
+        # Response nests under "analysis" key
+        analysis = data.get("analysis", data)
+        prediction = analysis.get("prediction", {})
+        research = analysis.get("research", {})
+        swarm = analysis.get("swarm_result", {})
+
+        return {
+            "company": company["name"],
+            "expected": company["expected"],
+            "actual_outcome": company["actual_outcome"],
+            "score": prediction.get("overall_score", prediction.get("composite_score", 0)),
+            "verdict": prediction.get("verdict", "unknown"),
+            "confidence": prediction.get("confidence", 0),
+            "dimensions": prediction.get("dimensions", {}),
+            "contested": prediction.get("contested_dimensions", []),
+            "swarm_hit_pct": swarm.get("positive_pct", None),
+            "swarm_agents": swarm.get("total_agents", 0),
+            "research_sources": research.get("sources_count", 0),
+            "data_quality": analysis.get("data_quality", 0),
+            "timestamp": datetime.now().isoformat(),
+            "error": None,
+        }
+    except Exception as e:
+        return {
+            "company": company["name"],
+            "expected": company["expected"],
+            "actual_outcome": company["actual_outcome"],
+            "score": None,
+            "verdict": "error",
+            "error": str(e),
+            "timestamp": datetime.now().isoformat(),
+        }
+
+
+def load_results() -> list:
+    """Load existing results from checkpoint file."""
+    if os.path.exists(RESULTS_FILE):
+        with open(RESULTS_FILE) as f:
+            return json.load(f)
+    return []
+
+
+def save_results(results: list):
+    """Save results to checkpoint file."""
+    with open(RESULTS_FILE, "w") as f:
+        json.dump(results, f, indent=2)
+
+
+def print_report(results: list):
+    """Print analysis of backtest results."""
+    if not results:
+        print("No results to report.")
+        return
+
+    successes = [r for r in results if r["expected"] == "success" and r.get("score") is not None]
+    failures = [r for r in results if r["expected"] == "failure" and r.get("score") is not None]
+    acquired = [r for r in results if r["expected"] == "acquired" and r.get("score") is not None]
+    uncertain = [r for r in results if r["expected"] == "uncertain" and r.get("score") is not None]
+    errors = [r for r in results if r.get("error")]
+
+    print("\n" + "=" * 70)
+    print("  MIRAI BACKTEST RESULTS")
+    print("=" * 70)
+    print(f"  Total companies tested: {len(results)}")
+    print(f"  Errors: {len(errors)}")
+    print()
+
+    if successes:
+        avg = sum(r["score"] for r in successes) / len(successes)
+        scores = sorted(successes, key=lambda x: x["score"])
+        print(f"  SUCCESSES ({len(successes)} companies)")
+        print(f"  Average score: {avg:.1f}/10")
+        print(f"  Range: {scores[0]['score']:.1f} ({scores[0]['company']}) — {scores[-1]['score']:.1f} ({scores[-1]['company']})")
+        for r in sorted(successes, key=lambda x: -x["score"]):
+            verdict = r["verdict"][:12].ljust(12)
+            swarm = f"{r.get('swarm_hit_pct', 0):.0f}% HIT" if r.get("swarm_hit_pct") is not None else "no swarm"
+            print(f"    {r['score']:4.1f}  {verdict}  {swarm:>8}  {r['company']}")
+        print()
+
+    if failures:
+        avg = sum(r["score"] for r in failures) / len(failures)
+        scores = sorted(failures, key=lambda x: x["score"])
+        print(f"  FAILURES ({len(failures)} companies)")
+        print(f"  Average score: {avg:.1f}/10")
+        print(f"  Range: {scores[0]['score']:.1f} ({scores[0]['company']}) — {scores[-1]['score']:.1f} ({scores[-1]['company']})")
+        for r in sorted(failures, key=lambda x: -x["score"]):
+            verdict = r["verdict"][:12].ljust(12)
+            swarm = f"{r.get('swarm_hit_pct', 0):.0f}% HIT" if r.get("swarm_hit_pct") is not None else "no swarm"
+            print(f"    {r['score']:4.1f}  {verdict}  {swarm:>8}  {r['company']}")
+        print()
+
+    if acquired:
+        avg = sum(r["score"] for r in acquired) / len(acquired)
+        print(f"  ACQUIRED ({len(acquired)} companies)")
+        print(f"  Average score: {avg:.1f}/10")
+        for r in sorted(acquired, key=lambda x: -x["score"]):
+            verdict = r["verdict"][:12].ljust(12)
+            print(f"    {r['score']:4.1f}  {verdict}  {r['company']} → {r['actual_outcome']}")
+        print()
+
+    if uncertain:
+        avg = sum(r["score"] for r in uncertain) / len(uncertain)
+        print(f"  UNCERTAIN ({len(uncertain)} companies)")
+        print(f"  Average score: {avg:.1f}/10")
+        for r in sorted(uncertain, key=lambda x: -x["score"]):
+            verdict = r["verdict"][:12].ljust(12)
+            print(f"    {r['score']:4.1f}  {verdict}  {r['company']}")
+        print()
+
+    # Key metrics
+    if successes and failures:
+        avg_s = sum(r["score"] for r in successes) / len(successes)
+        avg_f = sum(r["score"] for r in failures) / len(failures)
+        gap = avg_s - avg_f
+        print("  " + "-" * 50)
+        print(f"  DISCRIMINATION GAP: {gap:.1f} points")
+        print(f"    Success avg: {avg_s:.1f}  |  Failure avg: {avg_f:.1f}")
+        if gap >= 2.0:
+            print("    PASS — system discriminates between winners and losers")
+        elif gap >= 1.5:
+            print("    MARGINAL — some signal, but scoring rubric needs tuning")
+        else:
+            print("    FAIL — scores cluster too tightly, rubric needs rework")
+
+        # Accuracy check
+        correct_s = sum(1 for r in successes if r["score"] >= 6.0)
+        correct_f = sum(1 for r in failures if r["score"] < 5.5)
+        total = len(successes) + len(failures)
+        accuracy = (correct_s + correct_f) / total * 100
+        print(f"\n  ACCURACY (success >= 6.0, failure < 5.5): {accuracy:.0f}%")
+        print(f"    Successes correctly scored >= 6.0: {correct_s}/{len(successes)}")
+        print(f"    Failures correctly scored < 5.5:   {correct_f}/{len(failures)}")
+
+    print("\n" + "=" * 70)
+
+
+def main():
+    args = sys.argv[1:]
+
+    # Just print report
+    if "--report" in args:
+        results = load_results()
+        print_report(results)
+        return
+
+    # Select tiers
+    tier = "1"
+    if "--tier" in args:
+        idx = args.index("--tier")
+        tier = args[idx + 1] if idx + 1 < len(args) else "1"
+
+    if tier == "all":
+        companies = ALL_COMPANIES["tier1"] + ALL_COMPANIES["tier2"]
+    elif tier == "2":
+        companies = ALL_COMPANIES["tier2"]
+    else:
+        companies = ALL_COMPANIES["tier1"]
+
+    # Resume support
+    results = load_results() if "--resume" in args else []
+    done_names = {r["company"] for r in results}
+    remaining = [c for c in companies if c["name"] not in done_names]
+
+    print(f"\nMirai Backtest — {len(remaining)} companies to test ({len(done_names)} already done)")
+    print(f"Depth: quick | Swarm: 25 agents | Results: {RESULTS_FILE}\n")
+
+    for i, company in enumerate(remaining):
+        expected = company["expected"].upper()
+        print(f"[{i+1}/{len(remaining)}] {company['name']} (expected: {expected})...", end=" ", flush=True)
+
+        start = time.time()
+        result = run_analysis(company, depth="quick", swarm_count=25)
+        elapsed = time.time() - start
+
+        if result.get("error"):
+            print(f"ERROR ({elapsed:.0f}s): {result['error'][:60]}")
+        else:
+            score = result["score"]
+            verdict = result["verdict"]
+            print(f"{score:.1f}/10 — {verdict} ({elapsed:.0f}s)")
+
+        results.append(result)
+        save_results(results)
+
+        # Rate limit — be gentle with the LLM providers
+        if i < len(remaining) - 1:
+            time.sleep(3)
+
+    print_report(results)
+
+
+if __name__ == "__main__":
+    main()

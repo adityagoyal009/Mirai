@@ -19,7 +19,7 @@ from typing import List, Dict, Optional, Tuple, Any
 from ..utils.llm_client import LLMClient
 from ..utils.logger import get_logger
 from ..config import Config
-from .persona_engine import PersonaEngine
+from .persona_engine import PersonaEngine, ZONE_EVAL_ANGLES
 
 logger = get_logger('mirofish.swarm')
 
@@ -37,6 +37,7 @@ class SwarmAgent:
     overall: float  # shortcut for scores["overall"]
     reasoning: str
     model_used: str
+    zone: str = "wildcard"
 
     @property
     def vote(self) -> str:
@@ -73,6 +74,8 @@ class SwarmResult:
     execution_time_seconds: float
     verdict: str  # "Strong Hit" / "Likely Hit" / "Uncertain" / "Likely Miss" / "Strong Miss"
     fact_check: Optional[Dict[str, Any]] = None
+    divergence: Optional[Dict[str, Any]] = None
+    deliberation: Optional[Dict[str, Any]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -94,10 +97,13 @@ class SwarmResult:
             "execution_time_seconds": self.execution_time_seconds,
             "sample_agents": [
                 {"persona": a.persona, "overall": a.overall,
-                 "scores": a.scores, "reasoning": a.reasoning[:200]}
-                for a in self.agent_results[:20]
+                 "scores": a.scores, "reasoning": a.reasoning,
+                 "zone": a.zone}
+                for a in self.agent_results
             ],
             "fact_check": self.fact_check,
+            "divergence": self.divergence,
+            "deliberation": self.deliberation,
         }
 
 
@@ -223,12 +229,12 @@ PERSONA_POOL = [
 
 # ── Constants ─────────────────────────────────────────────────────
 
-VALID_COUNTS = [50, 100, 250, 500, 1000]
+VALID_COUNTS = [10, 25, 50, 100, 250, 500, 1000]
 WAVE1_MAX = 100
 BATCH_SIZE = 25
-# Max concurrent LLM calls — keep low to avoid CPU hang + rate limits
-WAVE1_WORKERS = 3
-WAVE2_WORKERS = 2
+# Max concurrent LLM calls — 25 parallel across 4 models = ~6 per model
+WAVE1_WORKERS = 25
+WAVE2_WORKERS = 10
 
 
 class SwarmPredictor:
@@ -241,7 +247,7 @@ class SwarmPredictor:
 
     def _get_models(self) -> list:
         if self._models is None:
-            self._models = Config.get_council_models()
+            self._models = Config.get_swarm_models()
             if not self._models:
                 self._models = [{
                     'model': Config.LLM_MODEL_NAME,
@@ -259,10 +265,16 @@ class SwarmPredictor:
     def predict(self, exec_summary: str, research_context: str,
                 agent_count: int = 100,
                 on_agent_complete=None,
-                on_agent_start=None) -> SwarmResult:
+                on_agent_start=None,
+                on_deliberation_start=None,
+                industry: str = "",
+                product: str = "") -> SwarmResult:
         """Run swarm prediction with hybrid wave execution.
         on_agent_complete: optional callback(SwarmAgent) fired for each completed agent.
-        on_agent_start: optional callback(agent_id, persona_name) fired before each agent's LLM call."""
+        on_agent_start: optional callback(agent_id, persona_name) fired before each agent's LLM call.
+        on_deliberation_start: optional callback() fired before deliberation round.
+        industry: clean industry string from extraction (avoids regex parsing).
+        product: clean product string from extraction."""
         start_time = time.time()
 
         if agent_count not in VALID_COUNTS:
@@ -274,23 +286,25 @@ class SwarmPredictor:
         wave1_count = min(agent_count, WAVE1_MAX)
         wave2_remaining = agent_count - wave1_count
 
-        # Extract industry/product from exec_summary for persona matching
-        industry = ""
-        product = ""
-        for line in exec_summary.split('\n'):
-            lower = line.lower()
-            if 'industry' in lower:
-                industry = line.split(':', 1)[-1].strip() if ':' in line else ""
-            if 'product' in lower:
-                product = line.split(':', 1)[-1].strip() if ':' in line else ""
+        # Fall back to regex extraction if industry/product not provided
+        if not industry:
+            for line in exec_summary.split('\n'):
+                if 'industry' in line.lower():
+                    industry = line.split(':', 1)[-1].strip() if ':' in line else ""
+                    break
+        if not product:
+            for line in exec_summary.split('\n'):
+                if 'product' in line.lower():
+                    product = line.split(':', 1)[-1].strip() if ':' in line else ""
+                    break
 
         all_model_labels = [m['label'] for m in tier1_models] + [m['label'] for m in tier2_models]
         logger.info(f"[Swarm] Starting {agent_count} agents "
                     f"(wave1={wave1_count} via {len(tier1_models)} tier1, "
                     f"wave2={wave2_remaining} via {len(tier2_models)} tier2/3)")
 
-        # Select personas using PersonaEngine (dataset + generated mix)
-        all_personas = self._persona_engine.select_personas(
+        # Select zone-appropriate personas
+        all_personas = self._persona_engine.select_personas_by_zone(
             count=wave1_count, industry=industry, product=product
         )
         wave1_personas = []
@@ -299,6 +313,7 @@ class SwarmPredictor:
                 "agent_id": i,
                 "name": p.name,
                 "prompt": p.prompt,
+                "zone": p.zone,
             })
 
         all_agents: List[SwarmAgent] = []
@@ -310,7 +325,7 @@ class SwarmPredictor:
             for i, persona in enumerate(wave1_personas):
                 model_cfg = tier1_models[i % len(tier1_models)]
                 if on_agent_start:
-                    on_agent_start(persona['agent_id'], persona['name'], model_cfg['label'])
+                    on_agent_start(persona['agent_id'], persona['name'], model_cfg['label'], persona.get('zone', 'wildcard'))
                 futures.append(pool.submit(
                     self._run_individual, persona, exec_summary,
                     research_context, model_cfg
@@ -323,6 +338,50 @@ class SwarmPredictor:
                         on_agent_complete(result)
 
         logger.info(f"[Swarm] Wave 1 complete: {len(all_agents)} agents responded")
+
+        # Log all agent actions to JSONL
+        try:
+            import os, json
+            from datetime import datetime
+            log_dir = os.path.join(os.path.expanduser('~'), '.mirai', 'logs')
+            os.makedirs(log_dir, exist_ok=True)
+            log_file = os.path.join(log_dir, f"swarm_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jsonl")
+            with open(log_file, 'w') as f:
+                for a in all_agents:
+                    f.write(json.dumps({
+                        "agent_id": a.agent_id,
+                        "persona": a.persona,
+                        "zone": getattr(a, 'zone', 'unknown'),
+                        "vote": a.vote,
+                        "overall": a.overall,
+                        "scores": a.scores,
+                        "reasoning": a.reasoning,
+                        "confidence": a.confidence,
+                    }) + "\n")
+            logger.info(f"[Swarm] Logged {len(all_agents)} agent actions to {log_file}")
+        except Exception as e:
+            logger.warning(f"[Swarm] Action logging failed: {e}")
+
+        # ── Divergence + Deliberation (Wave 1 agents only) ─────────
+        divergence = {}
+        deliberation = {}
+        if len(all_agents) >= 5:
+            try:
+                divergence = self._compute_divergence(all_agents)
+            except Exception as e:
+                logger.warning(f"[Swarm] Divergence computation failed (non-fatal): {e}")
+
+            if divergence and not divergence.get('consensus', True) and len(divergence.get('critical_outliers', [])) >= 2:
+                try:
+                    if on_deliberation_start:
+                        on_deliberation_start()
+                    deliberation, all_agents = self._deliberate(
+                        all_agents, divergence, exec_summary, tier1_models
+                    )
+                    logger.info(f"[Swarm] Deliberation complete: {len(deliberation.get('positions', []))} positions, "
+                                f"{len(deliberation.get('adjusted_scores', {}))} adjustments")
+                except Exception as e:
+                    logger.warning(f"[Swarm] Deliberation failed (non-fatal): {e}")
 
         # ── Wave 2: Batched calls ─────────────────────────────────
         if wave2_remaining > 0:
@@ -363,6 +422,10 @@ class SwarmPredictor:
         result = self._aggregate(all_agents, wave1_count, wave2_remaining, elapsed, tier1_models + tier2_models)
         if fact_check:
             result.fact_check = fact_check
+        if divergence:
+            result.divergence = divergence
+        if deliberation:
+            result.deliberation = deliberation
         return result
 
     def _run_individual(self, persona: dict, exec_summary: str,
@@ -373,10 +436,17 @@ class SwarmPredictor:
                 base_url=model_cfg.get('base_url'),
                 api_key=model_cfg.get('api_key'),
             )
+            zone = persona.get('zone', 'wildcard')
+            zone_angle = ZONE_EVAL_ANGLES.get(zone, ZONE_EVAL_ANGLES.get('wildcard', ''))
             messages = [
                 {"role": "system", "content": (
                     f"{persona['prompt']}\n\n"
-                    "You are evaluating a startup. Score it on each dimension from 1-10, "
+                    "Express your analysis using terminology and concerns specific to YOUR professional domain. "
+                    "Do NOT use generic investor phrases or startup cliches. "
+                    "Your reasoning must sound distinctly like someone in YOUR role - "
+                    "if another agent could have written the same sentence, it's too generic.\n\n"
+                    f"{zone_angle}\n\n"
+                    "Score this startup on each dimension from 1-10, "
                     "relative to similar companies at this stage in this industry. "
                     "5 = average, 7+ = strong, 3- = weak.\n"
                     "Base your assessment ONLY on the research data provided. "
@@ -399,6 +469,7 @@ class SwarmPredictor:
                 overall=scores['overall'],
                 reasoning=result.get('reasoning', ''),
                 model_used=model_cfg['label'],
+                zone=persona.get('zone', 'wildcard'),
             )
         except Exception as e:
             logger.warning(f"[Swarm] Agent {persona['name']} failed: {e}")
@@ -483,19 +554,25 @@ class SwarmPredictor:
         likely_miss = sum(1 for s in overall_scores if 3.0 <= s < 4.5)
         strong_miss = sum(1 for s in overall_scores if s < 3.0)
 
-        # Verdict from median
-        if median_overall >= 7.5: verdict = "Strong Hit"
-        elif median_overall >= 6.0: verdict = "Likely Hit"
-        elif median_overall >= 4.5: verdict = "Uncertain"
-        elif median_overall >= 3.0: verdict = "Likely Miss"
-        else: verdict = "Strong Miss"
-
-        # Backward-compat vote metrics
+        # Vote metrics (computed before verdict so consensus informs verdict)
         positive = [a for a in agents if a.vote == 'positive']
         negative = [a for a in agents if a.vote != 'positive']
         positive_pct = round(len(positive) / total * 100, 1)
         negative_pct = round(len(negative) / total * 100, 1)
-        avg_confidence = round(sum(a.confidence for a in agents) / total, 3)
+
+        # Confidence based on agreement, not score extremeness
+        agreement_confidence = max(0.1, min(1.0, 1.0 - (std_overall / 3.0)))
+        avg_confidence = round(agreement_confidence, 2)
+
+        # Verdict blends median score + swarm consensus (neither alone is sufficient)
+        if median_overall >= 7.5 and positive_pct >= 70: verdict = "Strong Hit"
+        elif median_overall >= 7.5 and positive_pct >= 50: verdict = "Likely Hit"
+        elif median_overall >= 6.0 and positive_pct >= 60: verdict = "Likely Hit"
+        elif median_overall >= 6.0 and positive_pct >= 40: verdict = "Mixed Signal"
+        elif median_overall >= 4.5 and positive_pct >= 40: verdict = "Mixed Signal"
+        elif median_overall >= 4.5: verdict = "Likely Miss"
+        elif median_overall >= 3.0: verdict = "Likely Miss"
+        else: verdict = "Strong Miss"
 
         # Themes from high vs low scorers
         high_scorers = [a for a in agents if a.overall >= 6.0]
@@ -530,6 +607,269 @@ class SwarmPredictor:
             execution_time_seconds=round(elapsed, 2),
             verdict=verdict,
         )
+
+    @staticmethod
+    def _compute_divergence(agents: List[SwarmAgent]) -> Dict[str, Any]:
+        """Compute consensus vs divergence metrics across the panel."""
+        if len(agents) < 5:
+            return {}
+
+        from collections import defaultdict
+        overall_scores = [a.overall for a in agents]
+        mean_overall = sum(overall_scores) / len(overall_scores)
+        std_overall = (sum((s - mean_overall) ** 2 for s in overall_scores) / len(overall_scores)) ** 0.5
+
+        if std_overall < 0.01:
+            return {"consensus": True, "critical_outliers": [], "zone_agreement": {},
+                    "most_divided_dimension": None, "divergence_narrative": []}
+
+        # Per-agent z-score
+        agent_z = []
+        for a in agents:
+            z = (a.overall - mean_overall) / std_overall
+            agent_z.append({
+                "agent_id": a.agent_id, "persona": a.persona, "zone": a.zone,
+                "overall": a.overall, "z_score": round(z, 2),
+                "reasoning_excerpt": a.reasoning[:200] if a.reasoning else "",
+            })
+
+        # Critical outliers: |z| > 1.0 (lowered from 1.5 — 1.5 was too strict for 25-agent panels)
+        critical_outliers = sorted(
+            [a for a in agent_z if abs(a["z_score"]) > 1.0],
+            key=lambda x: abs(x["z_score"]), reverse=True
+        )
+
+        # Fallback: if no z-score outliers but score spread >= 3 points, use top/bottom agents
+        if not critical_outliers:
+            spread = max(a.overall for a in agents) - min(a.overall for a in agents)
+            if spread >= 3.0:
+                sorted_by_score = sorted(agent_z, key=lambda x: x['overall'])
+                critical_outliers = [sorted_by_score[0], sorted_by_score[-1]]
+
+        # Zone agreement
+        zone_map = defaultdict(list)
+        for a in agents:
+            zone_map[a.zone].append(a)
+        zone_agreement = {}
+        for zone, z_agents in zone_map.items():
+            hits = sum(1 for a in z_agents if a.overall >= 5.5)
+            total = len(z_agents)
+            majority_pct = max(hits, total - hits) / total * 100
+            zone_agreement[zone] = {
+                "total": total, "hits": hits, "misses": total - hits,
+                "agreement_pct": round(majority_pct, 1),
+                "majority_direction": "HIT" if hits >= total / 2 else "MISS",
+            }
+
+        # Most divided dimension
+        dim_stds = {}
+        for d in ["market", "team", "product", "timing"]:
+            vals = [a.scores.get(d, 5) for a in agents]
+            d_mean = sum(vals) / len(vals)
+            dim_stds[d] = round((sum((v - d_mean) ** 2 for v in vals) / len(vals)) ** 0.5, 2)
+        most_divided = max(dim_stds, key=dim_stds.get) if dim_stds else None
+
+        # Divergence narrative
+        narrative = []
+        for o in critical_outliers[:6]:
+            narrative.append({
+                "persona": o["persona"], "zone": o["zone"], "overall": o["overall"],
+                "z_score": o["z_score"], "direction": "bullish" if o["z_score"] > 0 else "bearish",
+                "excerpt": o["reasoning_excerpt"],
+            })
+
+        return {
+            "consensus": len(critical_outliers) == 0,
+            "critical_outliers": critical_outliers[:10],
+            "zone_agreement": zone_agreement,
+            "most_divided_dimension": most_divided,
+            "dimension_stds": dim_stds,
+            "divergence_narrative": narrative,
+        }
+
+    @staticmethod
+    def _select_committee(agents: List[SwarmAgent], divergence: Dict[str, Any]) -> List[SwarmAgent]:
+        """Select 5-6 diverse agents for investment committee roundtable."""
+        selected = []
+        used_ids = set()
+
+        def pick(agent):
+            if agent and agent.agent_id not in used_ids:
+                selected.append(agent)
+                used_ids.add(agent.agent_id)
+
+        # 1. Strongest bull
+        pick(max(agents, key=lambda a: a.overall))
+        # 2. Strongest bear
+        pick(min(agents, key=lambda a: a.overall))
+        # 3. Most internally conflicted (highest per-dimension variance)
+        remaining = [a for a in agents if a.agent_id not in used_ids]
+        if remaining:
+            def dim_var(a):
+                vals = [a.scores.get(d, 5) for d in ["market", "team", "product", "timing"]]
+                m = sum(vals) / len(vals)
+                return sum((v - m) ** 2 for v in vals) / len(vals)
+            pick(max(remaining, key=dim_var))
+        # 4. Agent from zone that disagrees with overall consensus
+        zone_agreement = divergence.get('zone_agreement', {})
+        overall_dir = "HIT" if sum(a.overall for a in agents) / len(agents) >= 5.5 else "MISS"
+        for z, data in zone_agreement.items():
+            if data.get('majority_direction') != overall_dir:
+                zone_agents = [a for a in agents if a.zone == z and a.agent_id not in used_ids]
+                if zone_agents:
+                    pick(max(zone_agents, key=lambda a: abs(a.overall - 5.5)))
+                    break
+        # 5. Most unique wild card
+        wildcards = [a for a in agents if a.zone == 'wildcard' and a.agent_id not in used_ids]
+        if wildcards:
+            mean_o = sum(a.overall for a in agents) / len(agents)
+            pick(max(wildcards, key=lambda a: abs(a.overall - mean_o)))
+        # 6. Operator if all operators missed
+        operators = [a for a in agents if a.zone == 'operator']
+        if operators and all(a.overall < 5.5 for a in operators):
+            ops_avail = [a for a in operators if a.agent_id not in used_ids]
+            if ops_avail:
+                pick(ops_avail[0])
+        # Backfill from outliers if under 5
+        for o in divergence.get('critical_outliers', []):
+            if len(selected) >= 6:
+                break
+            cand = next((a for a in agents if a.agent_id == o['agent_id'] and a.agent_id not in used_ids), None)
+            if cand:
+                pick(cand)
+        return selected[:6]
+
+    def _deliberate(self, agents: List[SwarmAgent], divergence: Dict[str, Any],
+                    exec_summary: str, tier1_models: list) -> Tuple[Dict[str, Any], List[SwarmAgent]]:
+        """Run 5-6 agent investment committee roundtable.
+        Round 1: Each member writes position statement addressing their biggest disagreement (5-6 parallel calls).
+        Round 2: Chair synthesizes the debate (1 call).
+        Returns (deliberation_dict, updated_agents_list)."""
+        committee = self._select_committee(agents, divergence)
+        if len(committee) < 3:
+            return {}, agents
+
+        delib_model = tier1_models[0] if tier1_models else self._get_models()[0]
+        logger.info(f"[Swarm] Deliberation: {len(committee)} committee members selected")
+
+        # Build position summary for all members to see
+        positions_summary = "\n".join([
+            f"- {m.persona} ({m.zone}) - {m.overall:.1f}/10: {m.reasoning[:120]}"
+            for m in committee
+        ])
+
+        # ── Round 1: Position statements (parallel) ──
+        position_results = []
+        adjusted_scores = {}
+
+        def run_position(member):
+            try:
+                most_disagree = max(
+                    [m for m in committee if m.agent_id != member.agent_id],
+                    key=lambda m: abs(m.overall - member.overall)
+                )
+                llm = LLMClient(
+                    model=delib_model['model'],
+                    base_url=delib_model.get('base_url'),
+                    api_key=delib_model.get('api_key'),
+                )
+                messages = [
+                    {"role": "system", "content": (
+                        f"You are {member.persona} ({member.zone} zone). "
+                        f"You scored this startup {member.overall:.1f}/10.\n\n"
+                        f"INVESTMENT COMMITTEE POSITIONS:\n{positions_summary}\n\n"
+                        "Write your position statement for the committee:\n"
+                        f"1. Defend your score in 2-3 sentences using YOUR domain expertise and terminology\n"
+                        f"2. Directly address the argument from {most_disagree.persona} "
+                        f"who scored {most_disagree.overall:.1f}/10 - explain why they are wrong or what they are missing\n"
+                        "3. State whether hearing the full committee changes your conviction\n\n"
+                        "Return ONLY JSON:\n"
+                        '{"position": "3-4 sentences", '
+                        '"addresses": "who you are responding to", '
+                        '"adjusted_score": <1-10 or null if unchanged>, '
+                        '"conviction_change": "stronger/weaker/unchanged"}'
+                    )},
+                    {"role": "user", "content": f"Startup:\n{exec_summary[:1500]}"},
+                ]
+                result = llm.chat_json(messages=messages, temperature=0.7, max_tokens=600)
+                adj = result.get('adjusted_score')
+                if adj is not None:
+                    adj = max(1, min(10, float(adj)))
+                return {
+                    "persona": member.persona, "zone": member.zone,
+                    "original_score": member.overall,
+                    "position": result.get('position', ''),
+                    "addresses": result.get('addresses', most_disagree.persona),
+                    "adjusted_score": adj,
+                    "conviction_change": result.get('conviction_change', 'unchanged'),
+                }
+            except Exception as e:
+                logger.warning(f"[Swarm] Committee position failed for {member.persona}: {e}")
+                return None
+
+        with ThreadPoolExecutor(max_workers=min(6, len(committee))) as pool:
+            futures = [pool.submit(run_position, m) for m in committee]
+            for f in as_completed(futures):
+                r = f.result()
+                if r:
+                    position_results.append(r)
+                    if r['adjusted_score'] is not None:
+                        adjusted_scores[r['persona']] = r['adjusted_score']
+
+        # ── Round 2: Chair synthesis ──
+        synthesis = {}
+        if position_results:
+            try:
+                positions_text = "\n\n".join([
+                    f"{p['persona']} ({p['zone']}, {p['original_score']:.1f}/10"
+                    + (f" -> {p['adjusted_score']:.1f}" if p['adjusted_score'] else "")
+                    + f", conviction {p['conviction_change']}):\n{p['position']}"
+                    for p in position_results
+                ])
+                llm = LLMClient(
+                    model=delib_model['model'],
+                    base_url=delib_model.get('base_url'),
+                    api_key=delib_model.get('api_key'),
+                )
+                messages = [
+                    {"role": "system", "content": (
+                        f"You are the senior investment committee chair synthesizing a {len(position_results)}-member roundtable.\n\n"
+                        f"Committee discussion:\n{positions_text}\n\n"
+                        "Return ONLY JSON:\n"
+                        '{"consensus_points": ["2-3 things the committee agrees on"], '
+                        '"unresolved_tensions": ["2-3 things that remain debated"], '
+                        '"verdict_shifted": true/false, '
+                        '"recommendation": "one paragraph final recommendation", '
+                        '"critical_risk": "the single risk the founder must address first"}'
+                    )},
+                    {"role": "user", "content": f"Startup:\n{exec_summary[:1000]}"},
+                ]
+                synthesis = llm.chat_json(messages=messages, temperature=0.5, max_tokens=1000)
+            except Exception as e:
+                logger.warning(f"[Swarm] Committee synthesis failed: {e}")
+                synthesis = {"recommendation": "Synthesis unavailable.", "verdict_shifted": False}
+
+        # Apply adjusted scores
+        updated = list(agents)
+        for i, agent in enumerate(updated):
+            if agent.persona in adjusted_scores:
+                new_score = adjusted_scores[agent.persona]
+                logger.info(f"[Swarm] Committee: {agent.persona} adjusted {agent.overall:.1f} -> {new_score:.1f}")
+                updated[i] = SwarmAgent(
+                    agent_id=agent.agent_id, persona=agent.persona,
+                    scores={**agent.scores, 'overall': new_score},
+                    overall=new_score, reasoning=agent.reasoning,
+                    model_used=agent.model_used, zone=agent.zone,
+                )
+
+        return {
+            "committee": [{"persona": m.persona, "zone": m.zone, "score": m.overall} for m in committee],
+            "positions": position_results,
+            "synthesis": synthesis,
+            "adjusted_scores": adjusted_scores,
+            "rounds": 2,
+            "extra_llm_calls": len(position_results) + (1 if synthesis else 0),
+        }, updated
 
     @staticmethod
     def _extract_themes(reasonings: List[str]) -> List[str]:

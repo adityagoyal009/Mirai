@@ -13,6 +13,15 @@ export type SwarmMessage =
   | { type: 'swarmProgress'; agentsCompleted: number; totalAgents: number; positivePct: number; negativePct: number; avgConfidence: number }
   | { type: 'swarmComplete'; result: SwarmResult }
   | { type: 'connected' }
+  // Full pipeline events
+  | { type: 'researchStarted' }
+  | { type: 'researchComplete'; findings: number; competitors: number; summary: string }
+  | { type: 'councilStarted'; modelCount: number; models: string[] }
+  | { type: 'councilComplete'; overall: number; verdict: string; confidence: number; dimensions: Array<{name: string; score: number}>; contestedDimensions: string[]; models: string[] }
+  | { type: 'planStarted' }
+  | { type: 'planComplete'; risks: any[]; moves: any[] }
+  | { type: 'analysisComplete'; fullResult: any }
+  | { type: 'agentChatResponse'; agentId: number; response?: string; error?: string }
   | { type: 'layoutLoaded'; layout: unknown }
   | { type: 'characterSpritesLoaded'; sprites: unknown[] }
   | { type: 'floorTilesLoaded'; tiles: unknown[] }
@@ -96,6 +105,16 @@ export class MiraiConnection {
 
   startSwarm(execSummary: string, agentCount: number) {
     this.send({ type: 'startSwarm', execSummary, agentCount })
+  }
+
+  startAnalysis(execSummary: string, agentCount: number, depth: string = 'deep') {
+    this.send({ type: 'startAnalysis', execSummary, agentCount, depth })
+  }
+
+  chatWithAgent(agentId: number, message: string, persona: string, zone: string,
+                previousVote: string, previousReasoning: string, analysisContext: string) {
+    this.send({ type: 'chatWithAgent', agentId, message, persona, zone,
+                previousVote, previousReasoning, analysisContext })
   }
 
   saveLayout(layout: unknown) {

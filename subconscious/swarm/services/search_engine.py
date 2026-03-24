@@ -24,6 +24,45 @@ logger = get_logger('mirofish.search_engine')
 
 _SEARXNG_URL = os.environ.get("SEARXNG_URL", "http://localhost:8888")
 
+# Source credibility weighting — premium sources get boosted scores
+SOURCE_CREDIBILITY = {
+    # Tier 1: Premium research/data (3x)
+    'gartner.com': 3.0, 'forrester.com': 3.0, 'mckinsey.com': 3.0,
+    'pitchbook.com': 3.0, 'crunchbase.com': 2.5, 'cbinsights.com': 3.0,
+    'sec.gov': 3.0, 'bloomberg.com': 3.0, 'reuters.com': 2.5,
+    'techcrunch.com': 2.0, 'theinformation.com': 2.5,
+    # Tier 2: Established (2x)
+    'harvard.edu': 2.0, 'mit.edu': 2.0, 'stanford.edu': 2.0,
+    'wsj.com': 2.0, 'ft.com': 2.0, 'economist.com': 2.0,
+    'nature.com': 2.0, 'science.org': 2.0,
+    'statista.com': 2.0, 'ibisworld.com': 2.0,
+    # Tier 3: Good general (1.5x)
+    'wikipedia.org': 1.5, 'investopedia.com': 1.5,
+    'forbes.com': 1.5, 'inc.com': 1.5, 'wired.com': 1.5,
+    # Tier 4: Government/regulatory (2.5x)
+    'epa.gov': 2.5, 'fda.gov': 2.5, 'usda.gov': 2.5,
+    'regulations.gov': 2.5, 'congress.gov': 2.0,
+}
+
+
+def _apply_credibility_weights(results: list) -> list:
+    """Apply domain-based credibility weighting to search results."""
+    for r in results:
+        url = r.get('url', '')
+        try:
+            domain = url.split('//')[1].split('/')[0] if '//' in url else ''
+        except (IndexError, AttributeError):
+            domain = ''
+        weight = 1.0
+        for known_domain, w in SOURCE_CREDIBILITY.items():
+            if known_domain in domain:
+                weight = w
+                break
+        r['credibility_weight'] = weight
+        r['score'] = r.get('score', 0) * weight
+    results.sort(key=lambda x: x.get('score', 0), reverse=True)
+    return results
+
 
 class SearchEngine:
     """
@@ -116,9 +155,10 @@ class SearchEngine:
                     "score": item.get("score", 0.0),
                 })
 
+            results = _apply_credibility_weights(results)
             logger.info(
                 f"[SearXNG] '{query[:50]}' → {len(results)} results "
-                f"(categories={categories})"
+                f"(categories={categories}, credibility-weighted)"
             )
             return results
 
