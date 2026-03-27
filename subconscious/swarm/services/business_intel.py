@@ -46,6 +46,8 @@ _COUNCIL_DEFAULTS = [
     {"model": "claude-sonnet-4-6", "label": "Claude Sonnet 4.6", "provider": "claude"},
     {"model": "gpt-5.4", "label": "GPT-5.4", "provider": "openai"},
     {"model": "o3", "label": "O3", "provider": "openai"},
+    {"model": "@cf/qwen/qwq-32b", "label": "QwQ-32B", "provider": "cloudflare"},
+    {"model": "@cf/openai/gpt-oss-120b", "label": "GPT-OSS-120B", "provider": "cloudflare"},
 ]
 
 
@@ -1009,7 +1011,7 @@ class BusinessIntelEngine:
         # ── Reconcile multiple model results ──────────────────────
 
         # Anonymize model labels to prevent brand bias in downstream prompts
-        _anon_labels = ["Evaluator A", "Evaluator B", "Evaluator C", "Evaluator D"]
+        _anon_labels = ["Evaluator A", "Evaluator B", "Evaluator C", "Evaluator D", "Evaluator E", "Evaluator F"]
         anon_map = {label: _anon_labels[i] if i < len(_anon_labels) else f"Evaluator {i+1}"
                     for i, label in enumerate(model_results.keys())}
         anon_reverse = {v: k for k, v in anon_map.items()}
