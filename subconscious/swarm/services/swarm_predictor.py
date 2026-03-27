@@ -188,9 +188,10 @@ class SwarmPredictor:
         if agent_count not in VALID_COUNTS:
             agent_count = min(VALID_COUNTS, key=lambda x: abs(x - agent_count))
 
-        tiered = self._get_tiered_models()
-        tier1_models = tiered.get('tier1', self._get_models())
-        tier2_models = tiered.get('tier2', tiered.get('tier3', self._get_models()))
+        # Use swarm.models from council.json directly (Groq/SambaNova/Mistral)
+        # NOT the hardcoded MODEL_TIERS which has old Claude/GPT gateway models
+        tier1_models = self._get_models()
+        tier2_models = tier1_models
         wave1_count = min(agent_count, WAVE1_MAX)
         wave2_remaining = agent_count - wave1_count
 
