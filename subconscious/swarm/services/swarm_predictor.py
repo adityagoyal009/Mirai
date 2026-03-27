@@ -565,6 +565,16 @@ class SwarmPredictor:
                 model_used=model_cfg['label'],
                 zone=persona.get('zone', 'wildcard'),
             )
+            # Hallucination guard on agent reasoning (pure Python, ~50ms, non-blocking)
+            try:
+                from ..services.hallucination_guard import check_faithfulness
+                guard = check_faithfulness(agent.reasoning, [research_context])
+                if guard['faithfulness'] < 0.5 and guard['total_claims'] > 0:
+                    unverified = [r['claim'] for r in guard['results'] if r['status'] == 'LLM-INFERRED']
+                    agent.reasoning = f"[UNVERIFIED_CLAIMS: {len(unverified)}] {agent.reasoning}"
+                    logger.info(f"[Swarm] Agent {persona['name']}: {len(unverified)} unverified claims flagged")
+            except Exception:
+                pass
             # Audit log
             try:
                 from ..utils.audit_log import AuditLog
@@ -694,6 +704,15 @@ class SwarmPredictor:
                 # SP-9 FIX: tag agents that used generic prompts due to PersonaEngine failure
                 if personas_degraded:
                     agent.reasoning = f"[PERSONAS_DEGRADED] {agent.reasoning}"
+                # Hallucination guard on batch agent reasoning
+                try:
+                    from ..services.hallucination_guard import check_faithfulness
+                    guard = check_faithfulness(agent.reasoning, [research_context])
+                    if guard['faithfulness'] < 0.5 and guard['total_claims'] > 0:
+                        unverified = [r['claim'] for r in guard['results'] if r['status'] == 'LLM-INFERRED']
+                        agent.reasoning = f"[UNVERIFIED_CLAIMS: {len(unverified)}] {agent.reasoning}"
+                except Exception:
+                    pass
                 agents.append(agent)
             return agents
         except Exception as e:
