@@ -406,10 +406,11 @@ def _call_groq(
     if not choices:
         raise RuntimeError(f"Groq returned no choices for {model}: {body}")
 
-    content = choices[0].get("message", {}).get("content", "")
+    msg = choices[0].get("message", {})
+    content = msg.get("content", "")
     if not content:
-        # Some models put response in reasoning_content
-        content = choices[0].get("message", {}).get("reasoning_content", "")
+        # GPT-OSS puts response in reasoning field, others use reasoning_content
+        content = msg.get("reasoning_content", "") or msg.get("reasoning", "")
 
     if not content:
         raise RuntimeError(f"Groq returned empty content for {model}: {body}")
