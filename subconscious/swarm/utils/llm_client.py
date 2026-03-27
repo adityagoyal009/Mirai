@@ -162,6 +162,12 @@ def _call_gateway(
     if model in _CEREBRAS_MODELS:
         return _call_cerebras(model, messages, max_tokens, temperature, timeout)
 
+    # Route Mistral models directly to Mistral API (OpenAI-compatible)
+    _MISTRAL_MODELS = {"mistral-small-latest", "mistral-medium-latest", "mistral-large-latest",
+                       "mistral-small-2603", "mistral-medium-2508", "open-mistral-nemo"}
+    if model in _MISTRAL_MODELS:
+        return _call_mistral(model, messages, max_tokens, temperature, timeout)
+
     # Route SambaNova models directly to SambaNova API (OpenAI-compatible)
     _SAMBANOVA_MODELS = {"DeepSeek-V3.1", "DeepSeek-V3.1-Terminus", "DeepSeek-V3-0324",
                          "DeepSeek-R1-0528", "DeepSeek-R1-Distill-Llama-70B",
@@ -263,6 +269,54 @@ def _call_groq(
     # Strip thinking tags from reasoning models
     if "</think>" in content:
         content = content.split("</think>", 1)[-1].strip()
+
+    return content
+
+
+# ── Mistral API (OpenAI-compatible, free tier 500K tok/min) ──────────────
+_MISTRAL_API_KEY = os.environ.get("MISTRAL_API_KEY", "")
+
+
+def _call_mistral(
+    model: str,
+    messages: List[Dict[str, str]],
+    max_tokens: int = 4096,
+    temperature: float = 0.7,
+    timeout: int = 60,
+) -> str:
+    """Call Mistral API (OpenAI-compatible). European lab, different training data."""
+    import http.client
+    import ssl
+
+    payload = json.dumps({
+        "model": model,
+        "messages": messages,
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+    }).encode("utf-8")
+
+    conn = http.client.HTTPSConnection("api.mistral.ai", timeout=timeout,
+                                        context=ssl.create_default_context())
+    conn.request("POST", "/v1/chat/completions", body=payload, headers={
+        "Authorization": f"Bearer {_MISTRAL_API_KEY}",
+        "Content-Type": "application/json",
+    })
+    resp = conn.getresponse()
+    raw_body = resp.read().decode("utf-8")
+    conn.close()
+
+    if resp.status != 200:
+        logger.error(f"[Mistral] HTTP {resp.status} for {model}: {raw_body[:300]}")
+        raise RuntimeError(f"Mistral HTTP {resp.status} for {model}: {raw_body[:300]}")
+
+    body = json.loads(raw_body)
+    choices = body.get("choices", [])
+    if not choices:
+        raise RuntimeError(f"Mistral returned no choices for {model}: {body}")
+
+    content = choices[0].get("message", {}).get("content", "")
+    if not content:
+        raise RuntimeError(f"Mistral returned empty content for {model}: {body}")
 
     return content
 
