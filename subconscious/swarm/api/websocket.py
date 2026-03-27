@@ -115,8 +115,8 @@ def _handle_full_analysis(msg: dict):
         exec_summary = exec_summary[:50000]
         logger.warning(f"[WS] exec_summary truncated from {len(msg.get('execSummary', ''))} to 50000 chars")
 
-    # Fixed at 100 agents; 0 disables swarm
-    valid_counts = [0, 100]
+    # 50 or 100 agents; 0 disables swarm
+    valid_counts = [0, 50, 100]
     if agent_count not in valid_counts:
         agent_count = 100
 
