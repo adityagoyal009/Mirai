@@ -49,6 +49,7 @@ _COUNCIL_DEFAULTS = [
     {"model": "llama-3.3-70b-versatile", "label": "Llama 3.3 70B", "provider": "groq"},
     {"model": "meta-llama/llama-4-scout-17b-16e-instruct", "label": "Llama 4 Scout", "provider": "groq"},
     {"model": "moonshotai/kimi-k2-instruct", "label": "Kimi K2", "provider": "groq"},
+    {"model": "qwen-3-235b-a22b-instruct-2507", "label": "Qwen3 235B", "provider": "cerebras"},
 ]
 
 
@@ -1012,7 +1013,7 @@ class BusinessIntelEngine:
         # ── Reconcile multiple model results ──────────────────────
 
         # Anonymize model labels to prevent brand bias in downstream prompts
-        _anon_labels = ["Evaluator A", "Evaluator B", "Evaluator C", "Evaluator D", "Evaluator E", "Evaluator F", "Evaluator G"]
+        _anon_labels = ["Evaluator A", "Evaluator B", "Evaluator C", "Evaluator D", "Evaluator E", "Evaluator F", "Evaluator G", "Evaluator H"]
         anon_map = {label: _anon_labels[i] if i < len(_anon_labels) else f"Evaluator {i+1}"
                     for i, label in enumerate(model_results.keys())}
         anon_reverse = {v: k for k, v in anon_map.items()}

@@ -157,6 +157,11 @@ def _call_gateway(
     if model in _GROQ_MODELS:
         return _call_groq(model, messages, max_tokens, temperature, timeout)
 
+    # Route Cerebras models directly to Cerebras API (OpenAI-compatible)
+    _CEREBRAS_MODELS = {"llama3.1-8b", "qwen-3-235b-a22b-instruct-2507"}
+    if model in _CEREBRAS_MODELS:
+        return _call_cerebras(model, messages, max_tokens, temperature, timeout)
+
     # Normalize model name: add provider prefix if missing
     if "/" not in model:
         if "claude" in model.lower():
@@ -245,6 +250,58 @@ def _call_groq(
 
     if not content:
         raise RuntimeError(f"Groq returned empty content for {model}: {body}")
+
+    # Strip thinking tags from reasoning models
+    if "</think>" in content:
+        content = content.split("</think>", 1)[-1].strip()
+
+    return content
+
+
+# ── Cerebras API (OpenAI-compatible, free tier 1M tokens/day) ────────────
+_CEREBRAS_API_KEY = os.environ.get("CEREBRAS_API_KEY", "")
+
+
+def _call_cerebras(
+    model: str,
+    messages: List[Dict[str, str]],
+    max_tokens: int = 4096,
+    temperature: float = 0.7,
+    timeout: int = 60,
+) -> str:
+    """Call Cerebras API (OpenAI-compatible). Wafer-scale chip, insane speed."""
+    import http.client
+    import ssl
+
+    payload = json.dumps({
+        "model": model,
+        "messages": messages,
+        "max_completion_tokens": max_tokens,
+        "temperature": temperature,
+    }).encode("utf-8")
+
+    conn = http.client.HTTPSConnection("api.cerebras.ai", timeout=timeout,
+                                        context=ssl.create_default_context())
+    conn.request("POST", "/v1/chat/completions", body=payload, headers={
+        "Authorization": f"Bearer {_CEREBRAS_API_KEY}",
+        "Content-Type": "application/json",
+    })
+    resp = conn.getresponse()
+    raw_body = resp.read().decode("utf-8")
+    conn.close()
+
+    if resp.status != 200:
+        logger.error(f"[Cerebras] HTTP {resp.status} for {model}: {raw_body[:300]}")
+        raise RuntimeError(f"Cerebras HTTP {resp.status} for {model}: {raw_body[:300]}")
+
+    body = json.loads(raw_body)
+    choices = body.get("choices", [])
+    if not choices:
+        raise RuntimeError(f"Cerebras returned no choices for {model}: {body}")
+
+    content = choices[0].get("message", {}).get("content", "")
+    if not content:
+        raise RuntimeError(f"Cerebras returned empty content for {model}: {body}")
 
     # Strip thinking tags from reasoning models
     if "</think>" in content:
