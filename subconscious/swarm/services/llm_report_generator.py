@@ -1383,7 +1383,7 @@ def _trim_analysis(analysis: Dict) -> Dict:
                       'founded', 'employees', 'hq', 'total_raised', 'last_valuation',
                       'revenue', 'revenue_growth', 'ebitda')
         },
-        'sources': [s if isinstance(s, str) else s.get('url', s.get('title', '')) for s in research.get('sources', [])[:10]],
+        'sources': [s if isinstance(s, str) else s.get('url', s.get('title', '')) for s in research.get('sources', [])[:30]],
     }
 
     # Swarm — stats + trimmed agents (persona + scores only, NO full reasoning)
@@ -1399,8 +1399,8 @@ def _trim_analysis(analysis: Dict) -> Dict:
         'sample_agents': [
             {'persona': a.get('persona', ''), 'overall': a.get('overall', 0),
              'scores': a.get('scores', {}), 'zone': a.get('zone', ''),
-             'reasoning': (a.get('reasoning', '') or '')[:150]}
-            for a in swarm.get('sample_agents', [])[:6]
+             'reasoning': a.get('reasoning', '') or ''}
+            for a in swarm.get('sample_agents', [])[:10]
         ],
         'divergence': {
             'zone_agreement': swarm.get('divergence', {}).get('zone_agreement', {}),
@@ -1408,7 +1408,7 @@ def _trim_analysis(analysis: Dict) -> Dict:
             'critical_outliers': [
                 {'persona': o.get('persona', ''), 'zone': o.get('zone', ''),
                  'overall': o.get('overall', 0), 'z_score': o.get('z_score', 0),
-                 'reasoning_excerpt': (o.get('reasoning_excerpt', '') or '')[:120]}
+                 'reasoning_excerpt': o.get('reasoning_excerpt', '') or ''}
                 for o in swarm.get('divergence', {}).get('critical_outliers', [])[:5]
             ],
         },
