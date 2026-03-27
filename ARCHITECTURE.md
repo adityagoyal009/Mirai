@@ -1,4 +1,4 @@
-# Mirai (未来) — System Architecture v0.7.1
+# Mirai (未来) + Sensei (先生) — System Architecture v0.10.0
 
 ## Overview
 
@@ -11,10 +11,10 @@ Mirai is an AI-powered startup due diligence platform. It evaluates startups thr
 │  Phase 1          Phase 2         Phase 3          Phase 4    Phase 5   │
 │  ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌────────┐  ┌──────┐ │
 │  │ Research  │───>│ Council  │───>│  Swarm   │───>│ OASIS  │─>│Report│ │
-│  │ 3 models │    │ 4 elders │    │25-1000   │    │6-month │  │ PDF  │ │
-│  │ parallel │    │ 7 dims   │    │agents    │    │sim     │  │      │ │
-│  │ SearXNG  │    │ industry │    │diverge   │    │gradual │  │15-pg │ │
-│  │ Crawl4AI │    │ weights  │    │deliberate│    │scores  │  │      │ │
+│  │ OpenClaw │    │10 models │    │50-100    │    │6-month │  │ HTML │ │
+│  │ +Gemini  │    │10 dims   │    │agents    │    │sim     │  │      │ │
+│  │ fallback │    │ peer rev │    │6 models  │    │gradual │  │SVG   │ │
+│  │          │    │ chairman │    │deliberate│    │scores  │  │charts│ │
 │  └──────────┘    └──────────┘    └──────────┘    └────────┘  └──────┘ │
 │       │                │               │              │          │     │
 │  credibility      fact-check      committee       agent-to    heatmap │
@@ -24,8 +24,8 @@ Mirai is an AI-powered startup due diligence platform. It evaluates startups thr
 └─────────────────────────────────────────────────────────────────────────┘
 
 Services:
-  Dashboard (port 5000) ─── Gateway (port 19789) ─── SearXNG (port 8888)
-  Cortex (port 8100)
+  Dashboard (5000) — OpenClaw (18789) — Groq/Cerebras/SambaNova/Mistral/NVIDIA (direct REST)
+  CLI: claude -p, codex exec — Gemini fallback research — Cortex (8100)
 ```
 
 ## Directory Structure
@@ -80,6 +80,13 @@ Mirai/
 │   │   │   │                       #   3 rounds: research → gap → competitor
 │   │   │   │                       #   Content limits: 6000/1500 chars
 │   │   │   │
+│   │   │   ├── brave_search.py      # Brave Search API client
+│   │   │   │                       #   High-priority query routing
+│   │   │   │                       #   Complements SearXNG for premium results
+│   │   │   │
+│   │   │   ├── hallucination_guard.py # Post-synthesis faithfulness checker
+│   │   │   │                       #   Verifies claims trace to source material
+│   │   │   │
 │   │   │   ├── search_engine.py    # SearXNG wrapper
 │   │   │   │                       #   Source credibility weighting (31 domains)
 │   │   │   │                       #   Batch search, news search
@@ -108,9 +115,21 @@ Mirai/
 │   │   │   ├── personahub.jsonl    # 200K Tencent (29 MB)
 │   │   │   └── companies.db        # 231K companies (SQLite)
 │   │   │
-│   │   └── utils/
-│   │       ├── llm_client.py       # OpenAI-compatible client
-│   │       └── logger.py           # Rotating file + console
+│   │   ├── prompts/                   # Externalized prompt templates
+│   │   │   ├── research_synthesis.txt # Semantic synthesis prompt
+│   │   │   ├── council_scoring.txt    # Anonymized evaluator prompt
+│   │   │   ├── fact_verification.txt  # Real fact-check prompt
+│   │   │   ├── swarm_persona.txt      # Persona agent prompt
+│   │   │   ├── deliberation_chair.txt # Committee chair synthesis
+│   │   │   └── oasis_round.txt        # OASIS simulation round prompt
+│   │   │
+│   │   ├── utils/
+│   │   │   ├── llm_client.py       # OpenAI-compatible client
+│   │   │   ├── prompt_registry.py  # Loads & caches prompt templates from prompts/
+│   │   │   └── logger.py           # Rotating file + console
+│   │   │
+│   │   └── validation/
+│   │       └── eval_suite.py       # End-to-end evaluation harness
 │   │
 │   └── memory/                     # ChromaDB + Mem0
 │
@@ -136,15 +155,22 @@ Mirai/
 ### Phase 1: Research
 - 3 frontier LLMs (Claude, GPT, Gemini) research in parallel
 - SearXNG queries 70+ search engines with **source credibility weighting** (31 premium domains get 1.5-3x boost: Gartner, SEC, Bloomberg, EPA)
+- **Source credibility fix**: position-based fallback for sources with score=0.0 (ensures all results get meaningful ranking)
+- **Differentiated fallback queries** per model focus (each model generates queries aligned to its research angle)
 - Crawl4AI extracts content (6000 char limit) with browser-use fallback
+- **Brave Search** for high-priority queries (augments SearXNG with premium web results)
 - 3 rounds: initial research → gap analysis → competitor deep-dive
-- Findings merged and deduplicated across models
+- **Semantic synthesis**: findings merged via `confirmed_facts`, `contradictions`, `unique_insights`, and `coverage_gaps` (not naive concatenation)
+- **TF-IDF cosine dedup** replaces set-based dedup (eliminates near-duplicate findings across models)
+- **Hallucination guard**: faithfulness check after synthesis verifies claims trace back to source material
 
 ### Phase 2: Council
 - 4 LLMs score 7 dimensions independently (1-10 scale)
+- **Anonymized model labels**: models presented as Evaluator A/B/C/D (eliminates brand bias in scoring)
 - **Industry-specific dimension weights**: CleanTech weights regulatory 20% (vs default 10%), BioTech weights team 20%. 12 industry profiles, auto-normalized.
 - Disagreement detection: 3+ point spread = contested dimension
-- **Fact-checker integration**: contradicted research claims penalize confidence (-5% each)
+- **Real fact verification**: Brave Search + SearXNG + SEC EDGAR + Yahoo Finance + Jina DeepSearch (not LLM-asking-LLM)
+- **Source citation tracking**: citations flow through the entire pipeline from research → council → report
 - **Research-council feedback**: contested dimensions trigger 3 follow-up SearXNG queries
 
 Dimensions and default weights:
@@ -167,9 +193,11 @@ Dimensions and default weights:
 - **Role deduplication**: up to 5 retries per zone
 - **Customer geography weighting**: 70% from target market region
 
-**Verdict blending**: Uses MORE CONSERVATIVE of council vs swarm verdict. 19% swarm HIT can't be "Likely Hit" regardless of council score. New "Mixed Signal" verdict for split decisions.
+**Full-swarm divergence**: Wave 1 (individual LLM calls, 25 workers) + Wave 2 (batch calls, 25 per batch). Both waves contribute to divergence detection, not just Wave 1.
 
-**Confidence**: Blended council + swarm agreement-based (1 - std/3). Not static.
+**Verdict blending**: Uses MORE CONSERVATIVE of council vs swarm verdict. 19% swarm HIT can't be "Likely Hit" regardless of council score. New "Mixed Signal" verdict for split decisions. `DELIBERATION_WEIGHT=3.0` configurable weighted aggregation controls how much deliberation adjusts final scores.
+
+**Confidence**: Blended council + swarm agreement-based (1 - std/3). Not static. **Confidence-weighted committee members**: each member's influence on final score is proportional to their confidence level.
 
 **Divergence detection**: Z-score outliers (|z| > 1.0), zone agreement tracking, most divided dimension, fallback on 3pt absolute spread.
 
@@ -177,12 +205,14 @@ Dimensions and default weights:
 - `_select_committee()` picks 5-6 diverse agents: strongest bull, strongest bear, most conflicted, zone dissenter, unique wild card, operator (if all missed)
 - Round 1: Each member writes position statement addressing their biggest disagreement
 - Round 2: Chair synthesizes consensus points, unresolved tensions, recommendation
-- Score adjustments feed into final aggregation
+- Score adjustments feed into final aggregation (weighted by `DELIBERATION_WEIGHT`)
 
 ### Phase 4: OASIS Market Simulation
-- 6-month multi-round simulation with 12-agent panel
+- 6-month multi-round simulation with **swarm-sourced 12-agent panel** (drawn from swarm results, not hardcoded roles)
+- **Real news-sourced events**: each round injects market events from Brave Search + SearXNG news (not synthetic/random)
 - **Graduated scoring**: agents adjust -2 to +2 (0.5 increments), not binary
 - **Running scores with inertia**: each agent maintains persistent 1-10 score
+- **Uncertainty bands**: each round produces `confidence_low` and `confidence_high` per agent (not just point estimates)
 - **Agent-to-agent visibility**: panel summary (bull/bear quotes, minority amplification) fed into next round
 - Optional (toggle in dashboard, off by default)
 
@@ -193,6 +223,7 @@ Dimensions and default weights:
 - **Critical divergence section**: zone agreement table + outlier cards
 - **Investment committee deliberation section**: position statements + chair synthesis
 - **Methodology appendix**: models, persona pool, scoring method, deliberation process
+- **Appendix D: Research Sources & Citations** table — lists every source URL, domain credibility tier, and which claims it supports
 - Full market analysis + competitive landscape in appendices
 
 ## WebSocket Event Flow
@@ -298,6 +329,8 @@ report_generator.py: renders Critical Divergence + Committee Deliberation sectio
 - Terminal: Regex blocklist for dangerous patterns
 - E2B: LLM-generated code in Firecracker microVMs
 - Gateway: OAuth-only, no raw API keys in backend
+- **Zero external package dependencies** beyond core (`openai`, `flask`, `requests`, `chromadb`) — no bloated ML/NLP frameworks
+- **All fact-checking via direct HTTP** to free public APIs (SEC EDGAR, Yahoo Finance, Brave Search, SearXNG, Jina)
 
 ---
 
@@ -396,6 +429,10 @@ Cycle N:
 | 12 | Cortex ↔ E2B | Python SDK | Sandboxed code execution (Firecracker microVMs) |
 | 13 | Dashboard ↔ Flask | WebSocket | `/ws/swarm` — real-time events |
 | 14 | Dashboard ↔ Flask | HTTP | REST API + static assets at `/dashboard/` |
+| 15 | Swarm ↔ Brave Search | HTTP JSON | High-priority research queries |
+| 16 | Swarm ↔ SEC EDGAR | HTTP JSON | Public company filing verification |
+| 17 | Swarm ↔ Yahoo Finance | HTTP JSON | Revenue/market cap verification |
+| 18 | Swarm ↔ Jina DeepSearch | HTTP JSON | Claim grounding (optional) |
 
 ---
 
@@ -510,6 +547,8 @@ Storage: ChromaDB + Action Logs (JSONL)
 | `MEM0_API_KEY` | (empty) | Mem0 cloud API key (optional) |
 | `OPENBB_ENABLED` | `true` | Enable OpenBB financial data |
 | `E2B_API_KEY` | (empty) | E2B sandbox API key |
+| `BRAVE_SEARCH_API_KEY` | `BSA...` (built-in default) | Brave Search API key for high-priority queries |
+| `JINA_API_KEY` | (empty) | Jina DeepSearch API key for claim grounding (optional) |
 | `MIRAI_WHATSAPP_NUMBER` | (empty) | Default WhatsApp recipient |
 
 ## Gateway OAuth Auto-Discovery
@@ -526,3 +565,35 @@ Storage: ChromaDB + Action Logs (JSONL)
 | Deliberation | 6 | Committee position statements parallel |
 | Research | 3 | Parallel model research |
 | SearXNG batch | 3 | Parallel search queries |
+
+---
+
+## Scoring Calibration Notes (2026-03-24)
+
+### Known Bias Mitigations
+- **Research anchoring**: Two-pass council (blind score on exec summary -> research-informed adjustment) prevents research from dominating all model scores
+- **Score clustering**: Calibrated rubrics with concrete examples anchor what 2/4/6/8/10 mean for each dimension
+- **Persona bias**: Calibration anchors in swarm prompts ("Use the FULL 1-10 range, not everything is 5-7")
+- **Verdict bias**: Confidence-weighted blend replaces conservative-wins rule
+- **Correlated dimensions**: Auto-detected pairs de-weighted 50% when scores align within 1 point
+- **Data quality**: Low-data startups get explicit uncertainty flag and wider verdict bands
+- **Deliberation anchoring**: Agents state position BEFORE seeing consensus
+
+### Audit Prompt for Future Reviews
+
+To catch scoring methodology issues in future, give Claude Code this prompt:
+
+```
+Trace the full scoring pipeline from exec summary input to PDF output.
+For each phase (research, council, swarm, OASIS, report), identify:
+1. What prompt does the LLM see? Does it have calibration anchors?
+2. What information flows from the previous phase? Does it create anchoring?
+3. How are scores aggregated? Does averaging kill signal?
+4. Is the persona/evaluator pool balanced (bull vs bear)?
+5. Does the final verdict accurately represent the underlying score distribution?
+Run a mental simulation of a startup scoring 8/10 on one dimension and 3/10 on another.
+Does the pipeline preserve this disagreement or compress it to 5.5?
+Check: are Wave 1 and Wave 2 prompts equivalent in quality and instruction depth?
+Check: does deliberation actually shift scores or is it theater?
+Check: does OASIS affect the final verdict or just the PDF display?
+```
