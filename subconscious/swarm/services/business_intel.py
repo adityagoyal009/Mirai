@@ -48,6 +48,7 @@ _COUNCIL_DEFAULTS = [
     {"model": "meta-llama/llama-4-scout-17b-16e-instruct", "label": "Llama 4 Scout", "provider": "groq"},
     {"model": "moonshotai/kimi-k2-instruct", "label": "Kimi K2", "provider": "groq"},
     {"model": "qwen-3-235b-a22b-instruct-2507", "label": "Qwen3 235B", "provider": "cerebras"},
+    {"model": "openai/gpt-oss-120b", "label": "GPT-OSS 120B", "provider": "groq"},
 ]
 
 
