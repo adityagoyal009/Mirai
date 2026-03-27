@@ -168,6 +168,16 @@ def _call_gateway(
     if model in _MISTRAL_MODELS:
         return _call_mistral(model, messages, max_tokens, temperature, timeout)
 
+    # Route NVIDIA NIM models directly to NVIDIA API (OpenAI-compatible)
+    _NVIDIA_MODELS = {"mistralai/mistral-large-3-675b-instruct-2512",
+                      "qwen/qwen3.5-397b-a17b", "z-ai/glm5",
+                      "nvidia/llama-3.1-nemotron-ultra-253b-v1",
+                      "nvidia/nemotron-3-super-120b-a12b",
+                      "meta/llama-3.3-70b-instruct", "deepseek-ai/deepseek-v3.1",
+                      "qwen/qwq-32b", "moonshotai/kimi-k2-instruct"}
+    if model in _NVIDIA_MODELS:
+        return _call_nvidia(model, messages, max_tokens, temperature, timeout)
+
     # Route SambaNova models directly to SambaNova API (OpenAI-compatible)
     _SAMBANOVA_MODELS = {"DeepSeek-V3.1", "DeepSeek-V3.1-Terminus", "DeepSeek-V3-0324",
                          "DeepSeek-R1-0528", "DeepSeek-R1-Distill-Llama-70B",
@@ -362,6 +372,58 @@ def _call_codex_cli(
     content = choices[0].get("message", {}).get("content", "")
     if not content:
         raise RuntimeError(f"Gateway returned empty content for {model}")
+    return content
+
+
+# ── NVIDIA NIM API (OpenAI-compatible, free tier 40 req/min) ─────────────
+_NVIDIA_API_KEY = os.environ.get("NVIDIA_API_KEY", "")
+
+
+def _call_nvidia(
+    model: str,
+    messages: List[Dict[str, str]],
+    max_tokens: int = 4096,
+    temperature: float = 0.7,
+    timeout: int = 60,
+) -> str:
+    """Call NVIDIA NIM API (OpenAI-compatible). Free developer tier."""
+    import http.client
+    import ssl
+
+    payload = json.dumps({
+        "model": model,
+        "messages": messages,
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+    }).encode("utf-8")
+
+    conn = http.client.HTTPSConnection("integrate.api.nvidia.com", timeout=timeout,
+                                        context=ssl.create_default_context())
+    conn.request("POST", "/v1/chat/completions", body=payload, headers={
+        "Authorization": f"Bearer {_NVIDIA_API_KEY}",
+        "Content-Type": "application/json",
+    })
+    resp = conn.getresponse()
+    raw_body = resp.read().decode("utf-8")
+    conn.close()
+
+    if resp.status != 200:
+        logger.error(f"[NVIDIA] HTTP {resp.status} for {model}: {raw_body[:300]}")
+        raise RuntimeError(f"NVIDIA HTTP {resp.status} for {model}: {raw_body[:300]}")
+
+    body = json.loads(raw_body)
+    choices = body.get("choices", [])
+    if not choices:
+        raise RuntimeError(f"NVIDIA returned no choices for {model}: {body}")
+
+    content = choices[0].get("message", {}).get("content", "")
+    if not content:
+        raise RuntimeError(f"NVIDIA returned empty content for {model}: {body}")
+
+    # Strip thinking tags from reasoning models
+    if "</think>" in content:
+        content = content.split("</think>", 1)[-1].strip()
+
     return content
 
 

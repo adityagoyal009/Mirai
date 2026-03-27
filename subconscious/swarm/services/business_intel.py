@@ -49,6 +49,9 @@ _COUNCIL_DEFAULTS = [
     {"model": "moonshotai/kimi-k2-instruct", "label": "Kimi K2", "provider": "groq"},
     {"model": "qwen-3-235b-a22b-instruct-2507", "label": "Qwen3 235B", "provider": "cerebras"},
     {"model": "openai/gpt-oss-120b", "label": "GPT-OSS 120B", "provider": "groq"},
+    {"model": "mistralai/mistral-large-3-675b-instruct-2512", "label": "Mistral Large 675B", "provider": "nvidia"},
+    {"model": "qwen/qwen3.5-397b-a17b", "label": "Qwen3.5 397B", "provider": "nvidia"},
+    {"model": "z-ai/glm5", "label": "GLM-5", "provider": "nvidia"},
 ]
 
 
@@ -1012,7 +1015,7 @@ class BusinessIntelEngine:
         # ── Reconcile multiple model results ──────────────────────
 
         # Anonymize model labels to prevent brand bias in downstream prompts
-        _anon_labels = ["Evaluator A", "Evaluator B", "Evaluator C", "Evaluator D", "Evaluator E", "Evaluator F", "Evaluator G", "Evaluator H"]
+        _anon_labels = [f"Evaluator {chr(65+i)}" for i in range(20)]  # A through T
         anon_map = {label: _anon_labels[i] if i < len(_anon_labels) else f"Evaluator {i+1}"
                     for i, label in enumerate(model_results.keys())}
         anon_reverse = {v: k for k, v in anon_map.items()}
