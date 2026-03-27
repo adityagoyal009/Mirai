@@ -151,7 +151,7 @@ class GeminiResearcher:
         }).encode("utf-8")
 
         path = f"/v1beta/models/{_MODEL}:generateContent?key={_GOOGLE_AI_KEY}"
-        conn = http.client.HTTPSConnection(_API_HOST, timeout=30,
+        conn = http.client.HTTPSConnection(_API_HOST, timeout=60,
                                             context=ssl.create_default_context())
         conn.request("POST", path, body=payload, headers={
             "Content-Type": "application/json",

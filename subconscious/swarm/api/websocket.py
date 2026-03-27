@@ -252,7 +252,7 @@ def _handle_full_analysis(msg: dict):
             except Exception as e:
                 logger.error(f"[WS] Cache check failed (non-fatal): {e}\n{traceback.format_exc()}")
 
-            # Run research if no cache — Gemini primary, OpenClaw fallback
+            # Run research if no cache — OpenClaw primary, Gemini fallback
             if research is None:
                 def on_progress(round_num, status):
                     broadcast({"type": "researchProgress", "round": round_num, "status": status})
@@ -264,13 +264,13 @@ def _handle_full_analysis(msg: dict):
                 _research_website = getattr(extraction, 'website_url', '')
                 _research_competitors = ', '.join(getattr(extraction, 'known_competitors', []) or [])
 
-                # PRIMARY: Gemini grounded research (fast, no gateway dependency)
+                # PRIMARY: OpenClaw agentic research (deeper, more thorough)
                 try:
-                    from ..services.gemini_researcher import GeminiResearcher
-                    broadcast({"type": "researchProgress", "round": 0, "status": "Web research via Gemini..."})
+                    from ..services.agentic_researcher import AgenticResearcher
+                    import dataclasses
 
-                    gemini = GeminiResearcher()
-                    research = gemini.research(
+                    agentic = AgenticResearcher()
+                    findings = agentic.research(
                         company=_research_company,
                         industry=_research_industry,
                         product=_research_product,
@@ -279,21 +279,20 @@ def _handle_full_analysis(msg: dict):
                         known_competitors=_research_competitors,
                         on_progress=on_progress,
                     )
-
-                    logger.info(f"[WS] Gemini research done: {len(research.get('facts', []))} facts, "
+                    research = dataclasses.asdict(findings) if dataclasses.is_dataclass(findings) else (findings if isinstance(findings, dict) else {})
+                    logger.info(f"[WS] OpenClaw research done: {len(research.get('facts', []))} facts, "
                                f"{len(research.get('competitors', []))} competitors, "
                                f"{len(research.get('sources', []))} sources")
-                except Exception as gemini_err:
-                    logger.warning(f"[WS] Gemini research failed, trying OpenClaw fallback: {gemini_err}")
-                    broadcast({"type": "researchProgress", "round": 0, "status": "Gemini failed, trying OpenClaw..."})
+                except Exception as openclaw_err:
+                    logger.warning(f"[WS] OpenClaw research failed, trying Gemini fallback: {openclaw_err}")
+                    broadcast({"type": "researchProgress", "round": 0, "status": "OpenClaw failed, trying Gemini..."})
 
-                    # FALLBACK: OpenClaw agentic research
+                    # FALLBACK: Gemini grounded research (works when Anthropic is down)
                     try:
-                        from ..services.agentic_researcher import AgenticResearcher
-                        import dataclasses
+                        from ..services.gemini_researcher import GeminiResearcher
 
-                        agentic = AgenticResearcher()
-                        findings = agentic.research(
+                        gemini = GeminiResearcher()
+                        research = gemini.research(
                             company=_research_company,
                             industry=_research_industry,
                             product=_research_product,
@@ -302,14 +301,14 @@ def _handle_full_analysis(msg: dict):
                             known_competitors=_research_competitors,
                             on_progress=on_progress,
                         )
-                        research = dataclasses.asdict(findings) if dataclasses.is_dataclass(findings) else (findings if isinstance(findings, dict) else {})
-                        logger.info(f"[WS] OpenClaw research done: {len(research.get('facts', []))} facts")
-                    except Exception as openclaw_err:
-                        logger.error(f"[WS] Both Gemini and OpenClaw failed — STOPPING pipeline: "
-                                    f"Gemini: {gemini_err} | OpenClaw: {openclaw_err}\n{traceback.format_exc()}")
+                        logger.info(f"[WS] Gemini fallback research done: {len(research.get('facts', []))} facts, "
+                                   f"{len(research.get('sources', []))} sources")
+                    except Exception as gemini_err:
+                        logger.error(f"[WS] Both OpenClaw and Gemini failed — STOPPING pipeline: "
+                                    f"OpenClaw: {openclaw_err} | Gemini: {gemini_err}\n{traceback.format_exc()}")
                         broadcast({
                             "type": "error",
-                            "error": f"Research failed (both Gemini and OpenClaw). Analysis aborted.",
+                            "error": f"Research failed (both OpenClaw and Gemini). Analysis aborted.",
                             "phase": "research",
                             "fatal": True,
                         })
