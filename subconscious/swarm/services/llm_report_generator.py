@@ -24,6 +24,9 @@ logger = get_logger('mirofish.llm_report')
 # In-memory cache for pre-generated reports {analysis_id: pdf_bytes}
 _pdf_cache: Dict[str, bytes] = {}
 
+# In-memory cache for HTML reports {report_id: html_string}
+_html_cache: Dict[str, str] = {}
+
 # ── Persistent Browser Pool ──────────────────────────────────────────────────
 # Keeps a Chromium instance alive in the background. Tabs are created per-render
 # and closed after, so memory stays bounded. The browser itself persists.

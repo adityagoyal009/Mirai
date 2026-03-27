@@ -869,9 +869,9 @@ def _handle_full_analysis(msg: dict):
             except Exception as _analytics_err:
                 logger.debug(f"[WS] Analytics tracking failed (non-fatal): {_analytics_err}")
 
-            # Silent auto-archive: pre-generate PDF (cached for instant download) + save analysis data
+            # Generate HTML report (skip PDF rendering — user views HTML in new tab)
             try:
-                from ..services.llm_report_generator import pre_generate_pdf, generate_pdf_report
+                from ..services.llm_report_generator import generate_llm_report, _html_cache
                 from datetime import datetime
                 import os as _os
 
@@ -915,30 +915,32 @@ def _handle_full_analysis(msg: dict):
                 archive_dir = _os.path.expanduser("~/.mirai/reports")
                 _os.makedirs(archive_dir, exist_ok=True)
 
-                # Pre-generate PDF (cached for instant download on next request)
-                broadcast({"type": "pdfGenerating"})
-                pdf_bytes = pre_generate_pdf(full_analysis)
-                if pdf_bytes is None:
-                    # Fallback to direct generation
-                    pdf_bytes = generate_pdf_report(full_analysis, narrative=full_analysis.get('narrative', ''))
+                # Generate HTML report (no PDF rendering needed)
+                broadcast({"type": "reportGenerating"})
+                html_report = generate_llm_report(full_analysis)
 
-                pdf_path = _os.path.join(archive_dir, f"{ts}_{safe_name}.pdf")
-                with open(pdf_path, 'wb') as f:
-                    f.write(pdf_bytes)
-                broadcast({"type": "pdfReady", "size": len(pdf_bytes)})
+                # Cache for instant retrieval via /api/bi/report/html/{report_id}
+                report_id = f"{safe_name}_{ts}"
+                _html_cache[report_id] = html_report
+                broadcast({"type": "reportReady", "reportId": report_id})
 
-                # Save raw analysis JSON
-                json_path = pdf_path.replace('.pdf', '.json')
+                # Save raw analysis JSON (keep history, skip PDF)
+                json_path = _os.path.join(archive_dir, f"{ts}_{safe_name}.json")
                 with open(json_path, 'w') as f:
                     json.dump(full_analysis, f, default=str, ensure_ascii=False)
 
-                logger.info(f"[WS] Auto-archived report: {pdf_path}")
+                # Also save HTML report to disk
+                html_path = _os.path.join(archive_dir, f"{ts}_{safe_name}.html")
+                with open(html_path, 'w') as f:
+                    f.write(html_report)
+
+                logger.info(f"[WS] Report generated and cached: {report_id} ({len(html_report)} chars)")
             except Exception as archive_err:
-                logger.error(f"[WS] Auto-archive failed — pdfReady will NOT fire: {archive_err}\n{traceback.format_exc()}")
+                logger.error(f"[WS] Report generation failed: {archive_err}\n{traceback.format_exc()}")
                 broadcast({
-                    "type": "pdfFailed",
+                    "type": "reportFailed",
                     "reason": str(archive_err),
-                    "message": "PDF generation failed. The analysis is complete but the report could not be saved or downloaded.",
+                    "message": "Report generation failed. The analysis is complete but the report could not be generated.",
                 })
 
         except Exception as e:
