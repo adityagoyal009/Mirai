@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { mirai, type SwarmResult } from '../miraiApi'
 import { ZONE_NAMES, zoneCounts } from '../hooks/useSwarmAgents'
 
@@ -16,8 +16,14 @@ interface SwarmState {
   researchFeed: Array<{ round: number; status: string }>
   council?: { overall: number; verdict: string; confidence: number; dimensions: Array<{name: string; score: number}>; contestedDimensions: string[]; models: string[] }
   plan?: { risks: any[]; moves: any[] }
-  oasis?: { trajectory: string; timeline: Array<{month: number; event: string; sentimentPct: number; change: number}> }
+  oasis?: { trajectory: string; timeline: Array<{month: number; event: string; sentimentPct: number; change: number; confidenceLow?: number; confidenceHigh?: number}> }
   fullResult?: any
+  pdfReady?: boolean
+  faithfulnessScore?: number
+  citedFacts?: number
+  factVerification?: {verified: number; contradicted: number; unverified: number; trustScore: number}
+  divergence?: any
+  deliberation?: any
 }
 
 interface StartupForm {
@@ -34,6 +40,11 @@ interface StartupForm {
   competitiveAdvantage: string
   pricingStrategy: string
   additionalContext: string
+  websiteUrl: string
+  yearFounded: string
+  location: string
+  revenue: string
+  knownCompetitors: string
 }
 
 const INDUSTRIES = [
@@ -48,27 +59,42 @@ const STAGES = [
   'Idea', 'Pre-seed', 'Seed', 'Series A', 'Series B', 'Series C', 'Growth', 'Pre-IPO',
 ]
 
-const _EMPTY_FORM: StartupForm = {
-  companyName: '', industry: '', product: '', targetMarket: '',
-  businessModel: '', stage: '', fundingRaised: '', traction: '',
-  team: '', ask: '', competitiveAdvantage: '', pricingStrategy: '', additionalContext: '',
-}
-void _EMPTY_FORM
+const REVENUE_STAGES = [
+  'Pre-revenue', '<$10K MRR', '$10-50K MRR', '$50-100K MRR',
+  '$100K-500K MRR', '$500K-1M MRR', '$1M+ ARR', '$5M+ ARR', '$10M+ ARR', 'Other',
+]
+
+const FUNDING_STAGES = [
+  'Unfunded', '<$100K (grants/angels)', '$100K-500K', '$500K-1M',
+  '$1-3M', '$3-10M', '$10-25M', '$25M+', 'Bootstrapped/Profitable', 'Other',
+]
+
+const BUSINESS_MODELS = [
+  'SaaS Subscription', 'Marketplace/Commission', 'Transaction Fees',
+  'Freemium', 'Usage-Based', 'Advertising', 'Hardware + Software',
+  'Licensing', 'Services + Software', 'Other',
+]
 
 const DEMO_FORM: StartupForm = {
   companyName: 'CleanSentinels',
   industry: 'CleanTech',
   product: 'BlueSentinels - AI-powered water quality monitoring. Camera-based vision analysis detects algal blooms, pollution, and water anomalies in real time. Paired with EcoGrow nanotech for a detect-to-treat loop. Key differentiator: affordable, camera-first monitoring replacing expensive sensor arrays, with AI doing the heavy lifting.',
   targetMarket: 'Lake managers, watershed management organizations, environmental nonprofits, and municipalities. Initially targeting Upper Midwest (Red River Basin). Mid-market: organizations managing 1-50 water sites.',
-  businessModel: 'SaaS - per-site, per-camera, per-report recurring revenue. Pilot contracts for initial traction. Tiers: Starter $9/mo, Pro $29/mo, Business $129/mo.',
+  businessModel: 'SaaS Subscription',
   stage: 'Pre-seed',
-  fundingRaised: 'Unfunded (fellowship/program grants only)',
+  fundingRaised: 'Unfunded',
   traction: '30+ NSF I-Corps customer discovery interviews. LOI with Red River Basin Riverkeepers. Completed NSF I-Corps, Gener8tor gBETA, NDSU Possibility Fellowship.',
   team: 'Aditya Goyal (Founder/CEO), Carter Kipp (Dir. Operations & Compliance), Marcel Roy Domalanta (Dir. Strategy & Business Dev), Navneet Uniyal (Dir. Product Engineering)',
   ask: 'Market viability, investor readiness, competitive landscape assessment',
   competitiveAdvantage: 'Detect-to-treat loop (AI detection + EcoGrow treatment - no competitor has both sides). Camera-first approach is 10x cheaper than traditional sensor deployments. Growing dataset from every deployment improves detection models.',
   pricingStrategy: 'SaaS tiers: Starter $9/mo (basic alerts + dashboard), Pro $29/mo (AI analysis + automated reports + historical trends), Business $129/mo (full platform + API access + custom ML models + EcoGrow integration)',
   additionalContext: '',
+  websiteUrl: 'https://cleansentinels.com',
+  yearFounded: '2024',
+  location: 'Fargo, ND',
+  revenue: 'Pre-revenue',
+  // pricingStrategy stays freeform — needs specific tier details
+  knownCompetitors: 'Xylem (YSI brand), HACH (Danaher), Aquasight, LG Sonic, BlueGreen Water Technologies',
 }
 
 function formToExecSummary(f: StartupForm): string {
@@ -86,6 +112,11 @@ function formToExecSummary(f: StartupForm): string {
   if (f.ask) lines.push(`Ask: ${f.ask}`)
   if (f.competitiveAdvantage) lines.push(`Competitive Advantage: ${f.competitiveAdvantage}`)
   if (f.pricingStrategy) lines.push(`Pricing Strategy: ${f.pricingStrategy}`)
+  if (f.websiteUrl) lines.push(`Website: ${f.websiteUrl}`)
+  if (f.yearFounded) lines.push(`Year Founded: ${f.yearFounded}`)
+  if (f.location) lines.push(`Location: ${f.location}`)
+  if (f.revenue) lines.push(`Revenue: ${f.revenue}`)
+  if (f.knownCompetitors) lines.push(`Known Competitors: ${f.knownCompetitors}`)
   const structured = lines.join('. ')
   if (f.additionalContext.trim()) return `${structured}\n\n${f.additionalContext.trim()}`
   return structured
@@ -142,19 +173,152 @@ function FieldCard({ label, value, onChange, placeholder, required, type = 'text
   )
 }
 
-export function SwarmScoreboard() {
+export function SwarmScoreboard({ isMobile = false, onClose, hidden = false }: { isMobile?: boolean; onClose?: () => void; hidden?: boolean } = {}) {
   const [state, setState] = useState<SwarmState>({
     running: false, phase: 'idle', totalAgents: 0, agentsCompleted: 0,
     positivePct: 0, negativePct: 0, avgConfidence: 0,
     recentVotes: [], result: null, researchFeed: [],
   })
   const [form, setForm] = useState<StartupForm>(DEMO_FORM)
-  const [agentCount, setAgentCount] = useState(25)
+  const [agentCount, setAgentCount] = useState(50)
   const [simulateMarket, setSimulateMarket] = useState(false)
   const [connected, setConnected] = useState(mirai.connected)
+  const [uploading, setUploading] = useState(false)
+  const [uploadError, setUploadError] = useState('')
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const updateField = (field: keyof StartupForm, value: string) =>
     setForm(prev => ({ ...prev, [field]: value }))
+
+  const handlePdfUpload = async (file: File) => {
+    if (file.size > 5 * 1024 * 1024) { setUploadError('File too large (max 5MB)'); return; }
+    if (!file.name.toLowerCase().endsWith('.pdf')) { setUploadError('Only PDF files accepted'); return; }
+    setUploading(true); setUploadError('');
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('standardize', 'true');
+      const resp = await fetch('/api/bi/extract-pdf', { method: 'POST', body: fd });
+      if (!resp.ok) {
+        const errData = await resp.json().catch(() => ({}));
+        setUploadError(errData.error || `Server error: ${resp.status}`);
+        setUploading(false);
+        return;
+      }
+      const data = await resp.json();
+      if (data.success && (data.standardized || data.raw_text)) {
+        const textToParse = data.standardized || data.raw_text || '';
+        // Parse standardized text — handles multiple formats:
+        // 1. "Key: Value" lines (e.g. "Company: TechFlow AI")
+        // 2. Section headers + sub-lines (e.g. "COMPANY\nName: TechFlow AI")
+        // 3. Bullet points (e.g. "- $3.2M ARR")
+        const lines = textToParse.split('\n');
+        const parsed: Record<string, string> = {};
+        let currentSection = '';
+        let currentKey = '';
+
+        // Section header mapping (uppercase headers → normalized keys)
+        const sectionMap: Record<string, string> = {
+          'company': 'company', 'industry': 'industry', 'product': 'product',
+          'target market': 'target market', 'market': 'target market',
+          'target': 'target market', 'addressable market': 'target market',
+          'tam': 'target market', 'sam': 'target market',
+          'business model': 'business model', 'revenue model': 'business model',
+          'stage': 'stage', 'funding stage': 'stage',
+          'traction': 'traction', 'metrics': 'traction', 'growth': 'traction',
+          'revenue': 'traction', 'customers': 'traction',
+          'team': 'team', 'founders': 'team', 'leadership': 'team',
+          'competitive advantage': 'competitive advantage',
+          'moat': 'competitive advantage', 'differentiation': 'competitive advantage',
+          'differentiator': 'competitive advantage',
+          'ask': 'ask', 'funding': 'funding raised',
+          'funding raised': 'funding raised', 'fundraising': 'funding raised',
+          'raise': 'funding raised', 'investment': 'funding raised',
+          'capital': 'funding raised', 'use of proceeds': 'ask',
+          'pricing': 'pricing strategy', 'pricing strategy': 'pricing strategy',
+        };
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+
+          // Check if this is a section header (ALL CAPS, no colon, or short)
+          const lowerTrimmed = trimmed.toLowerCase();
+          const matchedSection = Object.keys(sectionMap).find(s => lowerTrimmed === s || lowerTrimmed.startsWith(s + '/'));
+          if (matchedSection && !trimmed.includes(':')) {
+            currentSection = sectionMap[matchedSection];
+            currentKey = currentSection;
+            if (!parsed[currentKey]) parsed[currentKey] = '';
+            continue;
+          }
+
+          // Check for "Key: Value" pattern
+          const kvMatch = trimmed.match(/^[-•]?\s*(\w[\w\s/]*?):\s*(.+)/);
+          if (kvMatch) {
+            const key = kvMatch[1].trim().toLowerCase();
+            const value = kvMatch[2].trim();
+            // If key is a known field, use it directly
+            const normalizedKey = Object.keys(sectionMap).find(s => key === s || key.startsWith(s)) || key;
+            if (['name', 'description'].includes(key) && currentSection) {
+              // Sub-field under a section header (e.g. "Name: TechFlow AI" under COMPANY)
+              parsed[currentSection] = parsed[currentSection]
+                ? parsed[currentSection] + ' ' + value
+                : value;
+              currentKey = currentSection;
+            } else {
+              parsed[normalizedKey] = value;
+              currentKey = normalizedKey;
+            }
+            continue;
+          }
+
+          // Continuation line (bullet point or plain text under current key)
+          if (currentKey && trimmed) {
+            const cleanLine = trimmed.replace(/^[-•]\s*/, '');
+            parsed[currentKey] = parsed[currentKey]
+              ? parsed[currentKey] + '; ' + cleanLine
+              : cleanLine;
+          }
+        }
+
+        // Clear form (remove demo data), then fill with extracted values
+        const blank: StartupForm = {
+          companyName: '', industry: '', product: '', targetMarket: '',
+          businessModel: '', pricingStrategy: '', stage: '', fundingRaised: '',
+          traction: '', team: '', ask: '', competitiveAdvantage: '', additionalContext: '',
+          websiteUrl: '', yearFounded: '', location: '', revenue: '', knownCompetitors: '',
+        };
+
+        const get = (...keys: string[]) => {
+          for (const k of keys) { if (parsed[k]?.trim()) return parsed[k].trim(); }
+          return '';
+        };
+
+        setForm({
+          ...blank,
+          companyName: get('company', 'company name', 'name'),
+          industry: get('industry', 'sector', 'sub-sector'),
+          product: get('product', 'product/service'),
+          targetMarket: get('target market', 'target', 'market', 'addressable market', 'tam', 'sam', 'customers'),
+          businessModel: get('business model', 'revenue model', 'monetization'),
+          pricingStrategy: get('pricing strategy', 'pricing', 'price'),
+          stage: get('stage', 'funding stage', 'round'),
+          fundingRaised: get('funding raised', 'funding', 'previous funding', 'raise', 'fundraising', 'capital raised', 'investment'),
+          traction: get('traction', 'metrics', 'growth', 'revenue', 'users', 'status', 'progress', 'milestones'),
+          team: get('team', 'founders', 'leadership', 'co-founders'),
+          competitiveAdvantage: get('competitive advantage', 'moat', 'differentiation', 'differentiator', 'competitive', 'advantages'),
+          ask: get('ask', 'use of proceeds', 'amount', 'seeking', 'raising'),
+          additionalContext: data.raw_text ? data.raw_text.slice(0, 500) : '',
+        });
+      } else {
+        setUploadError(data.error || 'Extraction failed — try pasting text manually');
+        console.error('PDF extraction response:', data);
+      }
+    } catch (e: any) {
+      setUploadError(e?.message || 'Upload failed — check backend is running');
+    }
+    setUploading(false);
+  };
 
   const requiredFilled = ['companyName', 'industry', 'product', 'targetMarket', 'businessModel', 'stage']
     .filter(k => (form as any)[k]?.trim()).length
@@ -166,16 +330,18 @@ export function SwarmScoreboard() {
       const mt = (msg as any).type as string;
       if (mt === 'researchStarted') { setState(prev => ({ ...prev, running: true, phase: 'research', researchFeed: [] })); return; }
       if (mt === 'researchProgress') { setState(prev => ({ ...prev, researchFeed: [...prev.researchFeed, { round: (msg as any).round || 0, status: (msg as any).status || '' }] })); return; }
-      if (mt === 'researchComplete') { setState(prev => ({ ...prev, phase: 'council', research: { findings: (msg as any).findings, competitors: (msg as any).competitors, summary: (msg as any).summary, sources: (msg as any).sources, rounds: (msg as any).rounds } })); return; }
+      if (mt === 'researchComplete') { setState(prev => ({ ...prev, phase: 'council', research: { findings: (msg as any).findings, competitors: (msg as any).competitors, summary: (msg as any).summary, sources: (msg as any).sources, rounds: (msg as any).rounds }, faithfulnessScore: (msg as any).faithfulnessScore, citedFacts: (msg as any).citedFacts })); return; }
       if (mt === 'councilStarted') { setState(prev => ({ ...prev, phase: 'council' })); return; }
-      if (mt === 'councilComplete') { setState(prev => ({ ...prev, phase: 'swarm', council: { overall: (msg as any).overall, verdict: (msg as any).verdict, confidence: (msg as any).confidence, dimensions: (msg as any).dimensions || [], contestedDimensions: (msg as any).contestedDimensions || [], models: (msg as any).models || [] } })); return; }
+      if (mt === 'councilComplete') { setState(prev => ({ ...prev, phase: 'swarm', council: { overall: (msg as any).overall, verdict: (msg as any).verdict, confidence: (msg as any).confidence, dimensions: (msg as any).dimensions || [], contestedDimensions: (msg as any).contestedDimensions || [], models: (msg as any).models || [] }, factVerification: (msg as any).factVerification, divergence: (msg as any).divergence, deliberation: (msg as any).deliberation })); return; }
       if (mt === 'planStarted') { setState(prev => ({ ...prev, phase: 'plan' })); return; }
       if (mt === 'planComplete') { setState(prev => ({ ...prev, plan: { risks: (msg as any).risks || [], moves: (msg as any).moves || [] } })); return; }
-      if (mt === 'analysisComplete') { setState(prev => ({ ...prev, running: false, phase: 'complete', fullResult: (msg as any).fullResult })); return; }
+      if (mt === 'analysisComplete') { setState(prev => ({ ...prev, running: false, phase: 'complete', fullResult: (msg as any).fullResult, pdfReady: false })); return; }
+      if (mt === 'pdfGenerating') { setState(prev => ({ ...prev, pdfReady: false })); return; }
+      if (mt === 'pdfReady') { setState(prev => ({ ...prev, pdfReady: true })); return; }
       if (mt === 'narrativeStarted') return;
       if (mt === 'oasisStarted') return;
       if (mt === 'oasisRound') {
-        setState(prev => ({ ...prev, oasis: { trajectory: 'running', timeline: [...(prev.oasis?.timeline || []), { month: (msg as any).month, event: (msg as any).event || '', sentimentPct: (msg as any).sentimentPct || 50, change: (msg as any).change || 0 }] } }));
+        setState(prev => ({ ...prev, oasis: { trajectory: 'running', timeline: [...(prev.oasis?.timeline || []), { month: (msg as any).month, event: (msg as any).event || '', sentimentPct: (msg as any).sentimentPct || 50, change: (msg as any).change || 0, confidenceLow: (msg as any).confidenceLow, confidenceHigh: (msg as any).confidenceHigh }] } }));
         return;
       }
       if (mt === 'oasisComplete') {
@@ -204,8 +370,36 @@ export function SwarmScoreboard() {
   }, [])
 
   const handleStart = () => {
-    if (!isFormValid(form)) return
-    mirai.send({ type: 'startAnalysis', execSummary: formToExecSummary(form), agentCount, depth: 'deep', simulateMarket })
+    if (!isFormValid(form) || state.running || state.phase !== 'idle' || !connected) return
+    setState(prev => ({ ...prev, running: true, phase: 'research', result: null, researchFeed: [] }))
+    mirai.send({
+      type: 'startAnalysis',
+      execSummary: formToExecSummary(form),
+      structuredFields: {
+        company: form.companyName,
+        industry: form.industry,
+        product: form.product,
+        target_market: form.targetMarket,
+        business_model: form.businessModel,
+        stage: form.stage,
+        traction: form.traction,
+        ask: form.ask,
+        claims: [],
+        key_differentiators: form.competitiveAdvantage ? [form.competitiveAdvantage] : [],
+        website_url: form.websiteUrl,
+        year_founded: form.yearFounded,
+        location: form.location,
+        revenue: form.revenue,
+        known_competitors: form.knownCompetitors ? form.knownCompetitors.split(',').map((s: string) => s.trim()).filter(Boolean) : [],
+        funding: form.fundingRaised,
+        team: form.team,
+        pricing: form.pricingStrategy,
+      },
+      agentCount,
+      depth: 'deep',
+      simulateMarket,
+      stage: form.stage,
+    })
   }
 
   const progressPct = state.totalAgents > 0 ? Math.round((state.agentsCompleted / state.totalAgents) * 100) : 0
@@ -220,17 +414,38 @@ export function SwarmScoreboard() {
       onClick={(e) => e.stopPropagation()}
       onWheel={(e) => e.stopPropagation()}
       style={{
-        width: 'min(480px, 40vw)', minWidth: 340,
-        height: '100vh', background: 'linear-gradient(180deg, rgba(8, 8, 24, 0.98) 0%, rgba(4, 4, 16, 0.99) 100%)',
+        position: 'fixed',
+        top: isMobile ? 0 : 32,
+        right: 0,
+        bottom: 0,
+        left: isMobile ? 0 : undefined,
+        width: isMobile ? '100%' : 'min(480px, 40vw)',
+        minWidth: isMobile ? undefined : 340,
+        background: 'linear-gradient(180deg, rgba(8, 8, 24, 0.98) 0%, rgba(4, 4, 16, 0.99) 100%)',
         color: '#e0e0e0', fontSize: 13,
-        padding: 'clamp(16px, 2vw, 24px)',
-        overflowY: 'scroll', borderLeft: '2px solid rgba(0, 255, 136, 0.1)', zIndex: 1000,
-        display: 'flex', flexDirection: 'column', gap: 12,
-        boxShadow: '-8px 0 40px rgba(0, 0, 0, 0.6)',
+        padding: isMobile ? '16px 12px' : 'clamp(16px, 2vw, 24px)',
+        paddingBottom: 24,
+        overflowY: 'auto',
+        borderLeft: isMobile ? 'none' : '2px solid rgba(0, 255, 136, 0.1)',
+        zIndex: 1000,
+        display: hidden ? 'none' : 'flex', flexDirection: 'column', gap: 12,
+        boxShadow: isMobile ? 'none' : '-8px 0 40px rgba(0, 0, 0, 0.6)',
       }}>
 
       {/* ── Header ── */}
-      <div style={{ textAlign: 'center', paddingBottom: 12, borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+      <div style={{ textAlign: 'center', paddingBottom: 12, borderBottom: '1px solid rgba(255,255,255,0.05)', position: 'relative' }}>
+        {onClose && (
+          <button
+            onClick={onClose}
+            style={{
+              position: 'absolute', top: 0, right: 0, background: 'none',
+              border: 'none', color: '#555', fontSize: 22, cursor: 'pointer',
+              padding: '4px 8px', lineHeight: 1,
+            }}
+          >
+            ✕
+          </button>
+        )}
         <div style={{ fontSize: 10, letterSpacing: 4, color: '#555', marginBottom: 4 }}>未来</div>
         <div style={{ fontSize: 20, fontWeight: 700, letterSpacing: 3, background: 'linear-gradient(90deg, #00ff88, #4488ff)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
           MIRAI
@@ -252,37 +467,78 @@ export function SwarmScoreboard() {
             </span>
           </div>
 
-          <FieldCard label="Company Name" value={form.companyName} onChange={v => updateField('companyName', v)} placeholder="e.g. CleanSentinels" required />
+          <div
+            style={{
+              border: '2px dashed ' + (uploading ? '#4488ff' : '#1a1a2e'),
+              borderRadius: 8,
+              padding: 20,
+              textAlign: 'center',
+              cursor: uploading ? 'wait' : 'pointer',
+              marginBottom: 12,
+              background: uploading ? 'rgba(68,136,255,0.03)' : 'transparent',
+              transition: 'all 0.2s',
+            }}
+            onClick={() => !uploading && fileInputRef.current?.click()}
+            onDragOver={e => { e.preventDefault(); e.stopPropagation(); }}
+            onDrop={e => { e.preventDefault(); e.stopPropagation(); const f = e.dataTransfer.files[0]; if (f) handlePdfUpload(f); }}
+          >
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".pdf"
+              style={{ display: 'none' }}
+              onChange={e => { const f = e.target.files?.[0]; if (f) handlePdfUpload(f); }}
+            />
+            <div style={{ fontSize: 11, color: uploading ? '#4488ff' : '#555' }}>
+              {uploading ? 'Extracting PDF...' : 'Drop executive summary PDF here or click to upload'}
+            </div>
+            <div style={{ fontSize: 8, color: '#444', marginTop: 4 }}>Max 4 pages, 5MB. Auto-fills all fields.</div>
+            {uploadError && <div style={{ fontSize: 9, color: '#e74c3c', marginTop: 4 }}>{uploadError}</div>}
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <FieldCard label="Company Name" value={form.companyName} onChange={v => updateField('companyName', v)} placeholder="e.g. CleanSentinels" required />
+                <FieldCard label="Website URL" value={form.websiteUrl} onChange={v => updateField('websiteUrl', v)} placeholder="https://..." />
+              </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                 <FieldCard label="Industry" value={form.industry} onChange={v => updateField('industry', v)} type="select" options={INDUSTRIES} placeholder="Select..." required />
                 <FieldCard label="Stage" value={form.stage} onChange={v => updateField('stage', v)} type="select" options={STAGES} placeholder="Select..." required />
               </div>
 
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <FieldCard label="Location / HQ" value={form.location} onChange={v => updateField('location', v)} placeholder="City, State/Country" />
+                <FieldCard label="Year Founded" value={form.yearFounded} onChange={v => updateField('yearFounded', v)} placeholder="2024" />
+              </div>
+
               <FieldCard label="Product / Service" value={form.product} onChange={v => updateField('product', v)} type="textarea" placeholder="What does your product do? What's the key differentiator?" required rows={2} />
 
               <FieldCard label="Target Market" value={form.targetMarket} onChange={v => updateField('targetMarket', v)} placeholder="Who buys this? Be specific: segment, size, geography" required />
 
-              <FieldCard label="Business Model" value={form.businessModel} onChange={v => updateField('businessModel', v)} placeholder="How do you make money? Revenue model type" required />
+              <FieldCard label="Business Model" value={form.businessModel} onChange={v => updateField('businessModel', v)} type="select" options={BUSINESS_MODELS} placeholder="Select revenue model..." required />
 
-              <FieldCard label="Pricing Strategy" value={form.pricingStrategy} onChange={v => updateField('pricingStrategy', v)} placeholder="e.g. Starter $9/mo (alerts), Pro $29/mo (AI reports), Business $129/mo (full platform)" />
+              <FieldCard label="Pricing Strategy" value={form.pricingStrategy} onChange={v => updateField('pricingStrategy', v)} placeholder="e.g. Starter $9/mo, Pro $29/mo, Business $129/mo" />
 
-              <FieldCard label="Traction" value={form.traction} onChange={v => updateField('traction', v)} type="textarea" placeholder="Revenue, users, growth rate, LOIs, pilots, retention..." rows={2} />
+              <FieldCard label="Traction" value={form.traction} onChange={v => updateField('traction', v)} type="textarea" placeholder="Users, growth rate, LOIs, pilots, retention..." rows={2} />
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                <FieldCard label="Funding Raised" value={form.fundingRaised} onChange={v => updateField('fundingRaised', v)} placeholder="e.g. $500K pre-seed" />
+                <FieldCard label="Revenue / ARR" value={form.revenue} onChange={v => updateField('revenue', v)} type="select" options={REVENUE_STAGES} placeholder="Select..." />
+                <FieldCard label="Funding Raised" value={form.fundingRaised} onChange={v => updateField('fundingRaised', v)} type="select" options={FUNDING_STAGES} placeholder="Select..." />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                 <FieldCard label="Team" value={form.team} onChange={v => updateField('team', v)} placeholder="Founders, key hires, domain exp" />
+                <FieldCard label="Ask" value={form.ask} onChange={v => updateField('ask', v)} placeholder="What do you want to know?" />
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                <FieldCard label="Ask" value={form.ask} onChange={v => updateField('ask', v)} placeholder="What do you want to know?" />
-                <FieldCard label="Moat / Advantage" value={form.competitiveAdvantage} onChange={v => updateField('competitiveAdvantage', v)} placeholder="IP, data, network effects..." />
-              </div>
+              <FieldCard label="Moat / Advantage" value={form.competitiveAdvantage} onChange={v => updateField('competitiveAdvantage', v)} placeholder="IP, data, network effects..." />
+
+              <FieldCard label="Known Competitors" value={form.knownCompetitors} onChange={v => updateField('knownCompetitors', v)} type="textarea" rows={2} placeholder="List competitors you know about (comma-separated)" />
 
               {/* Additional Context */}
               <FieldCard label="Additional Context" value={form.additionalContext} onChange={v => updateField('additionalContext', v)}
                 type="textarea" rows={4}
-                placeholder="Paste your full pitch, exec summary, or any extra detail here. This text is sent verbatim to the analysis - nothing is lost." />
+                placeholder="Paste your full pitch, exec summary, or any extra detail here. This text is sent verbatim to the analysis." />
 
               {/* ── Config Row ── */}
               <div style={{
@@ -291,7 +547,7 @@ export function SwarmScoreboard() {
               }}>
                 <select value={agentCount} onChange={e => setAgentCount(Number(e.target.value))}
                   style={{ background: '#0a0a18', color: '#888', border: '1px solid #1a1a2e', padding: '8px 10px', fontSize: 12, borderRadius: 6, cursor: 'pointer' }} {...stopProp}>
-                  {[10, 25, 50, 100, 250, 500, 1000].map(n => (
+                  {[25, 50, 100, 250, 500, 1000].map(n => (
                     <option key={n} value={n} style={{ background: '#0a0a18', color: '#e0e0e0' }}>{n} agents</option>
                   ))}
                 </select>
@@ -303,17 +559,17 @@ export function SwarmScoreboard() {
               </div>
 
               {/* ── Start Button ── */}
-              <button onClick={handleStart} disabled={!isFormValid(form)}
+              <button onClick={handleStart} disabled={!isFormValid(form) || state.running || state.phase !== 'idle' || !connected}
                 style={{
                   width: '100%', padding: '14px 0',
-                  background: isFormValid(form) ? 'linear-gradient(90deg, #00ff88, #00cc66)' : '#111',
-                  color: isFormValid(form) ? '#000' : '#333', border: 'none',
-                  fontSize: 16, fontWeight: 800, cursor: isFormValid(form) ? 'pointer' : 'default',
+                  background: isFormValid(form) && !state.running && connected ? 'linear-gradient(90deg, #00ff88, #00cc66)' : '#111',
+                  color: isFormValid(form) && !state.running && connected ? '#000' : '#333', border: 'none',
+                  fontSize: 16, fontWeight: 800, cursor: isFormValid(form) && !state.running && connected ? 'pointer' : 'default',
                   borderRadius: 8, letterSpacing: 3, transition: 'all 0.2s',
-                  boxShadow: isFormValid(form) ? '0 4px 20px rgba(0, 255, 136, 0.2)' : 'none',
+                  boxShadow: isFormValid(form) && !state.running && connected ? '0 4px 20px rgba(0, 255, 136, 0.2)' : 'none',
                 }}
                 {...stopProp}>
-                {isFormValid(form) ? 'START ANALYSIS' : `${6 - requiredFilled} REQUIRED FIELDS MISSING`}
+                {!connected ? 'CONNECTING...' : state.running ? 'ANALYSIS RUNNING...' : isFormValid(form) ? 'START ANALYSIS' : `${6 - requiredFilled} REQUIRED FIELDS MISSING`}
               </button>
         </div>
       )}
@@ -347,24 +603,61 @@ export function SwarmScoreboard() {
               {/* Phase detail */}
               {state.phase === 'research' && (
                 <div style={{ marginTop: 4 }}>
-                  <div style={{ color: '#ffaa00', fontSize: 11 }}>Searching markets, competitors, trends...</div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ color: '#ffaa00', fontSize: 11 }}>
+                      {state.researchFeed.length === 0 ? 'Initializing research agent...' : 'Agent researching autonomously'}
+                    </div>
+                    {state.researchFeed.length > 0 && (
+                      <div style={{ fontSize: 9, color: '#555', background: 'rgba(68,136,255,0.1)', padding: '2px 8px', borderRadius: 10 }}>
+                        {state.researchFeed.filter(rf => rf.status.startsWith('Searching')).length} searches · {state.researchFeed.filter(rf => rf.status.startsWith('Reading')).length} pages read
+                      </div>
+                    )}
+                  </div>
                   {state.researchFeed.length > 0 && (
-                    <div style={{ maxHeight: 80, overflowY: 'auto', marginTop: 4 }}>
-                      {state.researchFeed.map((rf, i) => (
-                        <div key={i} style={{ fontSize: 10, color: '#666', padding: '2px 0 2px 8px', borderLeft: '2px solid #4488ff', marginBottom: 2 }}>
-                          <span style={{ color: '#4488ff' }}>R{rf.round}</span> {rf.status}
-                        </div>
-                      ))}
+                    <div style={{ maxHeight: 120, overflowY: 'auto', marginTop: 6, scrollBehavior: 'smooth' }}>
+                      {state.researchFeed.map((rf, i) => {
+                        const isSearch = rf.status.startsWith('Searching');
+                        const isRead = rf.status.startsWith('Reading');
+                        const isCompile = rf.status.startsWith('Compil');
+                        const icon = isSearch ? '🔍' : isRead ? '📄' : isCompile ? '📋' : '⚡';
+                        const color = isSearch ? '#4488ff' : isRead ? '#00ff88' : isCompile ? '#ffaa00' : '#888';
+                        const isLatest = i === state.researchFeed.length - 1;
+                        return (
+                          <div key={i} style={{
+                            fontSize: 10, color: isLatest ? '#ccc' : '#555',
+                            padding: '3px 0 3px 0', marginBottom: 1,
+                            display: 'flex', alignItems: 'flex-start', gap: 6,
+                            opacity: isLatest ? 1 : 0.6 + (i / state.researchFeed.length) * 0.4,
+                            borderLeft: `2px solid ${color}`, paddingLeft: 8,
+                          }}>
+                            <span style={{ flexShrink: 0 }}>{icon}</span>
+                            <span>
+                              <span style={{ color, fontWeight: isLatest ? 700 : 400, fontSize: 9 }}>R{rf.round}</span>{' '}
+                              {rf.status.replace('Searching: ', '').replace('Reading: ', '').slice(0, 55)}{rf.status.length > 60 ? '...' : ''}
+                            </span>
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                   {state.research && (
                     <div style={{ fontSize: 10, color: '#00ff88', marginTop: 4 }}>
                       {state.research.findings} facts, {state.research.competitors} competitors{state.research.sources ? `, ${state.research.sources} sources` : ''}
+                      {state.faithfulnessScore != null && (
+                        <span style={{ marginLeft: 8, color: state.faithfulnessScore >= 0.8 ? '#00ff88' : state.faithfulnessScore >= 0.5 ? '#ffaa00' : '#ff4444' }}>
+                          Faithfulness: {(state.faithfulnessScore * 100).toFixed(0)}%
+                        </span>
+                      )}
+                      {state.citedFacts != null && (
+                        <span style={{ marginLeft: 8, color: '#4488ff' }}>
+                          {state.citedFacts} cited
+                        </span>
+                      )}
                     </div>
                   )}
                 </div>
               )}
-              {state.phase === 'council' && !state.council && <div style={{ color: '#ffaa00', fontSize: 11, marginTop: 4 }}>Elders scoring 7 dimensions...</div>}
+              {state.phase === 'council' && !state.council && <div style={{ color: '#ffaa00', fontSize: 11, marginTop: 4 }}>Elders scoring 10 dimensions...</div>}
             </div>
           )}
 
@@ -397,6 +690,19 @@ export function SwarmScoreboard() {
                   <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1, color: state.council.overall >= 6 ? '#00ff88' : state.council.overall >= 4.5 ? '#ffaa00' : '#ff4444' }}>
                     {state.council.verdict.toUpperCase()}
                   </div>
+                  {state.factVerification && (
+                    <div style={{ display: 'flex', justifyContent: 'center', gap: 4, marginTop: 6 }}>
+                      <span style={{ fontSize: 8, padding: '1px 5px', borderRadius: 4, background: 'rgba(0,255,136,0.1)', color: '#00ff88' }}>
+                        {state.factVerification.verified} verified
+                      </span>
+                      <span style={{ fontSize: 8, padding: '1px 5px', borderRadius: 4, background: 'rgba(255,68,68,0.1)', color: '#ff4444' }}>
+                        {state.factVerification.contradicted} contradicted
+                      </span>
+                      <span style={{ fontSize: 8, padding: '1px 5px', borderRadius: 4, background: 'rgba(255,170,0,0.1)', color: '#ffaa00' }}>
+                        {state.factVerification.unverified} unverified
+                      </span>
+                    </div>
+                  )}
                 </div>
               )}
               {state.result && (
@@ -414,15 +720,21 @@ export function SwarmScoreboard() {
           {/* Council Dimensions */}
           {state.council && (
             <div>
-              {state.council.dimensions.map(d => (
-                <div key={d.name} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                  <span style={{ width: 100, fontSize: 10, color: '#666' }}>{d.name.replace(/_/g, ' ')}</span>
-                  <div style={{ flex: 1, height: 8, background: '#0a0a18', borderRadius: 4, overflow: 'hidden' }}>
-                    <div style={{ width: `${d.score * 10}%`, height: '100%', borderRadius: 4, background: d.score >= 7 ? '#00ff88' : d.score >= 5 ? '#ffaa00' : '#ff4444' }} />
+              {state.council.dimensions.map(d => {
+                const isContested = state.council!.contestedDimensions.includes(d.name)
+                return (
+                  <div key={d.name} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, padding: isContested ? '2px 4px' : undefined, borderRadius: isContested ? 4 : undefined, border: isContested ? '1px solid rgba(255,170,0,0.3)' : undefined, animation: isContested ? 'contestedPulse 2s ease-in-out infinite' : undefined }}>
+                    <span style={{ width: 100, fontSize: 10, color: isContested ? '#ffaa00' : '#666', display: 'flex', alignItems: 'center', gap: 4 }}>
+                      {d.name.replace(/_/g, ' ')}
+                      {isContested && <span style={{ fontSize: 7, padding: '0px 3px', borderRadius: 3, background: 'rgba(255,170,0,0.15)', color: '#ffaa00', fontWeight: 700, letterSpacing: 0.5 }}>CONTESTED</span>}
+                    </span>
+                    <div style={{ flex: 1, height: 8, background: '#0a0a18', borderRadius: 4, overflow: 'hidden' }}>
+                      <div style={{ width: `${d.score * 10}%`, height: '100%', borderRadius: 4, background: d.score >= 7 ? '#00ff88' : d.score >= 5 ? '#ffaa00' : '#ff4444' }} />
+                    </div>
+                    <span style={{ width: 24, fontSize: 11, fontWeight: 700, color: d.score >= 7 ? '#00ff88' : d.score >= 5 ? '#ffaa00' : '#ff4444', textAlign: 'right' }}>{d.score.toFixed(1)}</span>
                   </div>
-                  <span style={{ width: 24, fontSize: 11, fontWeight: 700, color: d.score >= 7 ? '#00ff88' : d.score >= 5 ? '#ffaa00' : '#ff4444', textAlign: 'right' }}>{d.score.toFixed(1)}</span>
-                </div>
-              ))}
+                )
+              })}
             </div>
           )}
 
@@ -477,7 +789,9 @@ export function SwarmScoreboard() {
               {state.oasis.timeline.map((t, i) => (
                 <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 2, padding: '2px 0', borderBottom: '1px solid rgba(255,255,255,0.02)' }}>
                   <span style={{ color: '#555', width: 42 }}>M{t.month}</span>
-                  <span style={{ color: t.change > 0 ? '#00ff88' : t.change < 0 ? '#ff4444' : '#555', width: 35, fontWeight: 700 }}>{t.sentimentPct}%</span>
+                  <span style={{ color: t.change > 0 ? '#00ff88' : t.change < 0 ? '#ff4444' : '#555', width: t.confidenceLow != null ? 75 : 35, fontWeight: 700 }}>
+                    {t.sentimentPct}%{t.confidenceLow != null && t.confidenceHigh != null && <span style={{ fontSize: 8, color: '#555', fontWeight: 400 }}> ({t.confidenceLow}-{t.confidenceHigh}%)</span>}
+                  </span>
                   <span style={{ color: '#444', flex: 1 }}>{t.event?.slice(0, 55)}</span>
                 </div>
               ))}
@@ -508,27 +822,75 @@ export function SwarmScoreboard() {
                 </div>
               )}
 
+              {/* Divergence Analysis Panel */}
+              {state.divergence && (
+                <div style={{ padding: 10, borderLeft: '3px solid #ff8800', background: 'rgba(255,136,0,0.03)', borderRadius: '0 6px 6px 0' }}>
+                  <div style={{ color: '#ff8800', fontSize: 10, fontWeight: 700, marginBottom: 6, letterSpacing: 1 }}>DIVERGENCE ANALYSIS</div>
+                  {state.divergence.mostContestedDimension && (
+                    <div style={{ fontSize: 10, color: '#888', marginBottom: 4 }}>
+                      Most contested: <span style={{ color: '#ffaa00', fontWeight: 700 }}>{state.divergence.mostContestedDimension}</span>
+                      {state.divergence.spreadRange != null && <span style={{ color: '#666' }}> (spread: {state.divergence.spreadRange.toFixed(1)})</span>}
+                    </div>
+                  )}
+                  {state.divergence.outlierAgents && state.divergence.outlierAgents.length > 0 && (
+                    <div style={{ marginTop: 4 }}>
+                      <div style={{ fontSize: 9, color: '#666', marginBottom: 2 }}>Top outlier agents:</div>
+                      {state.divergence.outlierAgents.slice(0, 3).map((a: any, i: number) => (
+                        <div key={i} style={{ fontSize: 10, color: '#888', padding: '1px 0 1px 6px', borderLeft: '2px solid #ff8800', marginBottom: 1 }}>
+                          {a.persona || a.model || `Agent ${a.id || i}`}: {a.deviation != null ? `${a.deviation > 0 ? '+' : ''}${a.deviation.toFixed(1)} deviation` : a.reason || ''}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Deliberation Summary */}
+              {state.deliberation && (
+                <div style={{ padding: 10, borderLeft: '3px solid #aa66ff', background: 'rgba(170,102,255,0.03)', borderRadius: '0 6px 6px 0' }}>
+                  <div style={{ color: '#aa66ff', fontSize: 10, fontWeight: 700, marginBottom: 6, letterSpacing: 1 }}>DELIBERATION SUMMARY</div>
+                  {state.deliberation.chairRecommendation && (
+                    <div style={{ fontSize: 10, color: '#888', marginBottom: 4 }}>
+                      Chair recommendation: <span style={{ color: '#aa66ff', fontWeight: 700 }}>{state.deliberation.chairRecommendation}</span>
+                    </div>
+                  )}
+                  {state.deliberation.rounds != null && (
+                    <div style={{ fontSize: 9, color: '#666', marginBottom: 4 }}>{state.deliberation.rounds} deliberation round{state.deliberation.rounds !== 1 ? 's' : ''}{state.deliberation.consensusReached ? ' — consensus reached' : ''}</div>
+                  )}
+                  {state.deliberation.positionChanges && state.deliberation.positionChanges.length > 0 && (
+                    <div style={{ marginTop: 4 }}>
+                      <div style={{ fontSize: 9, color: '#666', marginBottom: 2 }}>Position changes:</div>
+                      {state.deliberation.positionChanges.slice(0, 2).map((pc: any, i: number) => (
+                        <div key={i} style={{ fontSize: 10, color: '#888', padding: '1px 0 1px 6px', borderLeft: '2px solid #aa66ff', marginBottom: 1 }}>
+                          {pc.model || pc.agent || `Member ${i + 1}`}: {pc.from} → {pc.to}{pc.reason ? ` (${pc.reason})` : ''}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Action Buttons */}
               <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
                 <button
                   onClick={() => {
                     const analysis = state.fullResult || {
-                      prediction: { verdict: state.council?.verdict || state.result?.verdict || '', composite_score: state.council?.overall || state.result?.median_overall || 0, confidence: state.council?.confidence || state.result?.avgConfidence || 0, dimensions: state.council?.dimensions || Object.entries(state.result?.avg_scores || {}).map(([name, score]) => ({ name, score })), contested_dimensions: state.council?.contestedDimensions || [] },
-                      research: state.research || {}, swarm: { total_agents: state.result?.totalAgents || 0, positive_pct: state.result?.positivePct || 0, negative_pct: state.result?.negativePct || 0 },
-                      plan: state.plan || {}, extraction: { company: form.companyName, industry: form.industry }, data_quality: 0.9, data_sources: state.result?.modelsUsed || [],
+                      prediction: { verdict: state.council?.verdict || state.result?.verdict || '', composite_score: state.council?.overall || state.result?.median_overall || 0, confidence: state.council?.confidence || state.result?.avgConfidence || 0, dimensions: state.council?.dimensions || Object.entries(state.result?.avg_scores || {}).map(([name, score]) => ({ name, score })), contested_dimensions: state.council?.contestedDimensions || [], council_models: state.council?.models || state.result?.modelsUsed || [] },
+                      research: state.research || {}, swarm: { total_agents: state.result?.totalAgents || state.agentsCompleted || 0, positive_pct: state.result?.positivePct || state.positivePct || 0, negative_pct: state.result?.negativePct || state.negativePct || 0, sample_agents: (state.result as any)?.sampleAgents || state.recentVotes?.map((v: any) => ({ persona: v.persona, vote: v.vote, reasoning: v.reasoning, overall: v.overall })) || [] },
+                      plan: state.plan || {}, extraction: { company: form.companyName, industry: form.industry, product: form.product, target_market: form.targetMarket, business_model: form.businessModel, stage: form.stage, traction: form.traction, team: form.team, ask: form.ask, website_url: form.websiteUrl, location: form.location, revenue: form.revenue, funding: form.fundingRaised, competitive_advantage: form.competitiveAdvantage, known_competitors: form.knownCompetitors ? form.knownCompetitors.split(',').map((s: string) => s.trim()) : [] }, data_quality: 0.9, data_sources: state.result?.modelsUsed || [],
                     }
-                    fetch(`http://${window.location.hostname}:5000/api/bi/report/pdf`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ analysis }) })
+                    fetch(`/api/bi/report/pdf`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ analysis }) })
                     .then(r => r.blob()).then(blob => { const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `mirai-report-${form.companyName.toLowerCase().replace(/\s+/g, '-')}.pdf`; a.click(); URL.revokeObjectURL(url) })
                     .catch(e => console.error('PDF export failed:', e))
                   }}
-                  disabled={state.phase !== 'complete'}
+                  disabled={state.phase !== 'complete' || (state.phase === 'complete' && state.pdfReady === false)}
                   style={{
-                    flex: 1, padding: '12px 0', borderRadius: 8, border: 'none', fontSize: 13, fontWeight: 700, letterSpacing: 1, cursor: state.phase === 'complete' ? 'pointer' : 'default',
-                    background: state.phase === 'complete' ? 'linear-gradient(90deg, #4488ff, #6644ff)' : '#111',
-                    color: state.phase === 'complete' ? '#fff' : '#333',
-                    boxShadow: state.phase === 'complete' ? '0 4px 16px rgba(68, 136, 255, 0.2)' : 'none',
+                    flex: 1, padding: '12px 0', borderRadius: 8, border: 'none', fontSize: 13, fontWeight: 700, letterSpacing: 1, cursor: (state.phase === 'complete' && state.pdfReady !== false) ? 'pointer' : 'default',
+                    background: (state.phase === 'complete' && state.pdfReady !== false) ? 'linear-gradient(90deg, #4488ff, #6644ff)' : state.phase === 'complete' ? 'linear-gradient(90deg, #333, #444)' : '#111',
+                    color: (state.phase === 'complete' && state.pdfReady !== false) ? '#fff' : '#555',
+                    boxShadow: (state.phase === 'complete' && state.pdfReady !== false) ? '0 4px 16px rgba(68, 136, 255, 0.2)' : 'none',
                   }}>
-                  {state.phase === 'complete' ? 'EXPORT PDF' : 'GENERATING...'}
+                  {state.phase === 'complete' ? (state.pdfReady === false ? 'PREPARING PDF...' : 'EXPORT PDF') : 'GENERATING...'}
                 </button>
                 <button
                   onClick={() => { setState({ running: false, phase: 'idle', totalAgents: 0, agentsCompleted: 0, positivePct: 0, negativePct: 0, avgConfidence: 0, recentVotes: [], result: null, researchFeed: [] }); setForm(DEMO_FORM) }}
