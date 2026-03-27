@@ -12,8 +12,7 @@ import requests
 _MIRAI_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _GATEWAY_DIR = os.path.join(_MIRAI_ROOT, "gateway")
 _GATEWAY_ENTRY = os.path.join(_GATEWAY_DIR, "mirai.mjs")
-_GATEWAY_PORT = int(os.environ.get("MIRAI_GATEWAY_PORT",
-                    os.environ.get("OPENCLAW_GATEWAY_PORT", "3000")))
+_GATEWAY_PORT = int(os.environ.get("MIRAI_GATEWAY_PORT", "19789"))
 
 
 class GatewayLauncher:

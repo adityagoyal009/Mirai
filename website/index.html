@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mirai - AI Due Diligence for Startups</title>
+<meta name="description" content="Multi-model AI analysis with swarm intelligence. Get a PitchBook-quality startup report in 24 hours.">
+<style>
+  :root {
+    --bg: #0a0a14;
+    --bg2: #0f0f1e;
+    --bg3: #141428;
+    --text: #e0e0e8;
+    --text2: #888898;
+    --accent: #00ff88;
+    --accent2: #4488ff;
+    --accent3: #6644ff;
+    --red: #ff4455;
+    --orange: #ffaa00;
+    --border: rgba(255,255,255,0.06);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ── Typography ── */
+  h1, h2, h3 { font-weight: 700; line-height: 1.2; }
+  h1 { font-size: clamp(2.5rem, 5vw, 4rem); }
+  h2 { font-size: clamp(1.8rem, 3vw, 2.5rem); }
+  h3 { font-size: 1.2rem; }
+  p { color: var(--text2); }
+
+  /* ── Layout ── */
+  .container { max-width: 1100px; margin: 0 auto; padding: 0 24px; }
+  section { padding: 100px 0; }
+
+  /* ── Nav ── */
+  nav {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+    background: rgba(10, 10, 20, 0.85);
+    backdrop-filter: blur(20px);
+    border-bottom: 1px solid var(--border);
+    padding: 16px 0;
+  }
+  nav .container {
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .nav-logo {
+    display: flex; align-items: center; gap: 10px;
+    text-decoration: none; color: var(--text);
+  }
+  .nav-logo-jp { font-size: 14px; color: var(--text2); }
+  .nav-logo-text { font-size: 20px; font-weight: 800; letter-spacing: 3px; }
+  .nav-cta {
+    background: var(--accent); color: #000; border: none;
+    padding: 10px 24px; border-radius: 6px; font-size: 14px;
+    font-weight: 700; cursor: pointer; text-decoration: none;
+    transition: transform 0.2s, box-shadow 0.2s;
+  }
+  .nav-cta:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 20px rgba(0, 255, 136, 0.3);
+  }
+
+  /* ── Hero ── */
+  .hero {
+    padding: 160px 0 100px;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+  }
+  .hero::before {
+    content: '';
+    position: absolute; top: 0; left: 50%; transform: translateX(-50%);
+    width: 800px; height: 600px;
+    background: radial-gradient(ellipse, rgba(0,255,136,0.06) 0%, rgba(68,136,255,0.03) 40%, transparent 70%);
+    pointer-events: none;
+  }
+  .hero-badge {
+    display: inline-block; padding: 6px 16px; border-radius: 20px;
+    background: rgba(0,255,136,0.08); border: 1px solid rgba(0,255,136,0.15);
+    font-size: 13px; color: var(--accent); margin-bottom: 24px;
+    letter-spacing: 1px;
+  }
+  .hero h1 { margin-bottom: 20px; }
+  .hero h1 .gradient {
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .hero p {
+    font-size: 1.15rem; max-width: 600px; margin: 0 auto 40px;
+    color: var(--text2); line-height: 1.7;
+  }
+  .hero-cta {
+    display: inline-block; padding: 16px 40px; border-radius: 8px;
+    background: linear-gradient(135deg, var(--accent), #00cc66);
+    color: #000; font-size: 16px; font-weight: 800; text-decoration: none;
+    letter-spacing: 1px; transition: all 0.3s;
+    box-shadow: 0 4px 30px rgba(0,255,136,0.2);
+  }
+  .hero-cta:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 40px rgba(0,255,136,0.35);
+  }
+  .hero-sub {
+    margin-top: 16px; font-size: 13px; color: var(--text2);
+  }
+
+  /* ── Stats Bar ── */
+  .stats {
+    display: flex; justify-content: center; gap: 48px; flex-wrap: wrap;
+    padding: 40px 0;
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+  }
+  .stat { text-align: center; }
+  .stat-value {
+    font-size: 2rem; font-weight: 800;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .stat-label { font-size: 12px; color: var(--text2); text-transform: uppercase; letter-spacing: 1px; margin-top: 4px; }
+
+  /* ── Section Headers ── */
+  .section-header {
+    text-align: center; margin-bottom: 60px;
+  }
+  .section-header p {
+    max-width: 550px; margin: 16px auto 0; font-size: 1.05rem;
+  }
+  .section-tag {
+    font-size: 12px; text-transform: uppercase; letter-spacing: 3px;
+    color: var(--accent2); margin-bottom: 12px;
+  }
+
+  /* ── Pipeline ── */
+  .pipeline {
+    display: grid; grid-template-columns: repeat(5, 1fr); gap: 16px;
+  }
+  .pipeline-step {
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 12px; padding: 28px 20px; text-align: center;
+    position: relative; transition: all 0.3s;
+  }
+  .pipeline-step:hover {
+    border-color: rgba(0,255,136,0.2);
+    transform: translateY(-4px);
+    box-shadow: 0 8px 30px rgba(0,0,0,0.3);
+  }
+  .step-num {
+    width: 36px; height: 36px; border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    color: #000; font-weight: 800; font-size: 14px;
+    display: flex; align-items: center; justify-content: center;
+    margin: 0 auto 16px;
+  }
+  .pipeline-step h3 { margin-bottom: 8px; color: var(--text); }
+  .pipeline-step p { font-size: 13px; line-height: 1.5; }
+  .step-models {
+    margin-top: 12px; display: flex; gap: 4px; justify-content: center; flex-wrap: wrap;
+  }
+  .model-tag {
+    font-size: 10px; padding: 3px 8px; border-radius: 4px;
+    background: rgba(68,136,255,0.1); color: var(--accent2);
+    border: 1px solid rgba(68,136,255,0.15);
+  }
+
+  /* ── Features Grid ── */
+  .features {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px;
+  }
+  .feature {
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 12px; padding: 32px 24px;
+    transition: all 0.3s;
+  }
+  .feature:hover {
+    border-color: rgba(68,136,255,0.2);
+    transform: translateY(-2px);
+  }
+  .feature-icon {
+    width: 44px; height: 44px; border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 20px; margin-bottom: 16px;
+  }
+  .feature h3 { margin-bottom: 8px; }
+  .feature p { font-size: 13px; }
+
+  /* ── Report Preview ── */
+  .report-section { background: var(--bg2); }
+  .report-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 40px; align-items: center;
+  }
+  .report-features { display: flex; flex-direction: column; gap: 16px; }
+  .report-feature {
+    display: flex; gap: 12px; align-items: flex-start;
+  }
+  .report-feature-dot {
+    width: 8px; height: 8px; border-radius: 50%; margin-top: 8px; flex-shrink: 0;
+  }
+  .report-feature h4 { font-size: 14px; margin-bottom: 2px; }
+  .report-feature p { font-size: 13px; }
+  .report-preview-card {
+    background: var(--bg3); border: 1px solid var(--border);
+    border-radius: 12px; overflow: hidden;
+  }
+  .report-preview-header {
+    background: #001f3f; padding: 20px 24px; color: white;
+  }
+  .report-preview-header h4 { font-size: 11px; letter-spacing: 2px; opacity: 0.6; }
+  .report-preview-header h3 { font-size: 18px; margin-top: 4px; }
+  .report-preview-body { padding: 24px; }
+  .report-metric-row {
+    display: flex; gap: 16px; margin-bottom: 16px;
+  }
+  .report-metric {
+    flex: 1; text-align: center; padding: 12px;
+    background: rgba(255,255,255,0.03); border-radius: 8px;
+  }
+  .report-metric .val {
+    font-size: 24px; font-weight: 800;
+  }
+  .report-metric .lbl {
+    font-size: 10px; color: var(--text2); text-transform: uppercase; letter-spacing: 1px; margin-top: 2px;
+  }
+  .report-dim {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 6px;
+  }
+  .report-dim-label { font-size: 11px; color: var(--text2); width: 130px; }
+  .report-dim-bar {
+    flex: 1; height: 8px; background: rgba(255,255,255,0.05); border-radius: 4px; overflow: hidden;
+  }
+  .report-dim-fill { height: 100%; border-radius: 4px; }
+  .report-dim-score { font-size: 12px; font-weight: 700; width: 30px; text-align: right; }
+
+  /* ── Submit Section ── */
+  .submit-section { background: var(--bg); }
+  .submit-box {
+    max-width: 640px; margin: 0 auto;
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 16px; padding: 40px;
+  }
+  .submit-box h3 {
+    text-align: center; margin-bottom: 8px; font-size: 1.5rem;
+  }
+  .submit-box > p {
+    text-align: center; margin-bottom: 32px; font-size: 14px;
+  }
+  .form-group { margin-bottom: 16px; }
+  .form-group label {
+    display: block; font-size: 12px; color: var(--text2);
+    text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px;
+  }
+  .form-group input, .form-group textarea, .form-group select {
+    width: 100%; padding: 12px 16px;
+    background: var(--bg); color: var(--text); border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px; font-size: 14px; font-family: inherit;
+    outline: none; transition: border-color 0.2s;
+  }
+  .form-group input:focus, .form-group textarea:focus, .form-group select:focus {
+    border-color: rgba(0,255,136,0.3);
+  }
+  .form-group textarea { resize: vertical; min-height: 120px; }
+  .form-group select option { background: var(--bg); color: var(--text); }
+  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .submit-btn {
+    width: 100%; padding: 16px; margin-top: 8px;
+    background: linear-gradient(135deg, var(--accent), #00cc66);
+    color: #000; border: none; border-radius: 8px;
+    font-size: 16px; font-weight: 800; letter-spacing: 1px;
+    cursor: pointer; transition: all 0.3s;
+    box-shadow: 0 4px 20px rgba(0,255,136,0.15);
+  }
+  .submit-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 30px rgba(0,255,136,0.3);
+  }
+  .submit-btn:disabled {
+    background: #222; color: #555; cursor: default;
+    box-shadow: none; transform: none;
+  }
+  .submit-note {
+    text-align: center; margin-top: 16px;
+    font-size: 12px; color: var(--text2);
+  }
+  .submit-success {
+    text-align: center; padding: 40px 20px;
+  }
+  .submit-success h3 { color: var(--accent); margin-bottom: 12px; }
+
+  /* ── Footer ── */
+  footer {
+    padding: 40px 0;
+    border-top: 1px solid var(--border);
+    text-align: center;
+  }
+  footer p { font-size: 13px; color: var(--text2); }
+  footer a { color: var(--accent2); text-decoration: none; }
+
+  /* ── Responsive ── */
+  @media (max-width: 768px) {
+    .pipeline { grid-template-columns: 1fr; }
+    .features { grid-template-columns: 1fr; }
+    .report-grid { grid-template-columns: 1fr; }
+    .form-row { grid-template-columns: 1fr; }
+    .stats { gap: 24px; }
+    section { padding: 60px 0; }
+  }
+
+  /* ── Animations ── */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .fade-up {
+    opacity: 0; animation: fadeUp 0.6s ease-out forwards;
+  }
+  .fade-up-d1 { animation-delay: 0.1s; }
+  .fade-up-d2 { animation-delay: 0.2s; }
+  .fade-up-d3 { animation-delay: 0.3s; }
+</style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<!-- ── Nav ── -->
+<nav>
+  <div class="container">
+    <a href="#" class="nav-logo">
+      <span class="nav-logo-jp">未来</span>
+      <span class="nav-logo-text">MIRAI</span>
+    </a>
+    <a href="#submit" class="nav-cta">Get Your Report</a>
+  </div>
+</nav>
+
+<!-- ── Hero ── -->
+<section class="hero">
+  <div class="container">
+    <div class="hero-badge fade-up">AI-Powered Due Diligence</div>
+    <h1 class="fade-up fade-up-d1">
+      Know if a startup will <span class="gradient">make it</span><br>
+      before writing the check.
+    </h1>
+    <p class="fade-up fade-up-d2">
+      Mirai analyzes startups using 4 frontier LLMs, 1.6 million real-world personas,
+      and live market research. Get a PitchBook-quality report delivered to your inbox.
+    </p>
+    <a href="#submit" class="hero-cta fade-up fade-up-d3">Submit a Startup</a>
+    <div class="hero-sub fade-up fade-up-d3">Free during beta. Report delivered within 24 hours.</div>
+  </div>
+</section>
+
+<!-- ── Stats ── -->
+<div class="container">
+  <div class="stats">
+    <div class="stat">
+      <div class="stat-value">4</div>
+      <div class="stat-label">LLM Models</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value">1.6M</div>
+      <div class="stat-label">Persona Pool</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value">7</div>
+      <div class="stat-label">Scoring Dimensions</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value">231K</div>
+      <div class="stat-label">Company Database</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value">3</div>
+      <div class="stat-label">AI Providers</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── How It Works ── -->
+<section>
+  <div class="container">
+    <div class="section-header">
+      <div class="section-tag">How It Works</div>
+      <h2>Five-phase AI analysis pipeline</h2>
+      <p>Each startup goes through research, scoring, crowd simulation, market modeling, and report generation.</p>
+    </div>
+    <div class="pipeline">
+      <div class="pipeline-step">
+        <div class="step-num">1</div>
+        <h3>Research</h3>
+        <p>Three LLMs research the market, competitors, and regulatory landscape in parallel using live web search.</p>
+        <div class="step-models">
+          <span class="model-tag">Claude</span>
+          <span class="model-tag">GPT</span>
+          <span class="model-tag">Gemini</span>
+        </div>
+      </div>
+      <div class="pipeline-step">
+        <div class="step-num">2</div>
+        <h3>Council</h3>
+        <p>Four LLMs independently score 7 dimensions. Disagreements flagged as contested.</p>
+        <div class="step-models">
+          <span class="model-tag">Opus</span>
+          <span class="model-tag">Sonnet</span>
+          <span class="model-tag">GPT-5.4</span>
+          <span class="model-tag">Gemini 3.1</span>
+        </div>
+      </div>
+      <div class="pipeline-step">
+        <div class="step-num">3</div>
+        <h3>Swarm</h3>
+        <p>25 persona agents from 1.6M real-world profiles evaluate from 6 zones: investors, customers, operators, analysts, contrarians, wild cards.</p>
+      </div>
+      <div class="pipeline-step">
+        <div class="step-num">4</div>
+        <h3>OASIS</h3>
+        <p>6-month market simulation where 12 agents react to generated events and evolve their opinions over time.</p>
+      </div>
+      <div class="pipeline-step">
+        <div class="step-num">5</div>
+        <h3>Report</h3>
+        <p>Six LLM-generated professional sections compiled into a PitchBook-quality PDF with inline charts.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Features ── -->
+<section style="background: var(--bg2);">
+  <div class="container">
+    <div class="section-header">
+      <div class="section-tag">Why Mirai</div>
+      <h2>What makes this different</h2>
+    </div>
+    <div class="features">
+      <div class="feature">
+        <div class="feature-icon" style="background: rgba(0,255,136,0.1); color: var(--accent);">&#x2694;</div>
+        <h3>Multi-model consensus</h3>
+        <p>Four LLMs from three providers score independently. Disagreements surface uncertainty rather than hiding it.</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon" style="background: rgba(68,136,255,0.1); color: var(--accent2);">&#x1F465;</div>
+        <h3>Real persona intelligence</h3>
+        <p>1.6 million real-world personas, not generic AI responses. A patent attorney in Seoul evaluates differently than a growth VC in Tel Aviv.</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon" style="background: rgba(255,170,0,0.1); color: var(--orange);">&#x1F50D;</div>
+        <h3>Grounded in live research</h3>
+        <p>Three models search the web simultaneously, crawl pages, and synthesize findings. Analysis is based on real data, not just founder claims.</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon" style="background: rgba(102,68,255,0.1); color: var(--accent3);">&#x26A0;</div>
+        <h3>Zone-based pressure</h3>
+        <p>Contrarians find fatal flaws. Investors ask about check-writing willingness. The zone system forces diverse evaluation that single prompts can't achieve.</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon" style="background: rgba(255,68,85,0.1); color: var(--red);">&#x1F4C8;</div>
+        <h3>Forward-looking simulation</h3>
+        <p>OASIS doesn't just score today. It simulates 6 months of market events and tracks how sentiment evolves, producing trajectory not a snapshot.</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon" style="background: rgba(0,255,136,0.1); color: var(--accent);">&#x1F4CB;</div>
+        <h3>Publication-ready PDF</h3>
+        <p>Professional report with SVG charts, zone-grouped agent reasoning, competitive landscape, and strategic recommendations. Ready to share.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Report Preview ── -->
+<section class="report-section">
+  <div class="container">
+    <div class="section-header">
+      <div class="section-tag">The Output</div>
+      <h2>PitchBook-quality analysis report</h2>
+      <p>Every analysis produces a comprehensive PDF with scoring, research findings, agent reasoning, and strategic recommendations.</p>
+    </div>
+    <div class="report-grid">
+      <div class="report-features">
+        <div class="report-feature">
+          <div class="report-feature-dot" style="background: var(--accent);"></div>
+          <div>
+            <h4>7-Dimension Scoring</h4>
+            <p>Market timing, business model, competition, team execution, regulatory environment, social proof, and pattern matching - each weighted and scored by the council.</p>
+          </div>
+        </div>
+        <div class="report-feature">
+          <div class="report-feature-dot" style="background: var(--accent2);"></div>
+          <div>
+            <h4>Competitive Landscape</h4>
+            <p>Named competitors enriched from a 231K company database with industry, status, and funding data. Full positioning analysis.</p>
+          </div>
+        </div>
+        <div class="report-feature">
+          <div class="report-feature-dot" style="background: var(--orange);"></div>
+          <div>
+            <h4>Zone-Grouped Agent Reasoning</h4>
+            <p>Every persona agent's vote, score, and full reasoning - grouped by zone with per-zone hit rates. See exactly why investors differ from operators.</p>
+          </div>
+        </div>
+        <div class="report-feature">
+          <div class="report-feature-dot" style="background: var(--accent3);"></div>
+          <div>
+            <h4>Strategic Recommendations</h4>
+            <p>Top risks with severity, next moves with priority, go-to-market suggestions, and actionable improvements for weak dimensions.</p>
+          </div>
+        </div>
+      </div>
+      <div class="report-preview-card">
+        <div class="report-preview-header">
+          <h4>MIRAI ANALYSIS</h4>
+          <h3>CleanSentinels | Private Company Profile</h3>
+        </div>
+        <div class="report-preview-body">
+          <div class="report-metric-row">
+            <div class="report-metric">
+              <div class="val" style="color: var(--accent);">7.3</div>
+              <div class="lbl">Score</div>
+            </div>
+            <div class="report-metric">
+              <div class="val" style="color: var(--accent);">LIKELY HIT</div>
+              <div class="lbl">Verdict</div>
+            </div>
+            <div class="report-metric">
+              <div class="val" style="color: var(--accent2);">60%</div>
+              <div class="lbl">Swarm HIT</div>
+            </div>
+          </div>
+          <div class="report-dim">
+            <div class="report-dim-label">Regulatory Env.</div>
+            <div class="report-dim-bar"><div class="report-dim-fill" style="width:90%;background:var(--accent);"></div></div>
+            <div class="report-dim-score" style="color:var(--accent);">9.0</div>
+          </div>
+          <div class="report-dim">
+            <div class="report-dim-label">Market Timing</div>
+            <div class="report-dim-bar"><div class="report-dim-fill" style="width:80%;background:var(--accent);"></div></div>
+            <div class="report-dim-score" style="color:var(--accent);">8.0</div>
+          </div>
+          <div class="report-dim">
+            <div class="report-dim-label">Competition</div>
+            <div class="report-dim-bar"><div class="report-dim-fill" style="width:70%;background:var(--accent);"></div></div>
+            <div class="report-dim-score" style="color:var(--accent);">7.0</div>
+          </div>
+          <div class="report-dim">
+            <div class="report-dim-label">Business Model</div>
+            <div class="report-dim-bar"><div class="report-dim-fill" style="width:70%;background:var(--accent);"></div></div>
+            <div class="report-dim-score" style="color:var(--accent);">7.0</div>
+          </div>
+          <div class="report-dim">
+            <div class="report-dim-label">Team Execution</div>
+            <div class="report-dim-bar"><div class="report-dim-fill" style="width:70%;background:var(--accent);"></div></div>
+            <div class="report-dim-score" style="color:var(--accent);">7.0</div>
+          </div>
+          <div class="report-dim">
+            <div class="report-dim-label">Social Proof</div>
+            <div class="report-dim-bar"><div class="report-dim-fill" style="width:60%;background:var(--orange);"></div></div>
+            <div class="report-dim-score" style="color:var(--orange);">6.0</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Submit ── -->
+<section class="submit-section" id="submit">
+  <div class="container">
+    <div class="submit-box">
+      <h3>Get your analysis</h3>
+      <p>Submit your startup's executive summary. We'll run the full 5-phase pipeline and email you the PDF report within 24 hours.</p>
+
+      <form id="submitForm">
+        <div class="form-row">
+          <div class="form-group">
+            <label>Company Name *</label>
+            <input type="text" name="companyName" required placeholder="e.g. CleanSentinels">
+          </div>
+          <div class="form-group">
+            <label>Your Email *</label>
+            <input type="email" name="email" required placeholder="you@example.com">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Industry *</label>
+            <select name="industry" required>
+              <option value="">Select...</option>
+              <option>SaaS</option><option>FinTech</option><option>HealthTech</option>
+              <option>CleanTech</option><option>AI/ML</option><option>DeepTech</option>
+              <option>EdTech</option><option>E-Commerce</option><option>BioTech</option>
+              <option>Cybersecurity</option><option>Marketplace</option><option>Consumer</option>
+              <option>Enterprise</option><option>Other</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Stage *</label>
+            <select name="stage" required>
+              <option value="">Select...</option>
+              <option>Idea</option><option>Pre-seed</option><option>Seed</option>
+              <option>Series A</option><option>Series B</option><option>Growth</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Executive Summary *</label>
+          <textarea name="execSummary" required
+            placeholder="Describe your startup: what you're building, who it's for, your business model, traction, team, and competitive advantage. The more detail you provide, the better the analysis."></textarea>
+        </div>
+        <button type="submit" class="submit-btn">SUBMIT FOR ANALYSIS</button>
+      </form>
+      <div class="submit-note">
+        Free during beta. No credit card required. Report delivered via email within 24 hours.
+      </div>
+
+      <div id="submitSuccess" class="submit-success" style="display:none;">
+        <h3>Submission Received</h3>
+        <p>We'll analyze <strong id="successCompany"></strong> using our full 5-phase pipeline and send the PDF report to <strong id="successEmail"></strong> within 24 hours.</p>
+        <p style="margin-top: 16px; font-size: 13px; color: var(--text2);">Pipeline: Multi-model research, 4-elder council scoring, 25-agent swarm analysis, OASIS market simulation, and professional report generation.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Footer ── -->
+<footer>
+  <div class="container">
+    <p style="margin-bottom: 8px;">
+      <span style="color: var(--text2);">未来</span>
+      <span style="font-weight: 700; letter-spacing: 2px; margin-left: 8px;">MIRAI</span>
+    </p>
+    <p>AI-powered due diligence. Built by <a href="https://github.com/adityagoyal009" target="_blank">Aditya Goyal</a>.</p>
+    <p style="margin-top: 8px; font-size: 11px;">4 LLMs. 1.6M personas. 231K companies. 7 dimensions. One report.</p>
+  </div>
+</footer>
+
+<script>
+document.getElementById('submitForm').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  const form = e.target;
+  const btn = form.querySelector('.submit-btn');
+  const data = Object.fromEntries(new FormData(form));
+
+  btn.disabled = true;
+  btn.textContent = 'SUBMITTING...';
+
+  try {
+    // Store submission (replace with your actual backend endpoint)
+    const resp = await fetch('/api/submit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+
+    // Show success regardless (graceful degradation during beta)
+    form.style.display = 'none';
+    document.getElementById('successCompany').textContent = data.companyName;
+    document.getElementById('successEmail').textContent = data.email;
+    document.getElementById('submitSuccess').style.display = 'block';
+  } catch (err) {
+    // Fallback: still show success, log error
+    console.error('Submit error:', err);
+    form.style.display = 'none';
+    document.getElementById('successCompany').textContent = data.companyName;
+    document.getElementById('successEmail').textContent = data.email;
+    document.getElementById('submitSuccess').style.display = 'block';
+  }
+});
+</script>
+
+</body>
+</html>

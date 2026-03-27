@@ -181,6 +181,36 @@ export class OfficeState {
     return null;
   }
 
+  // Pre-computed seat positions per zone (from layout JSON chair coordinates)
+  // Bypasses layoutToSeats() which depends on catalog timing
+  private static ZONE_SEATS: Record<string, Array<{col: number; row: number}>> = {
+    investor:   [{col:3,row:4},{col:3,row:8},{col:3,row:12},{col:8,row:4},{col:8,row:8},{col:8,row:12}],
+    customer:   [{col:15,row:4},{col:15,row:8},{col:15,row:12},{col:21,row:4},{col:21,row:8},{col:21,row:12}],
+    operator:   [{col:29,row:3},{col:29,row:6},{col:29,row:9},{col:29,row:12},{col:34,row:3},{col:34,row:6},{col:34,row:9},{col:34,row:12}],
+    council:    [{col:42,row:7},{col:45,row:7},{col:42,row:9},{col:45,row:9}],
+    analyst:    [{col:3,row:20},{col:3,row:24},{col:3,row:28},{col:8,row:20},{col:8,row:24},{col:8,row:28}],
+    contrarian: [{col:17,row:22},{col:20,row:22},{col:16,row:26},{col:16,row:29},{col:16,row:32},{col:22,row:26},{col:22,row:29}],
+    wildcard:   [{col:28,row:20},{col:28,row:24},{col:28,row:28},{col:35,row:20},{col:35,row:24},{col:35,row:28},{col:41,row:19},{col:41,row:24},{col:44,row:25},{col:44,row:28}],
+  };
+  private zoneSeatsTaken = new Set<string>();
+
+  findZoneSeatPosition(zone: string): {col: number; row: number} | null {
+    const seats = OfficeState.ZONE_SEATS[zone];
+    if (!seats) return null;
+    for (const pos of seats) {
+      const key = `${zone}_${pos.col}_${pos.row}`;
+      if (!this.zoneSeatsTaken.has(key)) {
+        this.zoneSeatsTaken.add(key);
+        return pos;
+      }
+    }
+    return null;
+  }
+
+  resetZoneSeats(): void {
+    this.zoneSeatsTaken.clear();
+  }
+
   /**
    * Pick a diverse palette for a new agent based on currently active agents.
    * First 6 agents each get a unique skin (random order). Beyond 6, skins
@@ -215,6 +245,7 @@ export class OfficeState {
     preferredSeatId?: string,
     skipSpawnEffect?: boolean,
     folderName?: string,
+    zone?: string,
   ): void {
     if (this.characters.has(id)) return;
 
@@ -237,12 +268,23 @@ export class OfficeState {
         seatId = preferredSeatId;
       }
     }
-    if (!seatId) {
+    // Zone-based seating: use hardcoded positions (bypasses catalog timing issue)
+    let zonePos: {col: number; row: number} | null = null;
+    if (!seatId && zone) {
+      zonePos = this.findZoneSeatPosition(zone);
+    }
+    if (!seatId && !zonePos) {
       seatId = this.findFreeSeat();
     }
 
     let ch: Character;
-    if (seatId) {
+    if (zonePos) {
+      // Create character at zone seat position directly
+      ch = createCharacter(id, palette, null, {
+        uid: '', seatCol: zonePos.col, seatRow: zonePos.row,
+        facingDir: Direction.DOWN, assigned: true
+      }, hueShift);
+    } else if (seatId) {
       const seat = this.seats.get(seatId)!;
       seat.assigned = true;
       ch = createCharacter(id, palette, seatId, seat, hueShift);

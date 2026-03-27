@@ -16,6 +16,7 @@ import { isRotatable } from './office/layout/furnitureCatalog.js';
 import { EditTool } from './office/types.js';
 import { isBrowserRuntime } from './runtime.js';
 import { vscode } from './vscodeApi.js';
+import { AgentLabels } from './components/AgentLabels.js';
 import { SwarmScoreboard } from './components/SwarmScoreboard.js';
 import { useSwarmAgents } from './hooks/useSwarmAgents.js';
 
@@ -152,7 +153,9 @@ function App() {
   } = useExtensionMessages(getOfficeState, editor.setLastSavedLayout, isEditDirty);
 
   // Connect swarm agents to pixel characters
-  useSwarmAgents(getOfficeState);
+  const swarmAgentIds = useSwarmAgents(getOfficeState);
+  // Merge swarm agent IDs with extension agents for label rendering
+  const allAgents = [...new Set([...agents, ...swarmAgentIds])];
 
   // Show migration notice once layout reset is detected
   const [migrationNoticeDismissed, setMigrationNoticeDismissed] = useState(false);
@@ -240,10 +243,11 @@ function App() {
   }
 
   return (
+    <div style={{ display: 'flex', width: '100%', height: '100%' }}>
     <div
       ref={containerRef}
       style={{
-        width: isBrowserRuntime ? 'calc(100% - min(480px, 40vw))' : '100%',
+        flex: 1,
         height: '100%', position: 'relative', overflow: 'hidden',
       }}
     >
@@ -367,9 +371,22 @@ function App() {
         />
       )}
 
+      {/* Swarm agent hover tooltips */}
+      {swarmAgentIds.length > 0 && (
+        <AgentLabels
+          officeState={officeState}
+          agents={swarmAgentIds}
+          agentStatuses={agentStatuses}
+          containerRef={containerRef}
+          zoom={editor.zoom}
+          panRef={editor.panRef}
+          subagentCharacters={[]}
+        />
+      )}
+
       {isDebugMode && (
         <DebugView
-          agents={agents}
+          agents={allAgents}
           selectedAgent={selectedAgent}
           agentTools={agentTools}
           agentStatuses={agentStatuses}
@@ -377,8 +394,6 @@ function App() {
           onSelectAgent={handleSelectAgent}
         />
       )}
-
-      {isBrowserRuntime && <SwarmScoreboard />}
 
       {showMigrationNotice && (
         <div
@@ -442,6 +457,8 @@ function App() {
           </div>
         </div>
       )}
+    </div>
+    {isBrowserRuntime && <SwarmScoreboard />}
     </div>
   );
 }

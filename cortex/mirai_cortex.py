@@ -30,12 +30,11 @@ _BLOCKED_RE = re.compile("|".join(_BLOCKED_COMMANDS), re.IGNORECASE)
 _SWARM_URL = os.environ.get("MIRAI_SWARM_URL", "http://localhost:5000")
 
 # ── LLM / Gateway configuration ─────────────────────────────────
-_LLM_API_KEY = os.environ.get("LLM_API_KEY", "openclaw")
-_LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "http://localhost:3000/v1")
+_LLM_API_KEY = os.environ.get("LLM_API_KEY", "mirai")
+_LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "http://localhost:19789/v1")
 _GATEWAY_URL = _LLM_BASE_URL.replace("/v1", "")
 _GATEWAY_HEALTH_CHECK_INTERVAL = 10  # Check gateway every N cycles
-_WHATSAPP_NUMBER = os.environ.get("MIRAI_WHATSAPP_NUMBER",
-                   os.environ.get("OPENCLAW_WHATSAPP_NUMBER", ""))
+_WHATSAPP_NUMBER = os.environ.get("MIRAI_WHATSAPP_NUMBER", "")
 
 
 class MiraiBrain:

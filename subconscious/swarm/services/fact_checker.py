@@ -51,12 +51,20 @@ def check_facts(agent_reasonings: List[str], research_context: str) -> Dict[str,
 
         logger.info(f"[FactCheck] {verified} verified, {unverified} unverified, {contradicted} contradicted")
 
+        trust_score = round(verified / max(len(claims), 1), 2)
+        critical_contradictions = [
+            c.get("claim", "") for c in claims
+            if c.get("status") == "CONTRADICTED"
+        ]
+
         return {
             "verified": verified,
             "unverified": unverified,
             "contradicted": contradicted,
             "claims": claims[:15],
-            "trust_score": round(verified / max(len(claims), 1), 2),
+            "trust_score": trust_score,
+            "confidence_impact": trust_score,
+            "critical_contradictions": critical_contradictions[:5],
         }
 
     except Exception as e:

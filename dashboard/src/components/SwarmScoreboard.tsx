@@ -1,8 +1,10 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { mirai, type SwarmResult } from '../miraiApi'
+import { ZONE_NAMES, zoneCounts } from '../hooks/useSwarmAgents'
 
 interface SwarmState {
   running: boolean
+  phase: 'idle' | 'research' | 'council' | 'swarm' | 'plan' | 'complete'
   totalAgents: number
   agentsCompleted: number
   positivePct: number
@@ -10,6 +12,18 @@ interface SwarmState {
   avgConfidence: number
   recentVotes: Array<{ id: number; persona: string; vote: string; confidence: number; reasoning: string; overall?: number }>
   result: SwarmResult | null
+  research?: { findings: number; competitors: number; summary: string; sources?: number; rounds?: number }
+  researchFeed: Array<{ round: number; status: string }>
+  council?: { overall: number; verdict: string; confidence: number; dimensions: Array<{name: string; score: number}>; contestedDimensions: string[]; models: string[] }
+  plan?: { risks: any[]; moves: any[] }
+  oasis?: { trajectory: string; timeline: Array<{month: number; event: string; sentimentPct: number; change: number; confidenceLow?: number; confidenceHigh?: number}> }
+  fullResult?: any
+  pdfReady?: boolean
+  faithfulnessScore?: number
+  citedFacts?: number
+  factVerification?: {verified: number; contradicted: number; unverified: number; trustScore: number}
+  divergence?: any
+  deliberation?: any
 }
 
 interface StartupForm {
@@ -24,6 +38,13 @@ interface StartupForm {
   team: string
   ask: string
   competitiveAdvantage: string
+  pricingStrategy: string
+  additionalContext: string
+  websiteUrl: string
+  yearFounded: string
+  location: string
+  revenue: string
+  knownCompetitors: string
 }
 
 const INDUSTRIES = [
@@ -35,13 +56,45 @@ const INDUSTRIES = [
 ]
 
 const STAGES = [
-  'Pre-seed', 'Seed', 'Series A', 'Series B', 'Series C', 'Growth', 'Pre-IPO',
+  'Idea', 'Pre-seed', 'Seed', 'Series A', 'Series B', 'Series C', 'Growth', 'Pre-IPO',
 ]
 
-const EMPTY_FORM: StartupForm = {
-  companyName: '', industry: '', product: '', targetMarket: '',
-  businessModel: '', stage: '', fundingRaised: '', traction: '',
-  team: '', ask: '', competitiveAdvantage: '',
+const REVENUE_STAGES = [
+  'Pre-revenue', '<$10K MRR', '$10-50K MRR', '$50-100K MRR',
+  '$100K-500K MRR', '$500K-1M MRR', '$1M+ ARR', '$5M+ ARR', '$10M+ ARR', 'Other',
+]
+
+const FUNDING_STAGES = [
+  'Unfunded', '<$100K (grants/angels)', '$100K-500K', '$500K-1M',
+  '$1-3M', '$3-10M', '$10-25M', '$25M+', 'Bootstrapped/Profitable', 'Other',
+]
+
+const BUSINESS_MODELS = [
+  'SaaS Subscription', 'Marketplace/Commission', 'Transaction Fees',
+  'Freemium', 'Usage-Based', 'Advertising', 'Hardware + Software',
+  'Licensing', 'Services + Software', 'Other',
+]
+
+const DEMO_FORM: StartupForm = {
+  companyName: 'CleanSentinels',
+  industry: 'CleanTech',
+  product: 'BlueSentinels - AI-powered water quality monitoring. Camera-based vision analysis detects algal blooms, pollution, and water anomalies in real time. Paired with EcoGrow nanotech for a detect-to-treat loop. Key differentiator: affordable, camera-first monitoring replacing expensive sensor arrays, with AI doing the heavy lifting.',
+  targetMarket: 'Lake managers, watershed management organizations, environmental nonprofits, and municipalities. Initially targeting Upper Midwest (Red River Basin). Mid-market: organizations managing 1-50 water sites.',
+  businessModel: 'SaaS Subscription',
+  stage: 'Pre-seed',
+  fundingRaised: 'Unfunded',
+  traction: '30+ NSF I-Corps customer discovery interviews. LOI with Red River Basin Riverkeepers. Completed NSF I-Corps, Gener8tor gBETA, NDSU Possibility Fellowship.',
+  team: 'Aditya Goyal (Founder/CEO), Carter Kipp (Dir. Operations & Compliance), Marcel Roy Domalanta (Dir. Strategy & Business Dev), Navneet Uniyal (Dir. Product Engineering)',
+  ask: 'Market viability, investor readiness, competitive landscape assessment',
+  competitiveAdvantage: 'Detect-to-treat loop (AI detection + EcoGrow treatment - no competitor has both sides). Camera-first approach is 10x cheaper than traditional sensor deployments. Growing dataset from every deployment improves detection models.',
+  pricingStrategy: 'SaaS tiers: Starter $9/mo (basic alerts + dashboard), Pro $29/mo (AI analysis + automated reports + historical trends), Business $129/mo (full platform + API access + custom ML models + EcoGrow integration)',
+  additionalContext: '',
+  websiteUrl: 'https://cleansentinels.com',
+  yearFounded: '2024',
+  location: 'Fargo, ND',
+  revenue: 'Pre-revenue',
+  // pricingStrategy stays freeform — needs specific tier details
+  knownCompetitors: 'Xylem (YSI brand), HACH (Danaher), Aquasight, LG Sonic, BlueGreen Water Technologies',
 }
 
 function formToExecSummary(f: StartupForm): string {
@@ -58,7 +111,15 @@ function formToExecSummary(f: StartupForm): string {
   if (f.team) lines.push(`Team: ${f.team}`)
   if (f.ask) lines.push(`Ask: ${f.ask}`)
   if (f.competitiveAdvantage) lines.push(`Competitive Advantage: ${f.competitiveAdvantage}`)
-  return lines.join('. ')
+  if (f.pricingStrategy) lines.push(`Pricing Strategy: ${f.pricingStrategy}`)
+  if (f.websiteUrl) lines.push(`Website: ${f.websiteUrl}`)
+  if (f.yearFounded) lines.push(`Year Founded: ${f.yearFounded}`)
+  if (f.location) lines.push(`Location: ${f.location}`)
+  if (f.revenue) lines.push(`Revenue: ${f.revenue}`)
+  if (f.knownCompetitors) lines.push(`Known Competitors: ${f.knownCompetitors}`)
+  const structured = lines.join('. ')
+  if (f.additionalContext.trim()) return `${structured}\n\n${f.additionalContext.trim()}`
+  return structured
 }
 
 function isFormValid(f: StartupForm): boolean {
@@ -66,73 +127,284 @@ function isFormValid(f: StartupForm): boolean {
     f.targetMarket.trim() && f.businessModel.trim() && f.stage.trim())
 }
 
-// Shared styles
-const inputStyle: React.CSSProperties = {
-  background: '#0d0d1a', color: '#e0e0e0', border: '1px solid #333',
-  padding: '9px 12px', fontSize: 15, borderRadius: 5, outline: 'none',
-  width: '100%', boxSizing: 'border-box',
-}
-const labelStyle: React.CSSProperties = {
-  fontSize: 13, color: '#999', marginBottom: 4, display: 'block', fontWeight: 500,
-}
-const requiredDot: React.CSSProperties = {
-  color: '#ff4444', marginLeft: 2,
-}
 const stopProp = {
   onPointerDown: (e: React.PointerEvent) => e.stopPropagation(),
   onMouseDown: (e: React.MouseEvent) => e.stopPropagation(),
 }
 
-export function SwarmScoreboard() {
+// ── Reusable styled components ──
+
+function FieldCard({ label, value, onChange, placeholder, required, type = 'text', options, rows }: {
+  label: string; value: string; onChange: (v: string) => void; placeholder?: string
+  required?: boolean; type?: 'text' | 'select' | 'textarea'; options?: string[]; rows?: number
+}) {
+  const filled = value.trim().length > 0
+  const base: React.CSSProperties = {
+    background: filled ? 'rgba(0, 255, 136, 0.03)' : '#0a0a18',
+    border: `1px solid ${filled ? 'rgba(0, 255, 136, 0.2)' : '#1a1a2e'}`,
+    borderRadius: 8, padding: '8px 12px', transition: 'all 0.2s',
+  }
+  const inputBase: React.CSSProperties = {
+    background: 'transparent', color: '#e0e0e0', border: 'none', outline: 'none',
+    width: '100%', fontSize: 13, lineHeight: 1.5, fontFamily: 'inherit',
+  }
+
+  return (
+    <div style={base} {...stopProp}>
+      <div style={{ fontSize: 10, color: filled ? '#00ff88' : '#555', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 3 }}>
+        {label}{required && <span style={{ color: '#ff4444', marginLeft: 3 }}>*</span>}
+        {filled && <span style={{ float: 'right', fontSize: 9, color: '#00ff88' }}>OK</span>}
+      </div>
+      {type === 'select' ? (
+        <select value={value} onChange={e => onChange(e.target.value)}
+          style={{ ...inputBase, cursor: 'pointer', padding: '2px 0', backgroundColor: '#0a0a18' }} {...stopProp}>
+          <option value="" style={{ background: '#0a0a18', color: '#888' }}>{placeholder || 'Select...'}</option>
+          {options?.map(o => <option key={o} value={o} style={{ background: '#0a0a18', color: '#e0e0e0' }}>{o}</option>)}
+        </select>
+      ) : type === 'textarea' ? (
+        <textarea value={value} onChange={e => onChange(e.target.value)}
+          placeholder={placeholder} rows={rows || 2}
+          style={{ ...inputBase, resize: 'vertical' }} {...stopProp} />
+      ) : (
+        <input value={value} onChange={e => onChange(e.target.value)}
+          placeholder={placeholder} style={inputBase} {...stopProp} />
+      )}
+    </div>
+  )
+}
+
+export function SwarmScoreboard({ isMobile = false, onClose, hidden = false }: { isMobile?: boolean; onClose?: () => void; hidden?: boolean } = {}) {
   const [state, setState] = useState<SwarmState>({
-    running: false, totalAgents: 0, agentsCompleted: 0,
+    running: false, phase: 'idle', totalAgents: 0, agentsCompleted: 0,
     positivePct: 0, negativePct: 0, avgConfidence: 0,
-    recentVotes: [], result: null,
+    recentVotes: [], result: null, researchFeed: [],
   })
-  const [form, setForm] = useState<StartupForm>(EMPTY_FORM)
-  const [agentCount, setAgentCount] = useState(100)
-  const [connected, setConnected] = useState(false)
+  const [form, setForm] = useState<StartupForm>(DEMO_FORM)
+  const [agentCount, setAgentCount] = useState(50)
+  const [simulateMarket, setSimulateMarket] = useState(false)
+  const [connected, setConnected] = useState(mirai.connected)
+  const [uploading, setUploading] = useState(false)
+  const [uploadError, setUploadError] = useState('')
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const updateField = (field: keyof StartupForm, value: string) =>
     setForm(prev => ({ ...prev, [field]: value }))
 
+  const handlePdfUpload = async (file: File) => {
+    if (file.size > 5 * 1024 * 1024) { setUploadError('File too large (max 5MB)'); return; }
+    if (!file.name.toLowerCase().endsWith('.pdf')) { setUploadError('Only PDF files accepted'); return; }
+    setUploading(true); setUploadError('');
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('standardize', 'true');
+      const resp = await fetch('/api/bi/extract-pdf', { method: 'POST', body: fd });
+      if (!resp.ok) {
+        const errData = await resp.json().catch(() => ({}));
+        setUploadError(errData.error || `Server error: ${resp.status}`);
+        setUploading(false);
+        return;
+      }
+      const data = await resp.json();
+      if (data.success && (data.standardized || data.raw_text)) {
+        const textToParse = data.standardized || data.raw_text || '';
+        // Parse standardized text — handles multiple formats:
+        // 1. "Key: Value" lines (e.g. "Company: TechFlow AI")
+        // 2. Section headers + sub-lines (e.g. "COMPANY\nName: TechFlow AI")
+        // 3. Bullet points (e.g. "- $3.2M ARR")
+        const lines = textToParse.split('\n');
+        const parsed: Record<string, string> = {};
+        let currentSection = '';
+        let currentKey = '';
+
+        // Section header mapping (uppercase headers → normalized keys)
+        const sectionMap: Record<string, string> = {
+          'company': 'company', 'industry': 'industry', 'product': 'product',
+          'target market': 'target market', 'market': 'target market',
+          'target': 'target market', 'addressable market': 'target market',
+          'tam': 'target market', 'sam': 'target market',
+          'business model': 'business model', 'revenue model': 'business model',
+          'stage': 'stage', 'funding stage': 'stage',
+          'traction': 'traction', 'metrics': 'traction', 'growth': 'traction',
+          'revenue': 'traction', 'customers': 'traction',
+          'team': 'team', 'founders': 'team', 'leadership': 'team',
+          'competitive advantage': 'competitive advantage',
+          'moat': 'competitive advantage', 'differentiation': 'competitive advantage',
+          'differentiator': 'competitive advantage',
+          'ask': 'ask', 'funding': 'funding raised',
+          'funding raised': 'funding raised', 'fundraising': 'funding raised',
+          'raise': 'funding raised', 'investment': 'funding raised',
+          'capital': 'funding raised', 'use of proceeds': 'ask',
+          'pricing': 'pricing strategy', 'pricing strategy': 'pricing strategy',
+        };
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+
+          // Check if this is a section header (ALL CAPS, no colon, or short)
+          const lowerTrimmed = trimmed.toLowerCase();
+          const matchedSection = Object.keys(sectionMap).find(s => lowerTrimmed === s || lowerTrimmed.startsWith(s + '/'));
+          if (matchedSection && !trimmed.includes(':')) {
+            currentSection = sectionMap[matchedSection];
+            currentKey = currentSection;
+            if (!parsed[currentKey]) parsed[currentKey] = '';
+            continue;
+          }
+
+          // Check for "Key: Value" pattern
+          const kvMatch = trimmed.match(/^[-•]?\s*(\w[\w\s/]*?):\s*(.+)/);
+          if (kvMatch) {
+            const key = kvMatch[1].trim().toLowerCase();
+            const value = kvMatch[2].trim();
+            // If key is a known field, use it directly
+            const normalizedKey = Object.keys(sectionMap).find(s => key === s || key.startsWith(s)) || key;
+            if (['name', 'description'].includes(key) && currentSection) {
+              // Sub-field under a section header (e.g. "Name: TechFlow AI" under COMPANY)
+              parsed[currentSection] = parsed[currentSection]
+                ? parsed[currentSection] + ' ' + value
+                : value;
+              currentKey = currentSection;
+            } else {
+              parsed[normalizedKey] = value;
+              currentKey = normalizedKey;
+            }
+            continue;
+          }
+
+          // Continuation line (bullet point or plain text under current key)
+          if (currentKey && trimmed) {
+            const cleanLine = trimmed.replace(/^[-•]\s*/, '');
+            parsed[currentKey] = parsed[currentKey]
+              ? parsed[currentKey] + '; ' + cleanLine
+              : cleanLine;
+          }
+        }
+
+        // Clear form (remove demo data), then fill with extracted values
+        const blank: StartupForm = {
+          companyName: '', industry: '', product: '', targetMarket: '',
+          businessModel: '', pricingStrategy: '', stage: '', fundingRaised: '',
+          traction: '', team: '', ask: '', competitiveAdvantage: '', additionalContext: '',
+          websiteUrl: '', yearFounded: '', location: '', revenue: '', knownCompetitors: '',
+        };
+
+        const get = (...keys: string[]) => {
+          for (const k of keys) { if (parsed[k]?.trim()) return parsed[k].trim(); }
+          return '';
+        };
+
+        setForm({
+          ...blank,
+          companyName: get('company', 'company name', 'name'),
+          industry: get('industry', 'sector', 'sub-sector'),
+          product: get('product', 'product/service'),
+          targetMarket: get('target market', 'target', 'market', 'addressable market', 'tam', 'sam', 'customers'),
+          businessModel: get('business model', 'revenue model', 'monetization'),
+          pricingStrategy: get('pricing strategy', 'pricing', 'price'),
+          stage: get('stage', 'funding stage', 'round'),
+          fundingRaised: get('funding raised', 'funding', 'previous funding', 'raise', 'fundraising', 'capital raised', 'investment'),
+          traction: get('traction', 'metrics', 'growth', 'revenue', 'users', 'status', 'progress', 'milestones'),
+          team: get('team', 'founders', 'leadership', 'co-founders'),
+          competitiveAdvantage: get('competitive advantage', 'moat', 'differentiation', 'differentiator', 'competitive', 'advantages'),
+          ask: get('ask', 'use of proceeds', 'amount', 'seeking', 'raising'),
+          additionalContext: data.raw_text ? data.raw_text.slice(0, 500) : '',
+        });
+      } else {
+        setUploadError(data.error || 'Extraction failed — try pasting text manually');
+        console.error('PDF extraction response:', data);
+      }
+    } catch (e: any) {
+      setUploadError(e?.message || 'Upload failed — check backend is running');
+    }
+    setUploading(false);
+  };
+
+  const requiredFilled = ['companyName', 'industry', 'product', 'targetMarket', 'businessModel', 'stage']
+    .filter(k => (form as any)[k]?.trim()).length
+
   useEffect(() => {
-    mirai.connect(`ws://${window.location.hostname}:5000/ws/swarm`)
+    setConnected(mirai.connected)
+    const connCheck = setInterval(() => setConnected(mirai.connected), 2000)
     const unsub = mirai.onMessage((msg) => {
+      const mt = (msg as any).type as string;
+      if (mt === 'researchStarted') { setState(prev => ({ ...prev, running: true, phase: 'research', researchFeed: [] })); return; }
+      if (mt === 'researchProgress') { setState(prev => ({ ...prev, researchFeed: [...prev.researchFeed, { round: (msg as any).round || 0, status: (msg as any).status || '' }] })); return; }
+      if (mt === 'researchComplete') { setState(prev => ({ ...prev, phase: 'council', research: { findings: (msg as any).findings, competitors: (msg as any).competitors, summary: (msg as any).summary, sources: (msg as any).sources, rounds: (msg as any).rounds }, faithfulnessScore: (msg as any).faithfulnessScore, citedFacts: (msg as any).citedFacts })); return; }
+      if (mt === 'councilStarted') { setState(prev => ({ ...prev, phase: 'council' })); return; }
+      if (mt === 'councilComplete') { setState(prev => ({ ...prev, phase: 'swarm', council: { overall: (msg as any).overall, verdict: (msg as any).verdict, confidence: (msg as any).confidence, dimensions: (msg as any).dimensions || [], contestedDimensions: (msg as any).contestedDimensions || [], models: (msg as any).models || [] }, factVerification: (msg as any).factVerification, divergence: (msg as any).divergence, deliberation: (msg as any).deliberation })); return; }
+      if (mt === 'planStarted') { setState(prev => ({ ...prev, phase: 'plan' })); return; }
+      if (mt === 'planComplete') { setState(prev => ({ ...prev, plan: { risks: (msg as any).risks || [], moves: (msg as any).moves || [] } })); return; }
+      if (mt === 'analysisComplete') { setState(prev => ({ ...prev, running: false, phase: 'complete', fullResult: (msg as any).fullResult, pdfReady: false })); return; }
+      if (mt === 'pdfGenerating') { setState(prev => ({ ...prev, pdfReady: false })); return; }
+      if (mt === 'pdfReady') { setState(prev => ({ ...prev, pdfReady: true })); return; }
+      if (mt === 'narrativeStarted') return;
+      if (mt === 'oasisStarted') return;
+      if (mt === 'oasisRound') {
+        setState(prev => ({ ...prev, oasis: { trajectory: 'running', timeline: [...(prev.oasis?.timeline || []), { month: (msg as any).month, event: (msg as any).event || '', sentimentPct: (msg as any).sentimentPct || 50, change: (msg as any).change || 0, confidenceLow: (msg as any).confidenceLow, confidenceHigh: (msg as any).confidenceHigh }] } }));
+        return;
+      }
+      if (mt === 'oasisComplete') {
+        setState(prev => ({ ...prev, oasis: { trajectory: (msg as any).trajectory || 'stable', timeline: (msg as any).timeline || prev.oasis?.timeline || [] } }));
+        return;
+      }
+
       switch (msg.type) {
         case 'connected': setConnected(true); break
         case 'swarmStarted':
-          setState(prev => ({ ...prev, running: true, totalAgents: msg.totalAgents,
-            agentsCompleted: 0, positivePct: 0, negativePct: 0, recentVotes: [], result: null }))
+          setState(prev => ({ ...prev, running: true, totalAgents: msg.totalAgents, agentsCompleted: 0, positivePct: 0, negativePct: 0, recentVotes: [], result: null }))
           break
         case 'agentVoted':
           setState(prev => ({ ...prev, agentsCompleted: prev.agentsCompleted + 1,
-            recentVotes: [
-              { id: msg.id, persona: '', vote: msg.vote, confidence: msg.confidence, reasoning: msg.reasoning, overall: (msg as any).overall },
-              ...prev.recentVotes.slice(0, 14),
-            ]}))
+            recentVotes: [{ id: msg.id, persona: '', vote: msg.vote, confidence: msg.confidence, reasoning: msg.reasoning, overall: (msg as any).overall }, ...prev.recentVotes.slice(0, 14)] }))
           break
         case 'swarmProgress':
-          setState(prev => ({ ...prev, agentsCompleted: msg.agentsCompleted,
-            positivePct: msg.positivePct, negativePct: msg.negativePct, avgConfidence: msg.avgConfidence }))
+          setState(prev => ({ ...prev, agentsCompleted: msg.agentsCompleted, positivePct: msg.positivePct, negativePct: msg.negativePct, avgConfidence: msg.avgConfidence }))
           break
         case 'swarmComplete':
-          setState(prev => ({ ...prev, running: false, result: msg.result,
-            positivePct: msg.result.positivePct, negativePct: msg.result.negativePct,
-            avgConfidence: msg.result.avgConfidence, agentsCompleted: msg.result.totalAgents }))
+          setState(prev => ({ ...prev, phase: 'plan', result: msg.result, positivePct: msg.result.positivePct, negativePct: msg.result.negativePct, avgConfidence: msg.result.avgConfidence, agentsCompleted: msg.result.totalAgents }))
           break
       }
     })
-    return () => { unsub(); mirai.disconnect() }
+    return () => { unsub(); clearInterval(connCheck) }
   }, [])
 
   const handleStart = () => {
-    if (!isFormValid(form)) return
-    mirai.startSwarm(formToExecSummary(form), agentCount)
+    if (!isFormValid(form) || state.running || state.phase !== 'idle' || !connected) return
+    setState(prev => ({ ...prev, running: true, phase: 'research', result: null, researchFeed: [] }))
+    mirai.send({
+      type: 'startAnalysis',
+      execSummary: formToExecSummary(form),
+      structuredFields: {
+        company: form.companyName,
+        industry: form.industry,
+        product: form.product,
+        target_market: form.targetMarket,
+        business_model: form.businessModel,
+        stage: form.stage,
+        traction: form.traction,
+        ask: form.ask,
+        claims: [],
+        key_differentiators: form.competitiveAdvantage ? [form.competitiveAdvantage] : [],
+        website_url: form.websiteUrl,
+        year_founded: form.yearFounded,
+        location: form.location,
+        revenue: form.revenue,
+        known_competitors: form.knownCompetitors ? form.knownCompetitors.split(',').map((s: string) => s.trim()).filter(Boolean) : [],
+        funding: form.fundingRaised,
+        team: form.team,
+        pricing: form.pricingStrategy,
+      },
+      agentCount,
+      depth: 'deep',
+      simulateMarket,
+      stage: form.stage,
+    })
   }
 
-  const progressPct = state.totalAgents > 0
-    ? Math.round((state.agentsCompleted / state.totalAgents) * 100) : 0
+  const progressPct = state.totalAgents > 0 ? Math.round((state.agentsCompleted / state.totalAgents) * 100) : 0
+
+  const phaseLabels: Record<string, string> = { research: 'Researching', council: 'Council Scoring', swarm: 'Swarm Voting', plan: 'Planning', complete: 'Complete' }
 
   return (
     <div
@@ -140,278 +412,513 @@ export function SwarmScoreboard() {
       onPointerDown={(e) => e.stopPropagation()}
       onMouseDown={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
+      onWheel={(e) => e.stopPropagation()}
       style={{
-        position: 'fixed', top: 0, right: 0,
-        width: 'min(480px, 40vw)', minWidth: 340,
-        height: '100vh', background: 'rgba(8, 8, 24, 0.97)',
-        color: '#e0e0e0',
-        fontSize: 'clamp(13px, 1.3vw, 17px)',
-        padding: 'clamp(14px, 2vw, 26px)',
-        overflowY: 'auto', borderLeft: '3px solid #1a1a4e', zIndex: 1000,
-        display: 'flex', flexDirection: 'column',
-        gap: 'clamp(10px, 1.2vw, 18px)',
-        boxShadow: '-4px 0 20px rgba(0, 0, 0, 0.5)',
+        position: 'fixed',
+        top: isMobile ? 0 : 32,
+        right: 0,
+        bottom: 0,
+        left: isMobile ? 0 : undefined,
+        width: isMobile ? '100%' : 'min(480px, 40vw)',
+        minWidth: isMobile ? undefined : 340,
+        background: 'linear-gradient(180deg, rgba(8, 8, 24, 0.98) 0%, rgba(4, 4, 16, 0.99) 100%)',
+        color: '#e0e0e0', fontSize: 13,
+        padding: isMobile ? '16px 12px' : 'clamp(16px, 2vw, 24px)',
+        paddingBottom: 24,
+        overflowY: 'auto',
+        borderLeft: isMobile ? 'none' : '2px solid rgba(0, 255, 136, 0.1)',
+        zIndex: 1000,
+        display: hidden ? 'none' : 'flex', flexDirection: 'column', gap: 12,
+        boxShadow: isMobile ? 'none' : '-8px 0 40px rgba(0, 0, 0, 0.6)',
       }}>
 
-      {/* Header */}
-      <div style={{ textAlign: 'center', borderBottom: '1px solid #222', paddingBottom: 12 }}>
-        <div style={{ fontSize: 'clamp(18px, 2vw, 24px)', fontWeight: 'bold', color: '#00ff88', letterSpacing: 4 }}>
-          MIRAI SWARM
+      {/* ── Header ── */}
+      <div style={{ textAlign: 'center', paddingBottom: 12, borderBottom: '1px solid rgba(255,255,255,0.05)', position: 'relative' }}>
+        {onClose && (
+          <button
+            onClick={onClose}
+            style={{
+              position: 'absolute', top: 0, right: 0, background: 'none',
+              border: 'none', color: '#555', fontSize: 22, cursor: 'pointer',
+              padding: '4px 8px', lineHeight: 1,
+            }}
+          >
+            ✕
+          </button>
+        )}
+        <div style={{ fontSize: 10, letterSpacing: 4, color: '#555', marginBottom: 4 }}>未来</div>
+        <div style={{ fontSize: 20, fontWeight: 700, letterSpacing: 3, background: 'linear-gradient(90deg, #00ff88, #4488ff)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+          MIRAI
         </div>
-        <div style={{ fontSize: 11, marginTop: 4, color: connected ? '#00ff88' : '#ff4444' }}>
+        <div style={{ fontSize: 10, color: '#555', letterSpacing: 2, marginTop: 2 }}>AI DUE DILIGENCE</div>
+        <div style={{ fontSize: 10, marginTop: 6, color: connected ? '#00ff88' : '#ff4444' }}>
           {connected ? '● CONNECTED' : '○ DISCONNECTED'}
         </div>
       </div>
 
-      {/* ── Structured Form ── */}
-      {!state.running && !state.result && (
+      {/* ══════════ IDLE: INPUT FORM ══════════ */}
+      {state.phase === 'idle' && !state.result && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <div style={{ fontSize: 13, color: '#aaa', fontWeight: 'bold' }}>Startup Details</div>
 
-          {/* Company Name */}
-          <div>
-            <label style={labelStyle}>Company Name<span style={requiredDot}>*</span></label>
-            <input value={form.companyName} onChange={e => updateField('companyName', e.target.value)}
-              placeholder="e.g. LegalLens AI" style={inputStyle} {...stopProp} />
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: '#aaa', letterSpacing: 1 }}>STARTUP DETAILS</span>
+            <span style={{ fontSize: 10, color: requiredFilled >= 6 ? '#00ff88' : '#ffaa00', background: 'rgba(255,255,255,0.04)', padding: '2px 8px', borderRadius: 10 }}>
+              {requiredFilled}/6 required
+            </span>
           </div>
 
-          {/* Industry */}
-          <div>
-            <label style={labelStyle}>Industry<span style={requiredDot}>*</span></label>
-            <select value={form.industry} onChange={e => updateField('industry', e.target.value)}
-              style={{ ...inputStyle, cursor: 'pointer' }} {...stopProp}>
-              <option value="">Select industry...</option>
-              {INDUSTRIES.map(i => <option key={i} value={i}>{i}</option>)}
-            </select>
+          <div
+            style={{
+              border: '2px dashed ' + (uploading ? '#4488ff' : '#1a1a2e'),
+              borderRadius: 8,
+              padding: 20,
+              textAlign: 'center',
+              cursor: uploading ? 'wait' : 'pointer',
+              marginBottom: 12,
+              background: uploading ? 'rgba(68,136,255,0.03)' : 'transparent',
+              transition: 'all 0.2s',
+            }}
+            onClick={() => !uploading && fileInputRef.current?.click()}
+            onDragOver={e => { e.preventDefault(); e.stopPropagation(); }}
+            onDrop={e => { e.preventDefault(); e.stopPropagation(); const f = e.dataTransfer.files[0]; if (f) handlePdfUpload(f); }}
+          >
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".pdf"
+              style={{ display: 'none' }}
+              onChange={e => { const f = e.target.files?.[0]; if (f) handlePdfUpload(f); }}
+            />
+            <div style={{ fontSize: 11, color: uploading ? '#4488ff' : '#555' }}>
+              {uploading ? 'Extracting PDF...' : 'Drop executive summary PDF here or click to upload'}
+            </div>
+            <div style={{ fontSize: 8, color: '#444', marginTop: 4 }}>Max 4 pages, 5MB. Auto-fills all fields.</div>
+            {uploadError && <div style={{ fontSize: 9, color: '#e74c3c', marginTop: 4 }}>{uploadError}</div>}
           </div>
 
-          {/* Product */}
-          <div>
-            <label style={labelStyle}>Product / Service<span style={requiredDot}>*</span></label>
-            <textarea value={form.product} onChange={e => updateField('product', e.target.value)}
-              placeholder="What does your product do? Key differentiator?"
-              rows={2} style={{ ...inputStyle, resize: 'vertical' }} {...stopProp} />
-          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <FieldCard label="Company Name" value={form.companyName} onChange={v => updateField('companyName', v)} placeholder="e.g. CleanSentinels" required />
+                <FieldCard label="Website URL" value={form.websiteUrl} onChange={v => updateField('websiteUrl', v)} placeholder="https://..." />
+              </div>
 
-          {/* Target Market */}
-          <div>
-            <label style={labelStyle}>Target Market<span style={requiredDot}>*</span></label>
-            <input value={form.targetMarket} onChange={e => updateField('targetMarket', e.target.value)}
-              placeholder="e.g. Mid-size law firms (50-200 attorneys)"
-              style={inputStyle} {...stopProp} />
-          </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <FieldCard label="Industry" value={form.industry} onChange={v => updateField('industry', v)} type="select" options={INDUSTRIES} placeholder="Select..." required />
+                <FieldCard label="Stage" value={form.stage} onChange={v => updateField('stage', v)} type="select" options={STAGES} placeholder="Select..." required />
+              </div>
 
-          {/* Business Model */}
-          <div>
-            <label style={labelStyle}>Business Model<span style={requiredDot}>*</span></label>
-            <input value={form.businessModel} onChange={e => updateField('businessModel', e.target.value)}
-              placeholder="e.g. SaaS, $500/seat/month"
-              style={inputStyle} {...stopProp} />
-          </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <FieldCard label="Location / HQ" value={form.location} onChange={v => updateField('location', v)} placeholder="City, State/Country" />
+                <FieldCard label="Year Founded" value={form.yearFounded} onChange={v => updateField('yearFounded', v)} placeholder="2024" />
+              </div>
 
-          {/* Stage */}
-          <div>
-            <label style={labelStyle}>Stage<span style={requiredDot}>*</span></label>
-            <select value={form.stage} onChange={e => updateField('stage', e.target.value)}
-              style={{ ...inputStyle, cursor: 'pointer' }} {...stopProp}>
-              <option value="">Select stage...</option>
-              {STAGES.map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
-          </div>
+              <FieldCard label="Product / Service" value={form.product} onChange={v => updateField('product', v)} type="textarea" placeholder="What does your product do? What's the key differentiator?" required rows={2} />
 
-          {/* Funding */}
-          <div>
-            <label style={labelStyle}>Funding Raised</label>
-            <input value={form.fundingRaised} onChange={e => updateField('fundingRaised', e.target.value)}
-              placeholder="e.g. $2M seed round" style={inputStyle} {...stopProp} />
-          </div>
+              <FieldCard label="Target Market" value={form.targetMarket} onChange={v => updateField('targetMarket', v)} placeholder="Who buys this? Be specific: segment, size, geography" required />
 
-          {/* Traction */}
-          <div>
-            <label style={labelStyle}>Traction</label>
-            <textarea value={form.traction} onChange={e => updateField('traction', e.target.value)}
-              placeholder="Customers, ARR, retention, growth rate..."
-              rows={2} style={{ ...inputStyle, resize: 'vertical' }} {...stopProp} />
-          </div>
+              <FieldCard label="Business Model" value={form.businessModel} onChange={v => updateField('businessModel', v)} type="select" options={BUSINESS_MODELS} placeholder="Select revenue model..." required />
 
-          {/* Team */}
-          <div>
-            <label style={labelStyle}>Team</label>
-            <input value={form.team} onChange={e => updateField('team', e.target.value)}
-              placeholder="Key team backgrounds" style={inputStyle} {...stopProp} />
-          </div>
+              <FieldCard label="Pricing Strategy" value={form.pricingStrategy} onChange={v => updateField('pricingStrategy', v)} placeholder="e.g. Starter $9/mo, Pro $29/mo, Business $129/mo" />
 
-          {/* Ask */}
-          <div>
-            <label style={labelStyle}>Ask</label>
-            <input value={form.ask} onChange={e => updateField('ask', e.target.value)}
-              placeholder="e.g. Series A, $10M at $40M pre-money"
-              style={inputStyle} {...stopProp} />
-          </div>
+              <FieldCard label="Traction" value={form.traction} onChange={v => updateField('traction', v)} type="textarea" placeholder="Users, growth rate, LOIs, pilots, retention..." rows={2} />
 
-          {/* Competitive Advantage */}
-          <div>
-            <label style={labelStyle}>Competitive Advantage</label>
-            <input value={form.competitiveAdvantage} onChange={e => updateField('competitiveAdvantage', e.target.value)}
-              placeholder="Moat, proprietary tech, unique data..."
-              style={inputStyle} {...stopProp} />
-          </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <FieldCard label="Revenue / ARR" value={form.revenue} onChange={v => updateField('revenue', v)} type="select" options={REVENUE_STAGES} placeholder="Select..." />
+                <FieldCard label="Funding Raised" value={form.fundingRaised} onChange={v => updateField('fundingRaised', v)} type="select" options={FUNDING_STAGES} placeholder="Select..." />
+              </div>
 
-          {/* Agent Count + Start */}
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 4 }}>
-            <select value={agentCount} onChange={e => setAgentCount(Number(e.target.value))}
-              style={{ ...inputStyle, width: 'auto', cursor: 'pointer' }} {...stopProp}>
-              {[50, 100, 250, 500, 1000].map(n => (
-                <option key={n} value={n}>{n} agents</option>
-              ))}
-            </select>
-            <button onClick={handleStart} disabled={!isFormValid(form)}
-              style={{
-                flex: 1, background: isFormValid(form) ? '#00ff88' : '#222',
-                color: isFormValid(form) ? '#000' : '#555', border: 'none',
-                padding: '10px 16px', fontSize: 15, fontWeight: 'bold',
-                cursor: isFormValid(form) ? 'pointer' : 'default',
-                borderRadius: 6, letterSpacing: 2, transition: 'background 0.2s',
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <FieldCard label="Team" value={form.team} onChange={v => updateField('team', v)} placeholder="Founders, key hires, domain exp" />
+                <FieldCard label="Ask" value={form.ask} onChange={v => updateField('ask', v)} placeholder="What do you want to know?" />
+              </div>
+
+              <FieldCard label="Moat / Advantage" value={form.competitiveAdvantage} onChange={v => updateField('competitiveAdvantage', v)} placeholder="IP, data, network effects..." />
+
+              <FieldCard label="Known Competitors" value={form.knownCompetitors} onChange={v => updateField('knownCompetitors', v)} type="textarea" rows={2} placeholder="List competitors you know about (comma-separated)" />
+
+              {/* Additional Context */}
+              <FieldCard label="Additional Context" value={form.additionalContext} onChange={v => updateField('additionalContext', v)}
+                type="textarea" rows={4}
+                placeholder="Paste your full pitch, exec summary, or any extra detail here. This text is sent verbatim to the analysis." />
+
+              {/* ── Config Row ── */}
+              <div style={{
+                display: 'flex', gap: 8, alignItems: 'center', padding: '10px 0',
+                borderTop: '1px solid rgba(255,255,255,0.04)',
               }}>
-              START PREDICTION
-            </button>
-          </div>
+                <select value={agentCount} onChange={e => setAgentCount(Number(e.target.value))}
+                  style={{ background: '#0a0a18', color: '#888', border: '1px solid #1a1a2e', padding: '8px 10px', fontSize: 12, borderRadius: 6, cursor: 'pointer' }} {...stopProp}>
+                  {[25, 50, 100, 250, 500, 1000].map(n => (
+                    <option key={n} value={n} style={{ background: '#0a0a18', color: '#e0e0e0' }}>{n} agents</option>
+                  ))}
+                </select>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 11, color: simulateMarket ? '#4488ff' : '#555' }} {...stopProp}>
+                  <input type="checkbox" checked={simulateMarket} onChange={e => setSimulateMarket(e.target.checked)}
+                    style={{ accentColor: '#4488ff', width: 14, height: 14, cursor: 'pointer' }} />
+                  OASIS<span style={{ fontSize: 9, color: '#444' }}>(+15min)</span>
+                </label>
+              </div>
 
-          <div style={{ fontSize: 10, color: '#444', textAlign: 'center' }}>
-            <span style={{ color: '#ff4444' }}>*</span> Required fields
-          </div>
+              {/* ── Start Button ── */}
+              <button onClick={handleStart} disabled={!isFormValid(form) || state.running || state.phase !== 'idle' || !connected}
+                style={{
+                  width: '100%', padding: '14px 0',
+                  background: isFormValid(form) && !state.running && connected ? 'linear-gradient(90deg, #00ff88, #00cc66)' : '#111',
+                  color: isFormValid(form) && !state.running && connected ? '#000' : '#333', border: 'none',
+                  fontSize: 16, fontWeight: 800, cursor: isFormValid(form) && !state.running && connected ? 'pointer' : 'default',
+                  borderRadius: 8, letterSpacing: 3, transition: 'all 0.2s',
+                  boxShadow: isFormValid(form) && !state.running && connected ? '0 4px 20px rgba(0, 255, 136, 0.2)' : 'none',
+                }}
+                {...stopProp}>
+                {!connected ? 'CONNECTING...' : state.running ? 'ANALYSIS RUNNING...' : isFormValid(form) ? 'START ANALYSIS' : `${6 - requiredFilled} REQUIRED FIELDS MISSING`}
+              </button>
         </div>
       )}
 
-      {/* ── Running / Results ── */}
-      {(state.running || state.result) && (
+      {/* ══════════ RUNNING / RESULTS ══════════ */}
+      {(state.running || state.result || state.phase !== 'idle') && (
         <>
-          {/* Progress Bar */}
-          <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 13 }}>
-              <span>PROGRESS</span>
-              <span style={{ color: '#ffaa00' }}>{state.agentsCompleted} / {state.totalAgents}</span>
-            </div>
-            <div style={{ background: '#0d0d1a', height: 18, borderRadius: 4, overflow: 'hidden', border: '1px solid #222' }}>
-              <div style={{
-                width: `${progressPct}%`, height: '100%',
-                background: state.running
-                  ? 'linear-gradient(90deg, #ff8800, #ffaa00)'
-                  : 'linear-gradient(90deg, #00cc66, #00ff88)',
-                transition: 'width 0.3s',
-              }} />
-            </div>
-          </div>
-
-          {/* Verdict + Overall Score */}
-          {state.result && (
-            <div style={{ textAlign: 'center', padding: '12px 0', borderTop: '1px solid #1a1a2e', borderBottom: '1px solid #1a1a2e' }}>
-              <div style={{
-                fontSize: 'clamp(20px, 2.5vw, 32px)', fontWeight: 'bold', letterSpacing: 3,
-                color: state.result.median_overall >= 6 ? '#00ff88' : state.result.median_overall >= 4.5 ? '#ffaa00' : '#ff4444',
-              }}>
-                {state.result.verdict.toUpperCase()}
+          {/* Phase Progress Pills */}
+          {state.running && state.phase !== 'idle' && (
+            <div style={{ padding: '8px 0' }}>
+              <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
+                {['research', 'council', 'swarm', 'plan'].map((p, i) => {
+                  const phases = ['research', 'council', 'swarm', 'plan']
+                  const currentIdx = phases.indexOf(state.phase)
+                  const isDone = i < currentIdx
+                  const isCurrent = p === state.phase
+                  return (
+                    <div key={p} style={{
+                      flex: 1, textAlign: 'center', padding: '5px 4px', fontSize: 10, borderRadius: 4,
+                      background: isDone ? 'rgba(0,255,136,0.1)' : isCurrent ? 'rgba(255,170,0,0.1)' : 'rgba(255,255,255,0.02)',
+                      color: isDone ? '#00ff88' : isCurrent ? '#ffaa00' : '#333',
+                      fontWeight: isCurrent ? 700 : 400,
+                      border: `1px solid ${isDone ? 'rgba(0,255,136,0.2)' : isCurrent ? 'rgba(255,170,0,0.2)' : 'transparent'}`,
+                    }}>
+                      {isDone ? '✓' : ''} {phaseLabels[p] || p}
+                    </div>
+                  )
+                })}
               </div>
-              <div style={{ fontSize: 'clamp(28px, 3.5vw, 48px)', fontWeight: 'bold', color: '#fff', marginTop: 4 }}>
-                {state.result.median_overall.toFixed(1)}<span style={{ fontSize: '50%', color: '#666' }}>/10</span>
+
+              {/* Phase detail */}
+              {state.phase === 'research' && (
+                <div style={{ marginTop: 4 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ color: '#ffaa00', fontSize: 11 }}>
+                      {state.researchFeed.length === 0 ? 'Initializing research agent...' : 'Agent researching autonomously'}
+                    </div>
+                    {state.researchFeed.length > 0 && (
+                      <div style={{ fontSize: 9, color: '#555', background: 'rgba(68,136,255,0.1)', padding: '2px 8px', borderRadius: 10 }}>
+                        {state.researchFeed.filter(rf => rf.status.startsWith('Searching')).length} searches · {state.researchFeed.filter(rf => rf.status.startsWith('Reading')).length} pages read
+                      </div>
+                    )}
+                  </div>
+                  {state.researchFeed.length > 0 && (
+                    <div style={{ maxHeight: 120, overflowY: 'auto', marginTop: 6, scrollBehavior: 'smooth' }}>
+                      {state.researchFeed.map((rf, i) => {
+                        const isSearch = rf.status.startsWith('Searching');
+                        const isRead = rf.status.startsWith('Reading');
+                        const isCompile = rf.status.startsWith('Compil');
+                        const icon = isSearch ? '🔍' : isRead ? '📄' : isCompile ? '📋' : '⚡';
+                        const color = isSearch ? '#4488ff' : isRead ? '#00ff88' : isCompile ? '#ffaa00' : '#888';
+                        const isLatest = i === state.researchFeed.length - 1;
+                        return (
+                          <div key={i} style={{
+                            fontSize: 10, color: isLatest ? '#ccc' : '#555',
+                            padding: '3px 0 3px 0', marginBottom: 1,
+                            display: 'flex', alignItems: 'flex-start', gap: 6,
+                            opacity: isLatest ? 1 : 0.6 + (i / state.researchFeed.length) * 0.4,
+                            borderLeft: `2px solid ${color}`, paddingLeft: 8,
+                          }}>
+                            <span style={{ flexShrink: 0 }}>{icon}</span>
+                            <span>
+                              <span style={{ color, fontWeight: isLatest ? 700 : 400, fontSize: 9 }}>R{rf.round}</span>{' '}
+                              {rf.status.replace('Searching: ', '').replace('Reading: ', '').slice(0, 55)}{rf.status.length > 60 ? '...' : ''}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {state.research && (
+                    <div style={{ fontSize: 10, color: '#00ff88', marginTop: 4 }}>
+                      {state.research.findings} facts, {state.research.competitors} competitors{state.research.sources ? `, ${state.research.sources} sources` : ''}
+                      {state.faithfulnessScore != null && (
+                        <span style={{ marginLeft: 8, color: state.faithfulnessScore >= 0.8 ? '#00ff88' : state.faithfulnessScore >= 0.5 ? '#ffaa00' : '#ff4444' }}>
+                          Faithfulness: {(state.faithfulnessScore * 100).toFixed(0)}%
+                        </span>
+                      )}
+                      {state.citedFacts != null && (
+                        <span style={{ marginLeft: 8, color: '#4488ff' }}>
+                          {state.citedFacts} cited
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+              {state.phase === 'council' && !state.council && <div style={{ color: '#ffaa00', fontSize: 11, marginTop: 4 }}>Elders scoring 10 dimensions...</div>}
+            </div>
+          )}
+
+          {/* Progress Bar */}
+          {state.totalAgents > 0 && (
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 11 }}>
+                <span style={{ color: '#666' }}>SWARM PROGRESS</span>
+                <span style={{ color: '#ffaa00' }}>{state.agentsCompleted}/{state.totalAgents}</span>
+              </div>
+              <div style={{ background: '#0a0a18', height: 6, borderRadius: 3, overflow: 'hidden' }}>
+                <div style={{
+                  width: `${progressPct}%`, height: '100%',
+                  background: state.running ? 'linear-gradient(90deg, #ff8800, #ffaa00)' : 'linear-gradient(90deg, #00cc66, #00ff88)',
+                  transition: 'width 0.3s', borderRadius: 3,
+                }} />
               </div>
             </div>
           )}
 
-          {/* Dimension Scores */}
-          {state.result?.avg_scores && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {['market', 'team', 'product', 'timing'].map(dim => {
-                const score = state.result!.avg_scores[dim] || 0
-                const color = score >= 7 ? '#00ff88' : score >= 5 ? '#ffaa00' : '#ff4444'
-                return (
-                  <div key={dim} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <div style={{ width: 65, fontSize: 12, color: '#888', textTransform: 'uppercase' }}>{dim}</div>
-                    <div style={{ flex: 1, background: '#0d0d1a', height: 14, borderRadius: 3, overflow: 'hidden' }}>
-                      <div style={{ width: `${score * 10}%`, height: '100%', background: color, transition: 'width 0.3s' }} />
+          {/* Council + Swarm Verdicts */}
+          {(state.council || state.result) && (
+            <div style={{ display: 'flex', gap: 8 }}>
+              {state.council && (
+                <div style={{ flex: 1, textAlign: 'center', padding: 12, background: 'rgba(255,255,255,0.02)', borderRadius: 8, border: '1px solid rgba(255,255,255,0.04)' }}>
+                  <div style={{ fontSize: 9, color: '#666', letterSpacing: 1 }}>COUNCIL</div>
+                  <div style={{ fontSize: 28, fontWeight: 800, color: state.council.overall >= 6 ? '#00ff88' : state.council.overall >= 4.5 ? '#ffaa00' : '#ff4444' }}>
+                    {state.council.overall.toFixed(1)}
+                  </div>
+                  <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1, color: state.council.overall >= 6 ? '#00ff88' : state.council.overall >= 4.5 ? '#ffaa00' : '#ff4444' }}>
+                    {state.council.verdict.toUpperCase()}
+                  </div>
+                  {state.factVerification && (
+                    <div style={{ display: 'flex', justifyContent: 'center', gap: 4, marginTop: 6 }}>
+                      <span style={{ fontSize: 8, padding: '1px 5px', borderRadius: 4, background: 'rgba(0,255,136,0.1)', color: '#00ff88' }}>
+                        {state.factVerification.verified} verified
+                      </span>
+                      <span style={{ fontSize: 8, padding: '1px 5px', borderRadius: 4, background: 'rgba(255,68,68,0.1)', color: '#ff4444' }}>
+                        {state.factVerification.contradicted} contradicted
+                      </span>
+                      <span style={{ fontSize: 8, padding: '1px 5px', borderRadius: 4, background: 'rgba(255,170,0,0.1)', color: '#ffaa00' }}>
+                        {state.factVerification.unverified} unverified
+                      </span>
                     </div>
-                    <div style={{ width: 30, fontSize: 13, fontWeight: 'bold', color, textAlign: 'right' }}>{score.toFixed(1)}</div>
+                  )}
+                </div>
+              )}
+              {state.result && (
+                <div style={{ flex: 1, textAlign: 'center', padding: 12, background: 'rgba(255,255,255,0.02)', borderRadius: 8, border: '1px solid rgba(255,255,255,0.04)' }}>
+                  <div style={{ fontSize: 9, color: '#666', letterSpacing: 1 }}>SWARM ({state.result.totalAgents})</div>
+                  <div style={{ display: 'flex', justifyContent: 'center', gap: 12, marginTop: 4 }}>
+                    <div><span style={{ fontSize: 20, fontWeight: 800, color: '#00ff88' }}>{state.positivePct}%</span><div style={{ fontSize: 9, color: '#666' }}>HIT</div></div>
+                    <div><span style={{ fontSize: 20, fontWeight: 800, color: '#ff4444' }}>{state.negativePct}%</span><div style={{ fontSize: 9, color: '#666' }}>MISS</div></div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Council Dimensions */}
+          {state.council && (
+            <div>
+              {state.council.dimensions.map(d => {
+                const isContested = state.council!.contestedDimensions.includes(d.name)
+                return (
+                  <div key={d.name} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, padding: isContested ? '2px 4px' : undefined, borderRadius: isContested ? 4 : undefined, border: isContested ? '1px solid rgba(255,170,0,0.3)' : undefined, animation: isContested ? 'contestedPulse 2s ease-in-out infinite' : undefined }}>
+                    <span style={{ width: 100, fontSize: 10, color: isContested ? '#ffaa00' : '#666', display: 'flex', alignItems: 'center', gap: 4 }}>
+                      {d.name.replace(/_/g, ' ')}
+                      {isContested && <span style={{ fontSize: 7, padding: '0px 3px', borderRadius: 3, background: 'rgba(255,170,0,0.15)', color: '#ffaa00', fontWeight: 700, letterSpacing: 0.5 }}>CONTESTED</span>}
+                    </span>
+                    <div style={{ flex: 1, height: 8, background: '#0a0a18', borderRadius: 4, overflow: 'hidden' }}>
+                      <div style={{ width: `${d.score * 10}%`, height: '100%', borderRadius: 4, background: d.score >= 7 ? '#00ff88' : d.score >= 5 ? '#ffaa00' : '#ff4444' }} />
+                    </div>
+                    <span style={{ width: 24, fontSize: 11, fontWeight: 700, color: d.score >= 7 ? '#00ff88' : d.score >= 5 ? '#ffaa00' : '#ff4444', textAlign: 'right' }}>{d.score.toFixed(1)}</span>
                   </div>
                 )
               })}
             </div>
           )}
 
-          {/* Quick stats when running (no result yet) */}
-          {!state.result && (
-            <div style={{
-              display: 'flex', gap: 16, justifyContent: 'center',
-              padding: '10px 0', borderTop: '1px solid #1a1a2e', borderBottom: '1px solid #1a1a2e',
-            }}>
-              <div style={{ textAlign: 'center', flex: 1 }}>
-                <div style={{ fontSize: 'clamp(20px, 2.5vw, 32px)', fontWeight: 'bold', color: '#00ff88' }}>
-                  {state.positivePct}%
-                </div>
-                <div style={{ fontSize: 11, color: '#666' }}>POSITIVE</div>
-              </div>
-              <div style={{ width: 1, background: '#222' }} />
-              <div style={{ textAlign: 'center', flex: 1 }}>
-                <div style={{ fontSize: 'clamp(20px, 2.5vw, 32px)', fontWeight: 'bold', color: '#ff4444' }}>
-                  {state.negativePct}%
-                </div>
-                <div style={{ fontSize: 11, color: '#666' }}>NEGATIVE</div>
-              </div>
+          {/* Zone Counts */}
+          {state.running && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, justifyContent: 'center' }}>
+              {Object.entries(ZONE_NAMES).map(([key, label]) => {
+                const count = zoneCounts[key] || 0
+                if (count === 0) return null
+                return (
+                  <div key={key} style={{ background: '#0a0a18', borderRadius: 4, padding: '4px 8px', fontSize: 10, textAlign: 'center', minWidth: 55, border: '1px solid #111' }}>
+                    <div style={{ color: '#888' }}>{label.split(' ')[0]}</div>
+                    <div style={{ color: '#ffaa00', fontWeight: 700, fontSize: 13 }}>{count}</div>
+                  </div>
+                )
+              })}
             </div>
           )}
 
-          {/* Final Results */}
+          {/* Plan results */}
+          {state.plan && (
+            <div style={{ fontSize: 11 }}>
+              {state.plan.risks.length > 0 && (
+                <div style={{ marginBottom: 6 }}>
+                  <div style={{ color: '#ff4444', fontWeight: 700, fontSize: 10, marginBottom: 3, letterSpacing: 1 }}>RISKS</div>
+                  {state.plan.risks.slice(0, 3).map((r: any, i: number) => (
+                    <div key={i} style={{ color: '#888', padding: '2px 0 2px 8px', fontSize: 10, borderLeft: '2px solid #ff4444', marginBottom: 2 }}>
+                      {typeof r === 'string' ? r.slice(0, 100) : (r.risk || JSON.stringify(r)).slice(0, 100)}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {state.plan.moves.length > 0 && (
+                <div>
+                  <div style={{ color: '#00ff88', fontWeight: 700, fontSize: 10, marginBottom: 3, letterSpacing: 1 }}>NEXT MOVES</div>
+                  {state.plan.moves.slice(0, 3).map((m: any, i: number) => (
+                    <div key={i} style={{ color: '#888', padding: '2px 0 2px 8px', fontSize: 10, borderLeft: '2px solid #00ff88', marginBottom: 2 }}>
+                      {typeof m === 'string' ? m.slice(0, 100) : (m.move || m.action || JSON.stringify(m)).slice(0, 100)}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* OASIS Timeline */}
+          {state.oasis && state.oasis.timeline.length > 0 && (
+            <div style={{ fontSize: 10 }}>
+              <div style={{ fontWeight: 700, color: '#4488ff', marginBottom: 4, fontSize: 11, letterSpacing: 1 }}>
+                OASIS: {state.oasis.trajectory.toUpperCase()}
+              </div>
+              {state.oasis.timeline.map((t, i) => (
+                <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 2, padding: '2px 0', borderBottom: '1px solid rgba(255,255,255,0.02)' }}>
+                  <span style={{ color: '#555', width: 42 }}>M{t.month}</span>
+                  <span style={{ color: t.change > 0 ? '#00ff88' : t.change < 0 ? '#ff4444' : '#555', width: t.confidenceLow != null ? 75 : 35, fontWeight: 700 }}>
+                    {t.sentimentPct}%{t.confidenceLow != null && t.confidenceHigh != null && <span style={{ fontSize: 8, color: '#555', fontWeight: 400 }}> ({t.confidenceLow}-{t.confidenceHigh}%)</span>}
+                  </span>
+                  <span style={{ color: '#444', flex: 1 }}>{t.event?.slice(0, 55)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Final Results + Themes */}
           {state.result && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               <div>
-                <div style={{ color: '#00ff88', fontSize: 12, fontWeight: 'bold', marginBottom: 6 }}>POSITIVE THEMES</div>
-                {state.result.keyThemesPositive.slice(0, 6).map((t, i) => (
-                  <div key={i} style={{ color: '#aaa', padding: '2px 0 2px 10px', fontSize: 12, borderLeft: '2px solid #00ff88' }}>{t}</div>
+                <div style={{ color: '#00ff88', fontSize: 10, fontWeight: 700, marginBottom: 4, letterSpacing: 1 }}>POSITIVE THEMES</div>
+                {state.result.keyThemesPositive.slice(0, 5).map((t, i) => (
+                  <div key={i} style={{ color: '#888', padding: '2px 0 2px 8px', fontSize: 11, borderLeft: '2px solid #00ff88' }}>{t}</div>
                 ))}
               </div>
               <div>
-                <div style={{ color: '#ff4444', fontSize: 12, fontWeight: 'bold', marginBottom: 6 }}>NEGATIVE THEMES</div>
-                {state.result.keyThemesNegative.slice(0, 6).map((t, i) => (
-                  <div key={i} style={{ color: '#aaa', padding: '2px 0 2px 10px', fontSize: 12, borderLeft: '2px solid #ff4444' }}>{t}</div>
+                <div style={{ color: '#ff4444', fontSize: 10, fontWeight: 700, marginBottom: 4, letterSpacing: 1 }}>NEGATIVE THEMES</div>
+                {state.result.keyThemesNegative.slice(0, 5).map((t, i) => (
+                  <div key={i} style={{ color: '#888', padding: '2px 0 2px 8px', fontSize: 11, borderLeft: '2px solid #ff4444' }}>{t}</div>
                 ))}
               </div>
               {state.result.contestedThemes.length > 0 && (
                 <div>
-                  <div style={{ color: '#ffaa00', fontSize: 12, fontWeight: 'bold', marginBottom: 6 }}>CONTESTED</div>
+                  <div style={{ color: '#ffaa00', fontSize: 10, fontWeight: 700, marginBottom: 4, letterSpacing: 1 }}>CONTESTED</div>
                   {state.result.contestedThemes.map((t, i) => (
-                    <div key={i} style={{ color: '#aaa', padding: '2px 0 2px 10px', fontSize: 12, borderLeft: '2px solid #ffaa00' }}>{t}</div>
+                    <div key={i} style={{ color: '#888', padding: '2px 0 2px 8px', fontSize: 11, borderLeft: '2px solid #ffaa00' }}>{t}</div>
                   ))}
                 </div>
               )}
-              <div style={{ fontSize: 11, color: '#555', borderTop: '1px solid #1a1a2e', paddingTop: 8 }}>
-                <div>Models: {state.result.modelsUsed.join(', ')}</div>
-                <div>Time: {state.result.executionTimeSeconds}s</div>
+
+              {/* Divergence Analysis Panel */}
+              {state.divergence && (
+                <div style={{ padding: 10, borderLeft: '3px solid #ff8800', background: 'rgba(255,136,0,0.03)', borderRadius: '0 6px 6px 0' }}>
+                  <div style={{ color: '#ff8800', fontSize: 10, fontWeight: 700, marginBottom: 6, letterSpacing: 1 }}>DIVERGENCE ANALYSIS</div>
+                  {state.divergence.mostContestedDimension && (
+                    <div style={{ fontSize: 10, color: '#888', marginBottom: 4 }}>
+                      Most contested: <span style={{ color: '#ffaa00', fontWeight: 700 }}>{state.divergence.mostContestedDimension}</span>
+                      {state.divergence.spreadRange != null && <span style={{ color: '#666' }}> (spread: {state.divergence.spreadRange.toFixed(1)})</span>}
+                    </div>
+                  )}
+                  {state.divergence.outlierAgents && state.divergence.outlierAgents.length > 0 && (
+                    <div style={{ marginTop: 4 }}>
+                      <div style={{ fontSize: 9, color: '#666', marginBottom: 2 }}>Top outlier agents:</div>
+                      {state.divergence.outlierAgents.slice(0, 3).map((a: any, i: number) => (
+                        <div key={i} style={{ fontSize: 10, color: '#888', padding: '1px 0 1px 6px', borderLeft: '2px solid #ff8800', marginBottom: 1 }}>
+                          {a.persona || a.model || `Agent ${a.id || i}`}: {a.deviation != null ? `${a.deviation > 0 ? '+' : ''}${a.deviation.toFixed(1)} deviation` : a.reason || ''}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Deliberation Summary */}
+              {state.deliberation && (
+                <div style={{ padding: 10, borderLeft: '3px solid #aa66ff', background: 'rgba(170,102,255,0.03)', borderRadius: '0 6px 6px 0' }}>
+                  <div style={{ color: '#aa66ff', fontSize: 10, fontWeight: 700, marginBottom: 6, letterSpacing: 1 }}>DELIBERATION SUMMARY</div>
+                  {state.deliberation.chairRecommendation && (
+                    <div style={{ fontSize: 10, color: '#888', marginBottom: 4 }}>
+                      Chair recommendation: <span style={{ color: '#aa66ff', fontWeight: 700 }}>{state.deliberation.chairRecommendation}</span>
+                    </div>
+                  )}
+                  {state.deliberation.rounds != null && (
+                    <div style={{ fontSize: 9, color: '#666', marginBottom: 4 }}>{state.deliberation.rounds} deliberation round{state.deliberation.rounds !== 1 ? 's' : ''}{state.deliberation.consensusReached ? ' — consensus reached' : ''}</div>
+                  )}
+                  {state.deliberation.positionChanges && state.deliberation.positionChanges.length > 0 && (
+                    <div style={{ marginTop: 4 }}>
+                      <div style={{ fontSize: 9, color: '#666', marginBottom: 2 }}>Position changes:</div>
+                      {state.deliberation.positionChanges.slice(0, 2).map((pc: any, i: number) => (
+                        <div key={i} style={{ fontSize: 10, color: '#888', padding: '1px 0 1px 6px', borderLeft: '2px solid #aa66ff', marginBottom: 1 }}>
+                          {pc.model || pc.agent || `Member ${i + 1}`}: {pc.from} → {pc.to}{pc.reason ? ` (${pc.reason})` : ''}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                <button
+                  onClick={() => {
+                    const analysis = state.fullResult || {
+                      prediction: { verdict: state.council?.verdict || state.result?.verdict || '', composite_score: state.council?.overall || state.result?.median_overall || 0, confidence: state.council?.confidence || state.result?.avgConfidence || 0, dimensions: state.council?.dimensions || Object.entries(state.result?.avg_scores || {}).map(([name, score]) => ({ name, score })), contested_dimensions: state.council?.contestedDimensions || [], council_models: state.council?.models || state.result?.modelsUsed || [] },
+                      research: state.research || {}, swarm: { total_agents: state.result?.totalAgents || state.agentsCompleted || 0, positive_pct: state.result?.positivePct || state.positivePct || 0, negative_pct: state.result?.negativePct || state.negativePct || 0, sample_agents: (state.result as any)?.sampleAgents || state.recentVotes?.map((v: any) => ({ persona: v.persona, vote: v.vote, reasoning: v.reasoning, overall: v.overall })) || [] },
+                      plan: state.plan || {}, extraction: { company: form.companyName, industry: form.industry, product: form.product, target_market: form.targetMarket, business_model: form.businessModel, stage: form.stage, traction: form.traction, team: form.team, ask: form.ask, website_url: form.websiteUrl, location: form.location, revenue: form.revenue, funding: form.fundingRaised, competitive_advantage: form.competitiveAdvantage, known_competitors: form.knownCompetitors ? form.knownCompetitors.split(',').map((s: string) => s.trim()) : [] }, data_quality: 0.9, data_sources: state.result?.modelsUsed || [],
+                    }
+                    fetch(`/api/bi/report/pdf`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ analysis }) })
+                    .then(r => r.blob()).then(blob => { const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `mirai-report-${form.companyName.toLowerCase().replace(/\s+/g, '-')}.pdf`; a.click(); URL.revokeObjectURL(url) })
+                    .catch(e => console.error('PDF export failed:', e))
+                  }}
+                  disabled={state.phase !== 'complete' || (state.phase === 'complete' && state.pdfReady === false)}
+                  style={{
+                    flex: 1, padding: '12px 0', borderRadius: 8, border: 'none', fontSize: 13, fontWeight: 700, letterSpacing: 1, cursor: (state.phase === 'complete' && state.pdfReady !== false) ? 'pointer' : 'default',
+                    background: (state.phase === 'complete' && state.pdfReady !== false) ? 'linear-gradient(90deg, #4488ff, #6644ff)' : state.phase === 'complete' ? 'linear-gradient(90deg, #333, #444)' : '#111',
+                    color: (state.phase === 'complete' && state.pdfReady !== false) ? '#fff' : '#555',
+                    boxShadow: (state.phase === 'complete' && state.pdfReady !== false) ? '0 4px 16px rgba(68, 136, 255, 0.2)' : 'none',
+                  }}>
+                  {state.phase === 'complete' ? (state.pdfReady === false ? 'PREPARING PDF...' : 'EXPORT PDF') : 'GENERATING...'}
+                </button>
+                <button
+                  onClick={() => { setState({ running: false, phase: 'idle', totalAgents: 0, agentsCompleted: 0, positivePct: 0, negativePct: 0, avgConfidence: 0, recentVotes: [], result: null, researchFeed: [] }); setForm(DEMO_FORM) }}
+                  style={{ flex: 1, background: 'transparent', color: '#888', border: '1px solid #222', padding: '12px 0', fontSize: 13, cursor: 'pointer', borderRadius: 8 }}>
+                  NEW ANALYSIS
+                </button>
               </div>
-              <button
-                onClick={() => { setState(prev => ({ ...prev, result: null, running: false, agentsCompleted: 0, totalAgents: 0 })); setForm(EMPTY_FORM) }}
-                style={{
-                  width: '100%', background: '#1a1a2e', color: '#e0e0e0',
-                  border: '1px solid #333', padding: '10px 16px', fontSize: 13,
-                  cursor: 'pointer', borderRadius: 6,
-                }}>
-                NEW PREDICTION
-              </button>
+
+              <div style={{ fontSize: 9, color: '#333', textAlign: 'center' }}>
+                {state.result.modelsUsed.length} models · {state.result.executionTimeSeconds}s · {state.result.totalAgents} agents
+              </div>
             </div>
           )}
 
           {/* Live Feed */}
           {state.running && state.recentVotes.length > 0 && (
             <div>
-              <div style={{ fontSize: 12, fontWeight: 'bold', marginBottom: 6, color: '#888' }}>LIVE FEED</div>
+              <div style={{ fontSize: 10, fontWeight: 700, marginBottom: 4, color: '#555', letterSpacing: 1 }}>LIVE FEED</div>
               {state.recentVotes.map((v, i) => (
                 <div key={i} style={{
-                  fontSize: 11, padding: '3px 0', lineHeight: 1.3,
+                  fontSize: 10, padding: '3px 0', lineHeight: 1.3,
                   color: v.vote === 'positive' ? '#00ff88' : '#ff4444',
-                  opacity: 1 - i * 0.05, borderBottom: '1px solid #0d0d1a',
+                  opacity: 1 - i * 0.05, borderBottom: '1px solid rgba(255,255,255,0.02)',
                 }}>
-                  <span style={{ color: '#555' }}>#{v.id}</span>{' '}
-                  <span style={{ fontWeight: 'bold' }}>{(v as any).overall?.toFixed(1) || v.vote.toUpperCase()}</span>
-                  <span style={{ color: '#666' }}>/10</span>{' '}
-                  <span style={{ color: '#555' }}>— {v.reasoning.slice(0, 70)}</span>
+                  <span style={{ color: '#333' }}>#{v.id}</span>{' '}
+                  <span style={{ fontWeight: 700 }}>{(v as any).overall?.toFixed(1) || v.vote.toUpperCase()}</span>
+                  <span style={{ color: '#333' }}>/10</span>{' '}
+                  <span style={{ color: '#444' }}>{v.reasoning.slice(0, 60)}</span>
                 </div>
               ))}
             </div>

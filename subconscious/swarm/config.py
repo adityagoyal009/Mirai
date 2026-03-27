@@ -188,7 +188,10 @@ class Config:
 
     # ── Council model discovery ──────────────────────────────────
     GATEWAY_CONFIG_PATH = os.path.join(
-        os.path.expanduser('~'), '.openclaw', 'openclaw.json'
+        os.path.expanduser('~'), '.mirai', 'mirai.json'
+    )
+    COUNCIL_CONFIG_PATH = os.path.join(
+        os.path.expanduser('~'), '.mirai', 'council.json'
     )
 
     @classmethod
@@ -200,15 +203,21 @@ class Config:
         Returns list of dicts: [{model, label, base_url, api_key}, ...]
         """
         import json
+        # Read council config from dedicated council.json
+        config = {}
         try:
-            if not os.path.exists(cls.GATEWAY_CONFIG_PATH):
+            if os.path.exists(cls.COUNCIL_CONFIG_PATH):
+                with open(cls.COUNCIL_CONFIG_PATH, 'r') as f:
+                    config = json.load(f)
+            elif os.path.exists(cls.GATEWAY_CONFIG_PATH):
+                with open(cls.GATEWAY_CONFIG_PATH, 'r') as f:
+                    config = json.load(f)
+            else:
                 return []
-            with open(cls.GATEWAY_CONFIG_PATH, 'r') as f:
-                config = json.load(f)
         except (json.JSONDecodeError, IOError):
             return []
 
-        models_cfg = config.get('models', {})
+        models_cfg = config.get('models', config)
         providers = models_cfg.get('providers', {})
 
         # Explicit council list
@@ -245,6 +254,39 @@ class Config:
                             'api_key': api_key,
                         })
 
+        return result
+
+    @classmethod
+    def get_swarm_models(cls) -> list:
+        """
+        Read swarm-specific models (fast models for persona agents).
+        Falls back to council models if no swarm config exists.
+        """
+        import json
+        try:
+            if os.path.exists(cls.COUNCIL_CONFIG_PATH):
+                with open(cls.COUNCIL_CONFIG_PATH, 'r') as f:
+                    config = json.load(f)
+            else:
+                return cls.get_council_models()
+        except (json.JSONDecodeError, IOError):
+            return cls.get_council_models()
+
+        swarm_cfg = config.get('swarm', {})
+        swarm_models_raw = swarm_cfg.get('models', [])
+        if not swarm_models_raw:
+            return cls.get_council_models()
+
+        result = []
+        for cm in swarm_models_raw:
+            model_id = cm.get('model', '')
+            label = cm.get('label', model_id)
+            result.append({
+                'model': model_id,
+                'label': label,
+                'base_url': cls.LLM_BASE_URL,
+                'api_key': cls.LLM_API_KEY,
+            })
         return result
 
     @classmethod

@@ -1,10 +1,11 @@
 """
-Research Cache — caches BI research results in ChromaDB to avoid
-re-running expensive web search + LLM synthesis for similar companies.
+Research Cache — file-based JSON cache for BI research results.
+Replaces ChromaDB (which crashes with Rust panics) with instant file I/O.
 """
 
 import hashlib
 import json
+import os
 import time
 from typing import Optional, Dict, Any
 
@@ -13,93 +14,61 @@ from ..utils.logger import get_logger
 logger = get_logger('mirofish.cache')
 
 _CACHE_TTL_DAYS = 7
-_SIMILARITY_THRESHOLD = 0.85
+_CACHE_DIR = os.path.expanduser("~/.mirai/research_cache")
 
 
 class ResearchCache:
-    """ChromaDB-based research cache with semantic similarity matching."""
+    """File-based research cache. Instant reads, no ChromaDB dependency."""
 
     def __init__(self):
-        self._collection = None
-        self._init_collection()
+        os.makedirs(_CACHE_DIR, exist_ok=True)
 
-    def _init_collection(self):
-        try:
-            import chromadb
-            from ..config import Config
-            client = chromadb.PersistentClient(path=Config.CHROMADB_PERSIST_PATH)
-            self._collection = client.get_or_create_collection(
-                name="mirai_research_cache",
-                metadata={"hnsw:space": "cosine"},
-            )
-            logger.info(f"[Cache] Research cache initialized ({self._collection.count()} entries)")
-        except Exception as e:
-            logger.warning(f"[Cache] Failed to init: {e}")
+    @staticmethod
+    def make_key(company: str, industry: str) -> str:
+        normalized = f"{company.strip().lower()}:{industry.strip().lower()}"
+        return hashlib.sha256(normalized.encode()).hexdigest()[:16]
 
-    def get_cached(self, industry: str, product: str) -> Optional[Dict[str, Any]]:
-        """Check for a similar cached research result."""
-        if not self._collection:
+    def _path(self, key: str) -> str:
+        return os.path.join(_CACHE_DIR, f"{key}.json")
+
+    def get(self, key: str) -> Optional[Dict[str, Any]]:
+        path = self._path(key)
+        if not os.path.exists(path):
             return None
-
-        query = f"{industry} {product}"
         try:
-            results = self._collection.query(
-                query_texts=[query],
-                n_results=1,
-                include=["documents", "metadatas", "distances"],
-            )
-
-            if not results['documents'] or not results['documents'][0]:
-                return None
-
-            distance = results['distances'][0][0]
-            similarity = 1 - distance  # cosine distance to similarity
-
-            if similarity < _SIMILARITY_THRESHOLD:
-                return None
-
-            metadata = results['metadatas'][0][0]
-            cached_time = metadata.get('cached_at', 0)
-            age_days = (time.time() - cached_time) / 86400
-
+            with open(path) as f:
+                wrapper = json.load(f)
+            cached_at = wrapper.get("_cached_at", 0)
+            age_days = (time.time() - cached_at) / 86400
             if age_days > _CACHE_TTL_DAYS:
-                logger.info(f"[Cache] Found match but expired ({age_days:.1f} days old)")
+                logger.info(f"[Cache] Key {key} expired ({age_days:.1f}d old)")
                 return None
-
-            doc = results['documents'][0][0]
-            cached_data = json.loads(doc)
-            logger.info(f"[Cache] Hit! similarity={similarity:.2f}, age={age_days:.1f}d, "
-                        f"industry={metadata.get('industry','?')}")
-
-            return {
-                "data": cached_data,
-                "similarity": round(similarity, 3),
-                "age_days": round(age_days, 1),
-                "original_company": metadata.get("company", "unknown"),
-            }
-
+            data = wrapper.get("data", wrapper)
+            # Inject cache age so downstream consumers can display staleness
+            if isinstance(data, dict):
+                data["_cache_age_days"] = round(age_days, 1)
+            logger.info(f"[Cache] Key {key} HIT (age={age_days:.1f}d)")
+            return data
         except Exception as e:
-            logger.warning(f"[Cache] Query failed: {e}")
+            logger.warning(f"[Cache] Key {key} read failed (treating as cache miss — expensive re-research will run): {e}")
             return None
+
+    def put(self, key: str, data: dict):
+        path = self._path(key)
+        try:
+            wrapper = {"_cached_at": time.time(), "data": data}
+            with open(path, "w") as f:
+                json.dump(wrapper, f)
+            logger.info(f"[Cache] Stored key {key}")
+        except Exception as e:
+            logger.warning(f"[Cache] Store failed for key {key}: {e}")
+
+    # Legacy methods for backward compat
+    def get_cached(self, industry: str, product: str) -> Optional[Dict[str, Any]]:
+        key = self.make_key(industry, product)
+        data = self.get(key)
+        return {"data": data, "similarity": 1.0, "age_days": 0} if data else None
 
     def store(self, company: str, industry: str, product: str, research_data: dict):
-        """Store research results for future cache hits."""
-        if not self._collection:
-            return
-
-        cache_id = hashlib.sha256(f"{company}:{industry}:{product}".encode()).hexdigest()[:16]
-        query_text = f"{industry} {product}"
-
-        try:
-            self._collection.upsert(
-                ids=[cache_id],
-                documents=[json.dumps(research_data)],
-                metadatas=[{
-                    "company": company,
-                    "industry": industry,
-                    "cached_at": time.time(),
-                }],
-            )
-            logger.info(f"[Cache] Stored research for {company} ({industry})")
-        except Exception as e:
-            logger.warning(f"[Cache] Store failed: {e}")
+        key = self.make_key(company, industry)
+        self.put(key, research_data)
