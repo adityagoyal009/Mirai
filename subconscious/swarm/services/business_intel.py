@@ -43,9 +43,7 @@ _DEPTH_CONFIG = {
 
 _COUNCIL_DEFAULTS = [
     {"model": "claude-opus-4-6", "label": "Claude Opus 4.6", "provider": "claude"},
-    {"model": "claude-sonnet-4-6", "label": "Claude Sonnet 4.6", "provider": "claude"},
     {"model": "gpt-5.4", "label": "GPT-5.4", "provider": "openai"},
-    {"model": "o3", "label": "O3", "provider": "openai"},
     {"model": "llama-3.3-70b-versatile", "label": "Llama 3.3 70B", "provider": "groq"},
     {"model": "meta-llama/llama-4-scout-17b-16e-instruct", "label": "Llama 4 Scout", "provider": "groq"},
     {"model": "moonshotai/kimi-k2-instruct", "label": "Kimi K2", "provider": "groq"},
