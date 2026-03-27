@@ -130,11 +130,11 @@ class SwarmResult:
 # ── Constants ─────────────────────────────────────────────────────
 
 DELIBERATION_WEIGHT = 1.5  # Committee-adjusted agents count this many times in aggregation
-VALID_COUNTS = [50]  # Fixed at 50 — balances cost, quality, and latency
-WAVE1_MAX = 50  # All 50 agents run as individual calls (no batch mode)
-BATCH_SIZE = 5  # Retained for backward compat but Wave 2 won't trigger at 50 agents
-# Max concurrent LLM calls — 50 agents across 4 models = ~13 per model
-WAVE1_WORKERS = 10
+VALID_COUNTS = [100]  # Fixed at 100 — 5 free models across Groq + SambaNova
+WAVE1_MAX = 100  # All 100 agents run as individual calls (no batch mode)
+BATCH_SIZE = 5  # Retained for backward compat but Wave 2 won't trigger at 100 agents
+# Max concurrent LLM calls — 100 agents across 5 models = 20 per model
+WAVE1_WORKERS = 15  # 15 parallel workers (Groq handles 30 req/min per model)
 WAVE2_WORKERS = 10
 
 

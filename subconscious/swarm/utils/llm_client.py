@@ -162,6 +162,15 @@ def _call_gateway(
     if model in _CEREBRAS_MODELS:
         return _call_cerebras(model, messages, max_tokens, temperature, timeout)
 
+    # Route SambaNova models directly to SambaNova API (OpenAI-compatible)
+    _SAMBANOVA_MODELS = {"DeepSeek-V3.1", "DeepSeek-V3.1-Terminus", "DeepSeek-V3-0324",
+                         "DeepSeek-R1-0528", "DeepSeek-R1-Distill-Llama-70B",
+                         "Llama-4-Maverick-17B-128E-Instruct", "Meta-Llama-3.3-70B-Instruct",
+                         "Meta-Llama-3.1-8B-Instruct", "Qwen3-32B", "Qwen3-235B",
+                         "MiniMax-M2.5", "gemma-3-12b-it", "gpt-oss-120b"}
+    if model in _SAMBANOVA_MODELS:
+        return _call_sambanova(model, messages, max_tokens, temperature, timeout)
+
     # Normalize model name: add provider prefix if missing
     if "/" not in model:
         if "claude" in model.lower():
@@ -250,6 +259,58 @@ def _call_groq(
 
     if not content:
         raise RuntimeError(f"Groq returned empty content for {model}: {body}")
+
+    # Strip thinking tags from reasoning models
+    if "</think>" in content:
+        content = content.split("</think>", 1)[-1].strip()
+
+    return content
+
+
+# ── SambaNova API (OpenAI-compatible, free tier) ─────────────────────────
+_SAMBANOVA_API_KEY = os.environ.get("SAMBANOVA_API_KEY", "")
+
+
+def _call_sambanova(
+    model: str,
+    messages: List[Dict[str, str]],
+    max_tokens: int = 4096,
+    temperature: float = 0.7,
+    timeout: int = 60,
+) -> str:
+    """Call SambaNova API (OpenAI-compatible). Fast inference on custom hardware."""
+    import http.client
+    import ssl
+
+    payload = json.dumps({
+        "model": model,
+        "messages": messages,
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+    }).encode("utf-8")
+
+    conn = http.client.HTTPSConnection("api.sambanova.ai", timeout=timeout,
+                                        context=ssl.create_default_context())
+    conn.request("POST", "/v1/chat/completions", body=payload, headers={
+        "Authorization": f"Bearer {_SAMBANOVA_API_KEY}",
+        "Content-Type": "application/json",
+    })
+    resp = conn.getresponse()
+    raw_body = resp.read().decode("utf-8")
+    conn.close()
+
+    if resp.status != 200:
+        logger.error(f"[SambaNova] HTTP {resp.status} for {model}: {raw_body[:300]}")
+        raise RuntimeError(f"SambaNova HTTP {resp.status} for {model}: {raw_body[:300]}")
+
+    body = json.loads(raw_body)
+    choices = body.get("choices", [])
+    if not choices:
+        raise RuntimeError(f"SambaNova returned no choices for {model}: {body}")
+
+    content = choices[0].get("message", {}).get("content", "")
+    if not content:
+        raise RuntimeError(f"SambaNova returned empty content for {model}: {body}")
 
     # Strip thinking tags from reasoning models
     if "</think>" in content:

@@ -181,7 +181,7 @@ export function SwarmScoreboard({ isMobile = false, onClose, hidden = false }: {
     recentVotes: [], result: null, researchFeed: [],
   })
   const [form, setForm] = useState<StartupForm>(DEMO_FORM)
-  const agentCount = 50
+  const agentCount = 100
   const [simulateMarket, setSimulateMarket] = useState(false)
   const [connected, setConnected] = useState(mirai.connected)
   const [uploading, setUploading] = useState(false)
@@ -548,7 +548,7 @@ export function SwarmScoreboard({ isMobile = false, onClose, hidden = false }: {
                 borderTop: '1px solid rgba(255,255,255,0.04)',
               }}>
                 <span style={{ background: '#0a0a18', color: '#888', border: '1px solid #1a1a2e', padding: '8px 10px', fontSize: 12, borderRadius: 6 }}>
-                  50 agents
+                  100 agents
                 </span>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 11, color: simulateMarket ? '#4488ff' : '#555' }} {...stopProp}>
                   <input type="checkbox" checked={simulateMarket} onChange={e => setSimulateMarket(e.target.checked)}

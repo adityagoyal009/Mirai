@@ -104,7 +104,7 @@ def _handle_full_analysis(msg: dict):
     """Handle startAnalysis — run full BI pipeline with streaming events."""
     exec_summary = msg.get("execSummary", "")
     depth = msg.get("depth", "deep")
-    agent_count = msg.get("agentCount", 50)
+    agent_count = msg.get("agentCount", 100)
     stage = msg.get("stage", "")  # Explicit stage from frontend (Idea/Pre-seed/Seed/Series A/B/C/Growth/Pre-IPO)
 
     if not exec_summary:
@@ -115,10 +115,10 @@ def _handle_full_analysis(msg: dict):
         exec_summary = exec_summary[:50000]
         logger.warning(f"[WS] exec_summary truncated from {len(msg.get('execSummary', ''))} to 50000 chars")
 
-    # Fixed at 50 agents; 0 disables swarm
-    valid_counts = [0, 50]
+    # Fixed at 100 agents; 0 disables swarm
+    valid_counts = [0, 100]
     if agent_count not in valid_counts:
-        agent_count = 50
+        agent_count = 100
 
     logger.info(f"[WS] Starting full analysis: depth={depth}, agents={agent_count}")
     _analysis_start_time = time.time()
