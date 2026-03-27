@@ -1311,9 +1311,30 @@ class BusinessIntelEngine:
                     if delta:
                         rd.reasoning += f" | [DELTA] {delta}"
 
-            logger.info(f"[Council] Chairman reconciled all dimensions. Notes: {chairman_result.get('overall_notes', '')[:200]}")
+            logger.info(f"[Council] Chairman (Opus) reconciled all dimensions. Notes: {chairman_result.get('overall_notes', '')[:200]}")
         except Exception as e:
-            logger.warning(f"[Council] Chairman reconciliation failed (keeping weighted averages): {e}")
+            logger.warning(f"[Council] Chairman (Opus) failed: {e} — trying Qwen3.5 397B fallback")
+            # Fallback chairman: Qwen3.5 397B via NVIDIA (free, always available)
+            try:
+                fallback_chairman = LLMClient(model="qwen/qwen3.5-397b-a17b")
+                chairman_result = fallback_chairman.chat_json(
+                    messages=[{"role": "user", "content": chairman_prompt}],
+                    temperature=0.2, max_tokens=2000,
+                )
+                chairman_dims = {d["name"]: d for d in chairman_result.get("dimensions", [])}
+                for rd in reconciled_dims:
+                    if rd.name in chairman_dims:
+                        cd = chairman_dims[rd.name]
+                        old_score = rd.score
+                        rd.score = round(float(cd.get("final_score", rd.score)), 1)
+                        delta = cd.get("delta", "")
+                        consensus = cd.get("consensus_quality", "")
+                        rd.reasoning += f" | [CHAIRMAN-FALLBACK] {cd.get('reasoning', '')} (was {old_score}, consensus: {consensus})"
+                        if delta:
+                            rd.reasoning += f" | [DELTA] {delta}"
+                logger.info(f"[Council] Chairman (Qwen3.5 fallback) reconciled all dimensions. Notes: {chairman_result.get('overall_notes', '')[:200]}")
+            except Exception as fallback_err:
+                logger.warning(f"[Council] Both chairman models failed (keeping weighted averages): Opus: {e} | Qwen3.5: {fallback_err}")
 
         # Overall score from reconciled dimensions (recalculates after chairman)
         overall = self._calc_weighted_score(reconciled_dims, industry)
