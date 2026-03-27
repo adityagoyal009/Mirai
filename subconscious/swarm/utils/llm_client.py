@@ -149,6 +149,14 @@ def _call_gateway(
     if model.startswith("@cf/"):
         return _call_cloudflare_ai(model, messages, max_tokens, temperature, timeout)
 
+    # Route Groq models directly to Groq API (OpenAI-compatible)
+    _GROQ_MODELS = {"llama-3.3-70b-versatile", "llama-3.1-8b-instant",
+                    "meta-llama/llama-4-scout-17b-16e-instruct",
+                    "moonshotai/kimi-k2-instruct", "moonshotai/kimi-k2-instruct-0905",
+                    "openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3-32b"}
+    if model in _GROQ_MODELS:
+        return _call_groq(model, messages, max_tokens, temperature, timeout)
+
     # Normalize model name: add provider prefix if missing
     if "/" not in model:
         if "claude" in model.lower():
@@ -189,9 +197,65 @@ def _call_gateway(
     return content
 
 
+# ── Groq API (OpenAI-compatible, free tier) ──────────────────────────────
+_GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
+
+
+def _call_groq(
+    model: str,
+    messages: List[Dict[str, str]],
+    max_tokens: int = 4096,
+    temperature: float = 0.7,
+    timeout: int = 60,
+) -> str:
+    """Call Groq API (OpenAI-compatible). Blazing fast inference on LPU hardware."""
+    import http.client
+    import ssl
+
+    payload = json.dumps({
+        "model": model,
+        "messages": messages,
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+    }).encode("utf-8")
+
+    conn = http.client.HTTPSConnection("api.groq.com", timeout=timeout,
+                                        context=ssl.create_default_context())
+    conn.request("POST", "/openai/v1/chat/completions", body=payload, headers={
+        "Authorization": f"Bearer {_GROQ_API_KEY}",
+        "Content-Type": "application/json",
+    })
+    resp = conn.getresponse()
+    raw_body = resp.read().decode("utf-8")
+    conn.close()
+
+    if resp.status != 200:
+        logger.error(f"[Groq] HTTP {resp.status} for {model}: {raw_body[:300]}")
+        raise RuntimeError(f"Groq HTTP {resp.status} for {model}: {raw_body[:300]}")
+
+    body = json.loads(raw_body)
+    choices = body.get("choices", [])
+    if not choices:
+        raise RuntimeError(f"Groq returned no choices for {model}: {body}")
+
+    content = choices[0].get("message", {}).get("content", "")
+    if not content:
+        # Some models put response in reasoning_content
+        content = choices[0].get("message", {}).get("reasoning_content", "")
+
+    if not content:
+        raise RuntimeError(f"Groq returned empty content for {model}: {body}")
+
+    # Strip thinking tags from reasoning models
+    if "</think>" in content:
+        content = content.split("</think>", 1)[-1].strip()
+
+    return content
+
+
 # ── Cloudflare Workers AI ────────────────────────────────────────────────
-_CF_ACCOUNT_ID = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "f5fae24836d376348731d602fb68626f")
-_CF_API_TOKEN = os.environ.get("CLOUDFLARE_AI_TOKEN", "cfut_Vc9URBhc9yckjtNxotMmxVuwcQWSQo3VOH9LusIpae94234d")
+_CF_ACCOUNT_ID = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "")
+_CF_API_TOKEN = os.environ.get("CLOUDFLARE_AI_TOKEN", "")
 
 
 def _call_cloudflare_ai(
