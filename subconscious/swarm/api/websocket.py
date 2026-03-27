@@ -252,45 +252,72 @@ def _handle_full_analysis(msg: dict):
             except Exception as e:
                 logger.error(f"[WS] Cache check failed (non-fatal): {e}\n{traceback.format_exc()}")
 
-            # Run dual-model agentic research if no cache
+            # Run research if no cache — Gemini primary, OpenClaw fallback
             if research is None:
+                def on_progress(round_num, status):
+                    broadcast({"type": "researchProgress", "round": round_num, "status": status})
+
+                _research_company = getattr(extraction, 'company', '')
+                _research_industry = getattr(extraction, 'industry', '')
+                _research_product = getattr(extraction, 'product', '')
+                _research_target = getattr(extraction, 'target_market', '')
+                _research_website = getattr(extraction, 'website_url', '')
+                _research_competitors = ', '.join(getattr(extraction, 'known_competitors', []) or [])
+
+                # PRIMARY: Gemini grounded research (fast, no gateway dependency)
                 try:
-                    from ..services.agentic_researcher import AgenticResearcher
-                    import dataclasses
+                    from ..services.gemini_researcher import GeminiResearcher
+                    broadcast({"type": "researchProgress", "round": 0, "status": "Web research via Gemini..."})
 
-                    def on_progress(round_num, status):
-                        broadcast({"type": "researchProgress", "round": round_num, "status": status})
-
-                    agentic = AgenticResearcher()
-                    findings = agentic.research(
-                        company=getattr(extraction, 'company', ''),
-                        industry=getattr(extraction, 'industry', ''),
-                        product=getattr(extraction, 'product', ''),
-                        target_market=getattr(extraction, 'target_market', ''),
-                        website_url=getattr(extraction, 'website_url', ''),
-                        known_competitors=', '.join(getattr(extraction, 'known_competitors', []) or []),
+                    gemini = GeminiResearcher()
+                    research = gemini.research(
+                        company=_research_company,
+                        industry=_research_industry,
+                        product=_research_product,
+                        target_market=_research_target,
+                        website_url=_research_website,
+                        known_competitors=_research_competitors,
                         on_progress=on_progress,
                     )
 
-                    # Convert dataclass to dict
-                    research = dataclasses.asdict(findings) if dataclasses.is_dataclass(findings) else (findings if isinstance(findings, dict) else {})
-
-                    logger.info(f"[WS] Research done: {len(research.get('facts', []))} facts, "
+                    logger.info(f"[WS] Gemini research done: {len(research.get('facts', []))} facts, "
                                f"{len(research.get('competitors', []))} competitors, "
                                f"{len(research.get('sources', []))} sources")
+                except Exception as gemini_err:
+                    logger.warning(f"[WS] Gemini research failed, trying OpenClaw fallback: {gemini_err}")
+                    broadcast({"type": "researchProgress", "round": 0, "status": "Gemini failed, trying OpenClaw..."})
 
-                    # Cache for future use
-                    if cache and cache_key and research.get('summary'):
-                        cache.put(cache_key, research)
-                except Exception as e:
-                    logger.error(f"[WS] Research failed — STOPPING pipeline: {e}\n{traceback.format_exc()}")
-                    broadcast({
-                        "type": "error",
-                        "error": f"Research phase failed: {e}. Analysis aborted — no data to score against.",
-                        "phase": "research",
-                        "fatal": True,
-                    })
-                    return  # STOP: do not feed empty data to council/swarm/report
+                    # FALLBACK: OpenClaw agentic research
+                    try:
+                        from ..services.agentic_researcher import AgenticResearcher
+                        import dataclasses
+
+                        agentic = AgenticResearcher()
+                        findings = agentic.research(
+                            company=_research_company,
+                            industry=_research_industry,
+                            product=_research_product,
+                            target_market=_research_target,
+                            website_url=_research_website,
+                            known_competitors=_research_competitors,
+                            on_progress=on_progress,
+                        )
+                        research = dataclasses.asdict(findings) if dataclasses.is_dataclass(findings) else (findings if isinstance(findings, dict) else {})
+                        logger.info(f"[WS] OpenClaw research done: {len(research.get('facts', []))} facts")
+                    except Exception as openclaw_err:
+                        logger.error(f"[WS] Both Gemini and OpenClaw failed — STOPPING pipeline: "
+                                    f"Gemini: {gemini_err} | OpenClaw: {openclaw_err}\n{traceback.format_exc()}")
+                        broadcast({
+                            "type": "error",
+                            "error": f"Research failed (both Gemini and OpenClaw). Analysis aborted.",
+                            "phase": "research",
+                            "fatal": True,
+                        })
+                        return
+
+                # Cache for future use
+                if cache and cache_key and research and research.get('summary'):
+                    cache.put(cache_key, research)
 
             broadcast({
                 "type": "researchComplete",
