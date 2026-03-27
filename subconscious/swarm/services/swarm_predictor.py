@@ -837,7 +837,7 @@ class SwarmPredictor:
             agent_z.append({
                 "agent_id": a.agent_id, "persona": a.persona, "zone": a.zone,
                 "overall": a.overall, "z_score": round(z, 2),
-                "reasoning_excerpt": a.reasoning[:200] if a.reasoning else "",
+                "reasoning_excerpt": a.reasoning if a.reasoning else "",
             })
 
         # Critical outliers: |z| > 1.0 (lowered from 1.5 — 1.5 was too strict for 25-agent panels)
@@ -961,7 +961,7 @@ class SwarmPredictor:
 
         # Build position summary for all members to see
         positions_summary = "\n".join([
-            f"- {m.persona} ({m.zone}) - {m.overall:.1f}/10: {m.reasoning[:120]}"
+            f"- {m.persona} ({m.zone}) - {m.overall:.1f}/10: {m.reasoning}"
             for m in committee
         ])
 
@@ -997,7 +997,7 @@ class SwarmPredictor:
                         '"adjusted_score": <1-10 or null if unchanged>, '
                         '"conviction_change": "stronger/weaker/unchanged"}'
                     )},
-                    {"role": "user", "content": f"Startup:\n<user_input>\n{exec_summary[:1500]}\n</user_input>"},
+                    {"role": "user", "content": f"Startup:\n<user_input>\n{exec_summary}\n</user_input>"},
                 ]
                 result = llm.chat_json(messages=messages, temperature=0.7, max_tokens=600)
                 adj = result.get('adjusted_score')
@@ -1050,7 +1050,7 @@ class SwarmPredictor:
                         '"recommendation": "one paragraph final recommendation", '
                         '"critical_risk": "the single risk the founder must address first"}'
                     )},
-                    {"role": "user", "content": f"Startup:\n{exec_summary[:1000]}"},
+                    {"role": "user", "content": f"Startup:\n{exec_summary}"},
                 ]
                 synthesis = llm.chat_json(messages=messages, temperature=0.5, max_tokens=1000)
             except Exception as e:

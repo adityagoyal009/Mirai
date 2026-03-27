@@ -529,7 +529,7 @@ def _handle_full_analysis(msg: dict):
 
                     oasis_result = oasis.simulate(
                         exec_summary=exec_summary,
-                        research_context=research_summary[:500] if 'research_summary' in dir() else '',
+                        research_context=json.dumps(research, default=str) if research else '',
                         council_verdict=f"{p_score:.1f}/10 - {p_verdict}",
                         on_round_complete=on_round,
                         swarm_agents=oasis_swarm_agents,
