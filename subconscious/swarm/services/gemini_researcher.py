@@ -251,7 +251,7 @@ class GeminiResearcher:
                 unique_sources.append(s)
 
         return {
-            "summary": summary[:5000],
+            "summary": summary,
             "company_profile": {},
             "competitors": competitors[:10],
             "competitor_details": competitor_details,
@@ -268,7 +268,7 @@ class GeminiResearcher:
             "rounds_completed": len(RESEARCH_STEPS),
             "tool_calls_made": len(RESEARCH_STEPS),
             "iterations": 1,
-            "trust_score": 0.8,
+            "trust_score": 0.9 if len(unique_sources) >= 20 else 0.8 if len(unique_sources) >= 10 else 0.7 if len(unique_sources) >= 5 else 0.5,
             "failed": False,
             "failure_reason": "",
             "parse_quality": "gemini_grounded",

@@ -384,32 +384,9 @@ def _handle_full_analysis(msg: dict):
             # ── Phase 2b: Swarm (with enriched context) ──
             swarm_result = None
             if agent_count > 0:
-                # Build enriched context from research only (no council scores — swarm must evaluate independently)
-                research_summary = (research.get('summary', '') or str(research))[:3000]
-                competitors_str = ', '.join(
-                    (c if isinstance(c, str) else c.get('name', str(c)))
-                    for c in (research.get('competitors', []) or [])[:5]
-                )
-
-                # Build cited facts block for swarm context
-                cited_facts_block = ""
-                _cited = research.get('cited_facts', []) or []
-                if _cited:
-                    cited_lines = []
-                    for cf in _cited[:10]:
-                        src = cf.get('source_domain', '')
-                        text = cf.get('text', '')[:150]
-                        if src and src != 'multi-model synthesis':
-                            cited_lines.append(f"- {text} [source: {src}]")
-                        else:
-                            cited_lines.append(f"- {text}")
-                    if cited_lines:
-                        cited_facts_block = f"\nKEY FACTS (sourced):\n" + "\n".join(cited_lines) + "\n"
-
+                # Build enriched context from FULL research (no truncation, no council scores)
                 enriched_context = (
-                    f"RESEARCH FINDINGS:\n{research_summary}\n"
-                    f"Competitors: {competitors_str}\n"
-                    f"{cited_facts_block}\n"
+                    f"RESEARCH FINDINGS:\n{json.dumps(research, indent=2, default=str)}\n\n"
                     f"Given this research, evaluate this startup independently from your unique perspective."
                 )
 
