@@ -650,6 +650,32 @@ Structure:
     [If prediction.dimensions is empty or missing, skip this block entirely]
   </div>
 
+  <!-- SWARM VOTE DONUT + DATA QUALITY + SOURCES (PitchBook density) -->
+  [If swarm data exists:]
+  <div class="stats-row" style="margin-top:12px">
+    <div class="stat-card" style="flex:1.2">
+      [SVG donut chart: 100x100, green arc = positive_pct%, red arc = negative_pct%,
+       center text showing "{positive_pct}% HIT" or "{negative_pct}% MISS" (whichever is larger).
+       Use: green=#059669, red=#dc2626, background=#e2e8f0]
+      <div class="stat-label">Swarm by Vote</div>
+    </div>
+    <div class="stat-card" style="flex:1.2">
+      [SVG donut chart: 100x100, showing zone distribution from swarm.divergence.zone_agreement.
+       One colored arc per zone: Investor=#0f2440, Customer=#059669, Operator=#2563eb,
+       Analyst=#d97706, Contrarian=#dc2626, Wildcard=#64748b.
+       Legend with zone names and agent counts below.]
+      <div class="stat-label">Swarm by Zone</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">[data_quality × 100, rounded]%</div>
+      <div class="stat-label">Data Quality</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">[count of research sources]</div>
+      <div class="stat-label">Sources Cited</div>
+    </div>
+  </div>
+
   [FOOTER]
 </div>
 
@@ -742,12 +768,28 @@ Structure:
     </tbody>
   </table>
 
-  <!-- TOTAL RAISED STAT CARD -->
+  <!-- TOTAL RAISED + VALUATION STAT CARDS -->
   <div class="stats-row">
-    <div class="stat-card" style="flex:0.5">
+    <div class="stat-card">
       <div class="stat-value">[total raised, e.g. "$45.84M"]</div>
       <div class="stat-label">Total Raised to Date</div>
     </div>
+    [If last_valuation exists:]
+    <div class="stat-card">
+      <div class="stat-value accent">[last_valuation, e.g. "$59.55M"]</div>
+      <div class="stat-label">Post Valuation</div>
+    </div>
+  </div>
+
+  <!-- VALUATION STEP-UP CHART (SVG, PitchBook style) -->
+  [If deal_history has 2+ entries with valuation data:]
+  <div style="margin:8px 0">
+    [SVG bar chart: 100% width × 100px height.
+     One bar per funding round (most recent on right).
+     Bar height proportional to post-money valuation.
+     Label each bar: deal type on X-axis, "$XM" value on top.
+     Connect bar tops with accent=#2563eb line to show progression.
+     Bars: navy=#0f2440. Grid: #e2e8f0. Font: 7pt DM Sans.]
   </div>
 
   [Else if no deal history:]
@@ -791,9 +833,19 @@ Structure:
     <div class="stat-card"><div class="stat-value green" style="font-size:8pt;font-weight:600">[source name only, ≤20 chars]</div><div class="stat-label">Source</div></div>
   </div>
 
-  <!-- MARKET NARRATIVE: 2-3 paragraphs MAX from report_sections.market_analysis -->
+  <!-- TAM/SAM/SOM FUNNEL (SVG visual, PitchBook style) -->
+  [If market_data has tam AND sam:]
+  <div style="margin:8px 0">
+    [SVG nested horizontal bars: 100% width × 80px.
+     Bar 1 (TAM): full width, fill=#0f2440 at 0.15 opacity, label "TAM: $X.XB" left-aligned
+     Bar 2 (SAM): 65% width, fill=#0f2440 at 0.3 opacity, label "SAM: $X.XB" left-aligned
+     Bar 3 (SOM): 35% width, fill=#2563eb, label "SOM: $XXM" left-aligned (if data exists)
+     Source citation in 7pt below the chart.]
+  </div>
+
+  <!-- MARKET NARRATIVE: 2-3 paragraphs from report_sections.market_analysis -->
   [If report_sections.market_analysis exists:]
-  <div class="narrative">[First 2-3 paragraphs of market_analysis text, ~600 chars max]</div>
+  <div class="narrative">[2-3 paragraphs of market_analysis text]</div>
 
   <!-- PRICING COMPARISON TABLE (if research.pricing_analysis exists) -->
   [If pricing data is available:]
@@ -878,6 +930,17 @@ Structure:
     </tbody>
   </table>
 
+  <!-- COMPETITIVE POSITIONING SCATTER (SVG, price vs capability) -->
+  [If competitor_details has 3+ entries:]
+  <div style="margin:8px 0">
+    [SVG scatter plot: 100% width × 180px.
+     X-axis: "Price Point (Low → High)". Y-axis: "Capability Scope (Low → High)".
+     Plot the target company as a large green circle (#059669, r=8) with bold label.
+     Plot each competitor as a gray circle (#94a3b8, r=5) with label.
+     Position based on your assessment of each company's pricing and capability.
+     Light grid lines in #e2e8f0. Axis labels in 7pt #64748b.]
+  </div>
+
   [FOOTER]
 </div>
 
@@ -917,6 +980,19 @@ Structure:
   </div>
   [If freedom_to_operate text exists:]
   <div class="narrative"><p>[freedom_to_operate text, ≤200 chars]</p></div>
+
+  <!-- SCORE RADAR (SVG spider chart, PitchBook-style visual density) -->
+  [If prediction.dimensions has data:]
+  <div style="margin:8px 0; text-align:center">
+    [SVG radar/spider chart: 220x220, centered.
+     10 axes radiating from center for 10 dimensions.
+     Blue filled polygon (#2563eb at 0.15 opacity) connecting score points.
+     Blue border line (#2563eb, stroke-width 1.5).
+     Gray pentagon rings at score=2, 4, 6, 8 for reference (#e2e8f0, stroke-width 0.5).
+     Red dashed circle at score=5.0 as "average" line (#dc2626, opacity 0.3).
+     Dimension name labels around outside in 6.5pt #64748b.
+     Score value at each vertex in 7pt bold.]
+  </div>
 
   <!-- INVESTMENT VERDICT BOX (large, prominent) -->
   <div class="section-header">Investment Verdict</div>
@@ -987,7 +1063,7 @@ Structure:
         <td class="bold">[agent.persona]</td>
         <td><span class="zone-badge">[agent.zone]</span></td>
         <td class="num">[agent.overall]/10</td>
-        <td>[agent.reasoning trimmed to 1-2 sentences, ≤150 chars]</td>
+        <td>[agent.reasoning — full text, show complete reasoning]</td>
       </tr>
     </tbody>
   </table>
@@ -1003,7 +1079,7 @@ Structure:
         <td class="bold">[outlier.persona]</td>
         <td><span class="zone-badge">[outlier.zone]</span></td>
         <td class="num">[outlier.overall]/10</td>
-        <td>[outlier.reasoning_excerpt, ≤120 chars]</td>
+        <td>[outlier.reasoning_excerpt — full text]</td>
       </tr>
     </tbody>
   </table>

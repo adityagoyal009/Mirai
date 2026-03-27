@@ -1271,7 +1271,7 @@ class BusinessIntelEngine:
                 peer_review_block += "Weight the highest-ranked evaluators' scores more heavily when reconciling.\n"
 
             chairman_prompt = (
-                "You are the chairman of an investment council. Four evaluators independently scored a startup, "
+                f"You are the chairman of an investment council. {len(model_results)} evaluators independently scored a startup, "
                 "then reviewed each other's work.\n\n"
                 f"Research context:\n{research_context}\n\n"
                 f"All evaluator scores (after peer-review adjustments):\n" + "\n\n".join(all_scores_summary) + "\n"
