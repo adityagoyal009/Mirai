@@ -548,7 +548,7 @@ class SwarmPredictor:
                 )},
                 {"role": "user", "content": (
                     f"Executive Summary:\n<user_input>\n{exec_summary}\n</user_input>\n\n"
-                    f"Research Context:\n{research_context[:3000]}"
+                    f"Research Context:\n{research_context}"
                 )},
             ]
             _agent_t0 = time.time()
@@ -674,7 +674,7 @@ class SwarmPredictor:
                 {"role": "system", "content": system_content},
                 {"role": "user", "content": (
                     f"Executive Summary:\n<user_input>\n{exec_summary}\n</user_input>\n\n"
-                    f"Research Context:\n{research_context[:3000]}"
+                    f"Research Context:\n{research_context}"
                 )},
             ]
             result = llm.chat_json(messages=messages, temperature=0.9, max_tokens=4096)

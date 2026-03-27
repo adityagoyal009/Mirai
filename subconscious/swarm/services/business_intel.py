@@ -795,7 +795,7 @@ class BusinessIntelEngine:
                         "role": "user",
                         "content": (
                             f"Your blind scores:\n{json.dumps(blind_scoring, default=str)}\n\n"
-                            f"Research findings:\n{research_context[:3000]}"
+                            f"Research findings:\n{research_context}"
                         ),
                     },
                 ],
@@ -1273,7 +1273,7 @@ class BusinessIntelEngine:
             chairman_prompt = (
                 "You are the chairman of an investment council. Four evaluators independently scored a startup, "
                 "then reviewed each other's work.\n\n"
-                f"Research context:\n{research_context[:3000]}\n\n"
+                f"Research context:\n{research_context}\n\n"
                 f"All evaluator scores (after peer-review adjustments):\n" + "\n\n".join(all_scores_summary) + "\n"
                 f"{peer_review_block}\n"
                 "For each of the 10 dimensions, do three things:\n"
@@ -1328,7 +1328,7 @@ class BusinessIntelEngine:
         fact_check_result = None
         try:
             from .fact_checker import check_facts
-            research_claims = [str(research_context[:3000])]
+            research_claims = [str(research_context)]
             fact_check_result = check_facts(research_claims, exec_summary)
             if fact_check_result:
                 contradicted = fact_check_result.get('contradicted', 0)
