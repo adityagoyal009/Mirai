@@ -181,7 +181,7 @@ export function SwarmScoreboard({ isMobile = false, onClose, hidden = false }: {
     recentVotes: [], result: null, researchFeed: [],
   })
   const [form, setForm] = useState<StartupForm>(DEMO_FORM)
-  const [agentCount, setAgentCount] = useState(50)
+  const agentCount = 50
   const [simulateMarket, setSimulateMarket] = useState(false)
   const [connected, setConnected] = useState(mirai.connected)
   const [uploading, setUploading] = useState(false)
@@ -547,12 +547,9 @@ export function SwarmScoreboard({ isMobile = false, onClose, hidden = false }: {
                 display: 'flex', gap: 8, alignItems: 'center', padding: '10px 0',
                 borderTop: '1px solid rgba(255,255,255,0.04)',
               }}>
-                <select value={agentCount} onChange={e => setAgentCount(Number(e.target.value))}
-                  style={{ background: '#0a0a18', color: '#888', border: '1px solid #1a1a2e', padding: '8px 10px', fontSize: 12, borderRadius: 6, cursor: 'pointer' }} {...stopProp}>
-                  {[25, 50, 100, 250, 500, 1000].map(n => (
-                    <option key={n} value={n} style={{ background: '#0a0a18', color: '#e0e0e0' }}>{n} agents</option>
-                  ))}
-                </select>
+                <span style={{ background: '#0a0a18', color: '#888', border: '1px solid #1a1a2e', padding: '8px 10px', fontSize: 12, borderRadius: 6 }}>
+                  50 agents
+                </span>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 11, color: simulateMarket ? '#4488ff' : '#555' }} {...stopProp}>
                   <input type="checkbox" checked={simulateMarket} onChange={e => setSimulateMarket(e.target.checked)}
                     style={{ accentColor: '#4488ff', width: 14, height: 14, cursor: 'pointer' }} />
