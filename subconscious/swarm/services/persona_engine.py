@@ -14,7 +14,7 @@ import json
 import os
 import random
 import linecache
-from typing import List, Dict, Optional, Tuple
+from typing import ClassVar, List, Dict, Optional, Tuple
 from dataclasses import dataclass
 
 from ..utils.logger import get_logger
@@ -290,6 +290,51 @@ INDUSTRY_FOCUS = [
     "AI/ML", "Cybersecurity", "Gaming", "Media", "LegalTech",
     "PropTech", "InsurTech", "AgriTech", "SpaceTech", "Web3",
     "Robotics", "Logistics", "HRTech", "FoodTech", "RetailTech",
+]
+
+# ── Dimension 12: Investment Thesis Style (investor-heavy, applies to all) ──
+
+THESIS_STYLES = [
+    ("thesis-driven", "You invest along a specific thesis. If this startup doesn't fit your thesis, it's a pass regardless of metrics."),
+    ("opportunistic", "You invest based on founder quality and market timing, not a fixed thesis. You're open to any sector."),
+    ("relationship-led", "You invest in people you've worked with before. Cold deals need extraordinary metrics to get your attention."),
+    ("data-driven", "You need 3+ months of metrics before investing. Gut feelings are for amateurs."),
+    ("contrarian-thesis", "You specifically seek out investments the crowd is wrong about. Consensus deals bore you."),
+]
+
+# ── Dimension 13: Technical Depth ──
+
+TECHNICAL_DEPTH = [
+    ("deep-technical", "You can read code and evaluate architecture. You ask about tech stack, scalability, and engineering hiring."),
+    ("business-oriented", "You evaluate businesses, not technology. Product-market fit matters more than tech stack."),
+    ("generalist", "You evaluate holistically. Technology is one factor among many."),
+]
+
+# ── Dimension 14: Failure Scar Tissue ──
+
+FAILURE_SCARS = [
+    ("lost on overhyped market", "You invested in a hype-cycle company that crashed. Now you're allergic to buzzword-heavy pitches."),
+    ("burned by bad team", "A founder you trusted lied about metrics. Now you verify everything and watch for integrity signals."),
+    ("killed by regulation", "A portfolio company was shut down by regulators. Now regulatory risk is your #1 filter."),
+    ("destroyed by competition", "A big tech company copied your portfolio company's product. Now you obsess over moats."),
+    ("death by scaling", "A company grew too fast and imploded operationally. Now you value disciplined growth."),
+    ("no scar tissue", "You haven't been burned yet. You're optimistic and eager to find the next big thing."),
+]
+
+# ── Dimension 15: Network Strength ──
+
+NETWORK_STRENGTH = [
+    ("highly-connected", "You know everyone in this space. Your evaluation includes who you'd intro the founder to."),
+    ("moderately-connected", "You have some connections but evaluate primarily on merit, not relationships."),
+    ("outsider", "You have no connections in this space. Your evaluation is purely analytical, no social proof bias."),
+]
+
+# ── Dimension 16: Decision Speed ──
+
+DECISION_SPEED = [
+    ("fast-conviction", "You decide in one meeting. Strong gut + basic metrics = yes or no. Extended diligence kills deals."),
+    ("methodical", "You take 2-4 weeks to decide. You build a model, check references, and stress-test assumptions."),
+    ("consensus-builder", "You need your partners/team to agree before committing. You facilitate, not dictate."),
 ]
 
 # ── Dimension 8: Fund/Budget Context (zone-specific) ──
@@ -723,6 +768,48 @@ ZONE_DISTRIBUTION = {
     250: {"investor": 50, "customer": 40, "operator": 35, "analyst": 35, "contrarian": 35, "wildcard": 55},
 }
 
+# Industry-adaptive zone distributions (override default when industry matches)
+INDUSTRY_ZONE_DISTRIBUTION = {
+    "b2c": {
+        25: {"investor": 4, "customer": 7, "operator": 3, "analyst": 3, "contrarian": 3, "wildcard": 5},
+    },
+    "consumer": {
+        25: {"investor": 4, "customer": 7, "operator": 3, "analyst": 3, "contrarian": 3, "wildcard": 5},
+    },
+    "saas": {
+        25: {"investor": 5, "customer": 5, "operator": 4, "analyst": 4, "contrarian": 3, "wildcard": 4},
+    },
+    "enterprise": {
+        25: {"investor": 5, "customer": 5, "operator": 4, "analyst": 4, "contrarian": 3, "wildcard": 4},
+    },
+    "deeptech": {
+        25: {"investor": 4, "customer": 3, "operator": 6, "analyst": 4, "contrarian": 4, "wildcard": 4},
+    },
+    "hardware": {
+        25: {"investor": 4, "customer": 3, "operator": 6, "analyst": 3, "contrarian": 4, "wildcard": 5},
+    },
+    "biotech": {
+        25: {"investor": 4, "customer": 3, "operator": 4, "analyst": 4, "contrarian": 5, "wildcard": 5},
+    },
+    "healthtech": {
+        25: {"investor": 4, "customer": 4, "operator": 4, "analyst": 3, "contrarian": 5, "wildcard": 5},
+    },
+    "fintech": {
+        25: {"investor": 5, "customer": 4, "operator": 4, "analyst": 4, "contrarian": 4, "wildcard": 4},
+    },
+    "marketplace": {
+        25: {"investor": 4, "customer": 6, "operator": 4, "analyst": 3, "contrarian": 3, "wildcard": 5},
+    },
+    "cleantech": {
+        25: {"investor": 4, "customer": 3, "operator": 5, "analyst": 3, "contrarian": 5, "wildcard": 5},
+        50: {"investor": 7, "customer": 6, "operator": 10, "analyst": 7, "contrarian": 10, "wildcard": 10},
+        100: {"investor": 12, "customer": 10, "operator": 18, "analyst": 14, "contrarian": 22, "wildcard": 24},
+    },
+    "ai": {
+        25: {"investor": 5, "customer": 3, "operator": 5, "analyst": 4, "contrarian": 4, "wildcard": 4},
+    },
+}
+
 
 # ══════════════════════════════════════════════════════════════════
 # PERSONA ENGINE CLASS
@@ -755,6 +842,49 @@ class PersonaEngine:
             logger.info("[Personas] No datasets found, using trait-based generator")
 
     _cached_line_counts: Dict[str, int] = {}
+    _business_personas_cache: Optional[Dict[str, List[str]]] = None
+    _BUSINESS_PERSONAS_FILE = os.path.join(os.path.dirname(__file__), '..', 'data', 'business_personas.jsonl')
+
+    @classmethod
+    def _load_business_personas(cls) -> Dict[str, List[str]]:
+        """Load business_personas.jsonl into a zone-keyed cache."""
+        if cls._business_personas_cache is not None:
+            return cls._business_personas_cache
+        cls._business_personas_cache = {"investor": [], "customer": [], "operator": [],
+                                         "analyst": [], "contrarian": [], "wildcard": []}
+        try:
+            with open(cls._BUSINESS_PERSONAS_FILE, 'r') as f:
+                for line in f:
+                    try:
+                        entry = json.loads(line.strip())
+                        desc = entry.get("description", "")
+                        zone = entry.get("zone_hint", "wildcard")
+                        if desc and len(desc) > 30:
+                            cls._business_personas_cache.setdefault(zone, []).append(desc[:300])
+                    except (json.JSONDecodeError, KeyError):
+                        continue
+            total = sum(len(v) for v in cls._business_personas_cache.values())
+            logger.info(f"[Personas] Business personas cache loaded: {total:,} entries")
+        except FileNotFoundError:
+            logger.info("[Personas] business_personas.jsonl not found, personality injection disabled")
+        return cls._business_personas_cache
+
+    @classmethod
+    def _match_dataset_personality(cls, zone: str, industry: str = "", role: str = "") -> str:
+        """Return a matching dataset persona description for personality flavor."""
+        cache = cls._load_business_personas()
+        candidates = cache.get(zone, [])
+        if not candidates:
+            candidates = cache.get("wildcard", [])
+        if not candidates:
+            return ""
+        # Try industry-filtered match first
+        if industry:
+            ind_lower = industry.lower()
+            filtered = [c for c in candidates if ind_lower[:4] in c.lower()]
+            if filtered:
+                return random.choice(filtered)
+        return random.choice(candidates)
 
     def _count_lines(self, filepath: str = _PERSONAS_FILE) -> int:
         if filepath in PersonaEngine._cached_line_counts:
@@ -842,11 +972,22 @@ class PersonaEngine:
                         personas.append(Persona(name=desc[:80], prompt=self._dataset_persona_to_prompt(full_desc), source="personahub_elite", labels=data.get('labels', [])))
 
             if hub_count > 0 and self._personahub_count > 0:
-                for idx in random.sample(range(self._personahub_count), min(hub_count, self._personahub_count)):
+                # Over-sample then filter: PersonaHub contains many casual
+                # personas (e.g. "a passionate handball fan") that are not
+                # useful for startup evaluation.  Sample extra candidates so
+                # we can drop irrelevant ones and still fill the quota.
+                hub_sample_size = min(hub_count * 3, self._personahub_count)
+                hub_added = 0
+                for idx in random.sample(range(self._personahub_count), hub_sample_size):
+                    if hub_added >= hub_count:
+                        break
                     data = self._read_persona_at_line(idx, _PERSONAHUB_FILE)
                     if data:
                         desc = data.get('description', data.get('persona', ''))
+                        if not self._is_evaluation_relevant(desc):
+                            continue
                         personas.append(Persona(name=desc[:80], prompt=self._dataset_persona_to_prompt(desc), source="personahub", labels=data.get('labels', [])))
+                        hub_added += 1
 
             if fine_count > 0 and self._persona_count > 0:
                 relevant_indices = self._find_relevant_indices(search_terms, fine_count * 2)
@@ -857,10 +998,18 @@ class PersonaEngine:
                         data = self._read_persona_at_line(idx)
                         if data:
                             personas.append(Persona(name=data.get('persona', data.get('description', ''))[:80], prompt=self._dataset_persona_to_prompt(data.get('persona', data.get('description', ''))), source="dataset", labels=data.get('labels', [])))
-                for idx in random.sample(range(self._persona_count), min(random_take, self._persona_count)):
+                rand_sample_size = min(random_take * 3, self._persona_count)
+                rand_added = 0
+                for idx in random.sample(range(self._persona_count), rand_sample_size):
+                    if rand_added >= random_take:
+                        break
                     data = self._read_persona_at_line(idx)
                     if data:
-                        personas.append(Persona(name=data.get('persona', data.get('description', ''))[:80], prompt=self._dataset_persona_to_prompt(data.get('persona', data.get('description', ''))), source="dataset", labels=data.get('labels', [])))
+                        desc = data.get('persona', data.get('description', ''))
+                        if not self._is_evaluation_relevant(desc):
+                            continue
+                        personas.append(Persona(name=desc[:80], prompt=self._dataset_persona_to_prompt(desc), source="dataset", labels=data.get('labels', [])))
+                        rand_added += 1
 
             personas.extend(self._generate_personas(generated_count))
         else:
@@ -871,6 +1020,36 @@ class PersonaEngine:
         personas = personas[:count]
         random.shuffle(personas)
         return personas
+
+    # Minimum-relevance keywords: a dataset persona must mention at least one
+    # of these to be useful in a startup-evaluation swarm.  Personas that
+    # match none (e.g. "a passionate handball fan") are filtered out so they
+    # cannot leak into any evaluation zone.
+    _EVAL_RELEVANCE_KEYWORDS: ClassVar[set] = {
+        'investor', 'vc', 'venture', 'capital', 'fund', 'angel', 'portfolio',
+        'finance', 'financial', 'banking', 'economist', 'economics',
+        'startup', 'entrepreneur', 'founder', 'business', 'executive', 'ceo',
+        'cto', 'cfo', 'coo', 'director', 'manager', 'management',
+        'analyst', 'consultant', 'advisor', 'strategist', 'strategy',
+        'marketing', 'sales', 'product', 'engineer', 'developer', 'software',
+        'technology', 'tech', 'data', 'ai', 'ml', 'machine learning',
+        'research', 'scientist', 'professor', 'academic',
+        'industry', 'manufacturing', 'operations', 'supply chain',
+        'healthcare', 'biotech', 'pharma', 'medical', 'energy', 'cleantech',
+        'customer', 'consumer', 'market', 'growth', 'revenue', 'profit',
+        'investment', 'equity', 'valuation', 'acquisition', 'ipo',
+        'regulatory', 'compliance', 'legal', 'policy', 'government',
+        'journalist', 'editor', 'media', 'communications',
+    }
+
+    @staticmethod
+    def _is_evaluation_relevant(persona_text: str) -> bool:
+        """Return True if the persona description contains at least one
+        keyword suggesting professional / business / tech relevance."""
+        if not persona_text:
+            return False
+        text_lower = persona_text.lower()
+        return any(kw in text_lower for kw in PersonaEngine._EVAL_RELEVANCE_KEYWORDS)
 
     @staticmethod
     def _dataset_persona_to_prompt(persona_text: str, zone: str = "wildcard") -> str:
@@ -905,7 +1084,10 @@ class PersonaEngine:
         ),
         "contrarian": (
             "Your job is to find the FATAL FLAW. What will kill this company in 18 months? "
-            "Default to skepticism - score 5 or below unless the startup proves you wrong. "
+            "Identify the biggest risks and failure modes using evidence from the data. "
+            "Score based on how SURVIVABLE the risks are: 8+ if risks are manageable, "
+            "3 or below if you see an existential threat. Your value is in the risk analysis, "
+            "not in default pessimism. "
             "Look for: regulatory risk, competitive moats that don't exist, unit economics that "
             "don't work, team gaps, timing problems. Be the person who saved investors from Juicero."
         ),
@@ -917,10 +1099,28 @@ class PersonaEngine:
         ),
     }
 
+    # Semantic role groups — prevents near-duplicate evaluators
+    _ROLE_GROUPS = {
+        "Series-A VC": "vc_early", "Series-B VC": "vc_growth", "Seed VC": "vc_early",
+        "Growth-Stage VC": "vc_growth", "Late-Stage VC": "vc_growth", "Growth Equity VC": "vc_growth",
+        "Angel Investor (solo)": "angel", "Angel Investor (syndicate)": "angel",
+        "Corporate VC (strategic)": "corp_vc", "Corporate VC (financial)": "corp_vc",
+        "CTO (scaling)": "tech_leader", "VP Engineering (platform)": "tech_leader",
+        "VP Engineering (infra)": "tech_leader",
+        "CMO (B2C/DTC)": "marketing_leader", "CMO (B2B)": "marketing_leader",
+        "Head of Growth": "growth_leader", "VP Sales (PLG)": "growth_leader",
+        "CFO": "finance_leader", "VP Finance": "finance_leader",
+        "Gartner Analyst": "industry_analyst", "Forrester Analyst": "industry_analyst",
+        "CB Insights Analyst": "industry_analyst",
+        "Regulatory Expert (federal)": "regulatory", "Regulatory Expert (EU/GDPR)": "regulatory",
+        "Policy Advisor": "regulatory",
+    }
+
     @staticmethod
     def _generate_personas(count: int, zone: str = "wildcard", startup_industry: str = "",
                            priority_roles: Optional[List[str]] = None,
-                           target_market: str = "") -> List[Persona]:
+                           target_market: str = "",
+                           exclude_roles: Optional[set] = None) -> List[Persona]:
         """Generate personas with behavioral depth across 11 dimensions.
         priority_roles: if provided, 60% of slots use these roles (industry-curated)."""
         personas = []
@@ -935,7 +1135,7 @@ class PersonaEngine:
 
         # Priority role selection: first 60% use curated roles
         priority_cutoff = int(count * 0.6) if priority_roles else 0
-        used_roles = set()  # Dedup: avoid repeat roles within a zone
+        used_roles = set(exclude_roles) if exclude_roles else set()  # Dedup: avoid repeat roles
 
         for i in range(count):
             if i < priority_cutoff and priority_roles:
@@ -956,13 +1156,15 @@ class PersonaEngine:
                         available = list(zone_roles) if zone_roles else list(ROLES)
                 role = random.choice(available)
 
-            # Dedup: try to pick a unique role (up to 5 retries)
+            # Semantic dedup: check role GROUP, not just exact string
+            role_group = PersonaEngine._ROLE_GROUPS.get(role, role)
             attempts = 0
             all_available = list(zone_roles) if zone_roles else list(ROLES)
-            while role in used_roles and attempts < 5 and len(all_available) > len(used_roles):
+            while role_group in used_roles and attempts < 5 and len(all_available) > len(used_roles):
                 role = random.choice(all_available)
+                role_group = PersonaEngine._ROLE_GROUPS.get(role, role)
                 attempts += 1
-            used_roles.add(role)
+            used_roles.add(role_group)
             mbti = random.choice(MBTI_TYPES)
             risk = random.choice(RISK_PROFILES)
             # Geography — weight customer zone toward target market
@@ -991,6 +1193,13 @@ class PersonaEngine:
                 framework_text, _ = random.choice(compatible)
             else:
                 framework_text = ""
+
+            # New dimensions (12-16)
+            thesis_label, thesis_desc = random.choice(THESIS_STYLES)
+            tech_label, tech_desc = random.choice(TECHNICAL_DEPTH)
+            scar_label, scar_desc = random.choice(FAILURE_SCARS)
+            net_label, net_desc = random.choice(NETWORK_STRENGTH)
+            speed_label, speed_desc = random.choice(DECISION_SPEED)
 
             # MBTI behavioral description
             mbti_desc = MBTI_BEHAVIORAL.get(mbti, "")
@@ -1030,10 +1239,24 @@ class PersonaEngine:
             if backstory:
                 parts.append(f'\nYour experience: "{backstory}"')
 
+            # Inject dataset personality for human texture
+            personality = PersonaEngine._match_dataset_personality(zone, focus_industry, role)
+            if personality:
+                parts.append(f"\nYour personality: {personality}")
+
             if framework_text:
                 parts.append(f'\nYour decision framework: "{framework_text}"')
 
             parts.append(f"\nYour primary industry focus is {focus_industry}.")
+
+            # New dimensions (12-16)
+            if zone == "investor":
+                parts.append(f"\nYour investment style: {thesis_desc}")
+                parts.append(f"\nYour failure scar tissue: {scar_desc}")
+            parts.append(f"\nYour technical depth: {tech_desc}")
+            parts.append(f"\nYour network: {net_desc}")
+            parts.append(f"\nYour decision speed: {speed_desc}")
+
             parts.append(f"\n{zone_pressure}")
             parts.append(LANE_DIRECTIVE)
 
@@ -1090,9 +1313,23 @@ class PersonaEngine:
         return None
 
     def select_personas_by_zone(self, count: int, industry: str = "",
-                                 product: str = "") -> List[Persona]:
-        dist_key = min(ZONE_DISTRIBUTION.keys(), key=lambda x: abs(x - count))
-        distribution = ZONE_DISTRIBUTION[dist_key]
+                                 product: str = "",
+                                 exclude_roles: Optional[set] = None) -> List[Persona]:
+        # Check for industry-adaptive distribution first
+        ind_lower = industry.lower() if industry else ""
+        adaptive_dist = None
+        for ind_key, ind_dists in INDUSTRY_ZONE_DISTRIBUTION.items():
+            keywords = INDUSTRY_KEYWORDS.get(ind_key, [ind_key])
+            if any(kw in ind_lower for kw in keywords):
+                dist_key = min(ind_dists.keys(), key=lambda x: abs(x - count))
+                adaptive_dist = ind_dists[dist_key]
+                logger.info(f"[Personas] Adaptive zone distribution for '{ind_key}': {adaptive_dist}")
+                break
+        if adaptive_dist:
+            distribution = adaptive_dist
+        else:
+            dist_key = min(ZONE_DISTRIBUTION.keys(), key=lambda x: abs(x - count))
+            distribution = ZONE_DISTRIBUTION[dist_key]
 
         total_dist = sum(distribution.values())
         if total_dist != count:
@@ -1117,19 +1354,24 @@ class PersonaEngine:
             logger.info(f"[Personas] Industry match: '{industry}' -> '{industry_key}' (curated roles active)")
 
         all_personas: List[Persona] = []
+        _used = set(exclude_roles) if exclude_roles else set()
 
         for zone, zone_count in distribution.items():
             if zone == "wildcard":
                 wild = self.select_personas(zone_count, industry, product)
                 for p in wild:
                     p.zone = "wildcard"
+                    _used.add(p.name.split('(')[0].strip() if '(' in p.name else p.name)
                 all_personas.extend(wild)
             else:
                 zone_priority = industry_priorities.get(zone, None)
                 zone_personas = self._generate_personas(
                     zone_count, zone=zone, startup_industry=industry,
-                    priority_roles=zone_priority, target_market=product
+                    priority_roles=zone_priority, target_market=product,
+                    exclude_roles=_used,
                 )
+                for p in zone_personas:
+                    _used.add(p.name.split('(')[0].strip() if '(' in p.name else p.name)
                 all_personas.extend(zone_personas)
 
         logger.info(f"[Personas] Zone distribution: {', '.join(f'{z}={n}' for z, n in distribution.items())}")
