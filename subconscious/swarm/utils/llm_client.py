@@ -177,13 +177,17 @@ def _call_gateway(
     if model in _SAMBANOVA_MODELS:
         return _call_sambanova(model, messages, max_tokens, temperature, timeout)
 
-    # Normalize model name: add provider prefix if missing
+    # Route Claude models through headless CLI first, gateway as fallback
+    if "claude" in model.lower():
+        return _call_claude_cli(model, messages, max_tokens, temperature, timeout)
+
+    # Route OpenAI models through Codex CLI first, gateway as fallback
+    if "gpt" in model.lower() or model.lower() in ("o3", "o4-mini"):
+        return _call_codex_cli(model, messages, max_tokens, temperature, timeout)
+
+    # Fallback: gateway for any unrecognized models
     if "/" not in model:
-        if "claude" in model.lower():
-            model = f"anthropic/{model}"
-        elif "gpt" in model.lower() or "o3" in model.lower():
-            model = f"openai/{model}"
-        elif "gemini" in model.lower():
+        if "gemini" in model.lower():
             model = f"google/{model}"
 
     payload = json.dumps({
@@ -214,6 +218,150 @@ def _call_gateway(
     if not content:
         raise RuntimeError(f"Gateway returned empty content: {body}")
 
+    return content
+
+
+# ── Claude CLI (headless, bypasses gateway) ──────────────────────────────
+
+def _call_claude_cli(
+    model: str,
+    messages: List[Dict[str, str]],
+    max_tokens: int = 4096,
+    temperature: float = 0.7,
+    timeout: int = 120,
+) -> str:
+    """Call Claude via headless CLI. Uses Claude Code subscription auth directly."""
+    import subprocess
+
+    # Build prompt from messages
+    parts = []
+    for m in messages:
+        if m["role"] == "system":
+            parts.append(m["content"])
+        elif m["role"] == "user":
+            parts.append(m["content"])
+    prompt = "\n\n".join(parts)
+
+    # Strip provider prefix if present (claude CLI doesn't want "anthropic/")
+    cli_model = model.replace("anthropic/", "")
+
+    try:
+        result = subprocess.run(
+            ["claude", "-p", prompt, "--model", cli_model, "--output-format", "text"],
+            capture_output=True, text=True, timeout=timeout,
+        )
+        content = result.stdout.strip()
+        if content:
+            logger.info(f"[Claude CLI] {cli_model}: {len(content)} chars")
+            return content
+    except subprocess.TimeoutExpired:
+        logger.warning(f"[Claude CLI] {cli_model} timed out after {timeout}s")
+    except FileNotFoundError:
+        logger.warning("[Claude CLI] 'claude' command not found")
+    except Exception as e:
+        logger.warning(f"[Claude CLI] {cli_model} failed: {e}")
+
+    # Fallback to gateway
+    logger.info(f"[Claude CLI] Falling back to gateway for {model}")
+    normalized = f"anthropic/{cli_model}" if "/" not in cli_model else cli_model
+    payload = json.dumps({
+        "model": normalized, "messages": messages,
+        "max_tokens": max_tokens, "temperature": temperature,
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        f"{_GATEWAY_URL}/v1/chat/completions", data=payload,
+        headers={"Authorization": f"Bearer {_GATEWAY_TOKEN}", "Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        body = json.loads(resp.read().decode("utf-8"))
+    choices = body.get("choices", [])
+    if not choices:
+        raise RuntimeError(f"Gateway returned no choices for {model}: {body}")
+    content = choices[0].get("message", {}).get("content", "")
+    if not content:
+        raise RuntimeError(f"Gateway returned empty content for {model}")
+    return content
+
+
+# ── Codex CLI (headless, bypasses gateway) ───────────────────────────────
+
+def _call_codex_cli(
+    model: str,
+    messages: List[Dict[str, str]],
+    max_tokens: int = 4096,
+    temperature: float = 0.7,
+    timeout: int = 120,
+) -> str:
+    """Call OpenAI via Codex CLI. Uses Codex subscription auth directly."""
+    import subprocess
+
+    parts = []
+    for m in messages:
+        if m["role"] == "system":
+            parts.append(m["content"])
+        elif m["role"] == "user":
+            parts.append(m["content"])
+    prompt = "\n\n".join(parts)
+
+    try:
+        result = subprocess.run(
+            ["codex", "exec", prompt, "-s", "read-only"],
+            capture_output=True, text=True, timeout=timeout,
+        )
+        raw = result.stdout.strip()
+        if raw:
+            # Codex outputs header lines (version, model, workdir) then content
+            # Find the actual content after the header block
+            lines = raw.split("\n")
+            content_lines = []
+            past_header = False
+            for line in lines:
+                if past_header:
+                    content_lines.append(line)
+                elif line.strip() == "" and not past_header:
+                    # Empty line after header = content starts
+                    past_header = True
+                elif not any(line.startswith(h) for h in ["OpenAI Codex", "--------", "workdir:", "model:", "provider:"]):
+                    # Not a header line — must be content already
+                    past_header = True
+                    content_lines.append(line)
+
+            content = "\n".join(content_lines).strip()
+            # Codex sometimes appends "tokens used\nN\nOK" at the end
+            if "\ntokens used\n" in content:
+                content = content.split("\ntokens used\n")[0].strip()
+
+            if content:
+                logger.info(f"[Codex CLI] {model}: {len(content)} chars")
+                return content
+    except subprocess.TimeoutExpired:
+        logger.warning(f"[Codex CLI] {model} timed out after {timeout}s")
+    except FileNotFoundError:
+        logger.warning("[Codex CLI] 'codex' command not found")
+    except Exception as e:
+        logger.warning(f"[Codex CLI] {model} failed: {e}")
+
+    # Fallback to gateway
+    logger.info(f"[Codex CLI] Falling back to gateway for {model}")
+    normalized = f"openai/{model}" if "/" not in model else model
+    payload = json.dumps({
+        "model": normalized, "messages": messages,
+        "max_tokens": max_tokens, "temperature": temperature,
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        f"{_GATEWAY_URL}/v1/chat/completions", data=payload,
+        headers={"Authorization": f"Bearer {_GATEWAY_TOKEN}", "Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        body = json.loads(resp.read().decode("utf-8"))
+    choices = body.get("choices", [])
+    if not choices:
+        raise RuntimeError(f"Gateway returned no choices for {model}: {body}")
+    content = choices[0].get("message", {}).get("content", "")
+    if not content:
+        raise RuntimeError(f"Gateway returned empty content for {model}")
     return content
 
 
