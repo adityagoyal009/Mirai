@@ -142,9 +142,18 @@ Env vars: `GROQ_API_KEY`, `CEREBRAS_API_KEY`, `SAMBANOVA_API_KEY`, `MISTRAL_API_
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/api/bi/analyze` | Full analysis |
+| POST | `/api/bi/analyze` | Full analysis, async job submission, internal callers only |
+| GET | `/api/bi/job/{id}` | Poll async analysis result, internal callers only |
 | POST | `/api/bi/report/pdf` | Generate PDF |
+| POST | `/api/report/share` | Persist shareable HTML report, internal callers only |
 | POST | `/api/bi/feedback` | Record outcome |
 | GET | `/api/bi/accuracy` | Accuracy stats |
 | GET | `/api/bi/history` | Past analyses |
 | WS | `/ws/swarm` | Real-time events |
+
+## Queue And Security Notes
+
+- Website submissions are serialized through an in-memory FIFO queue with an operating target of `50 analyses / 24h`.
+- Queue restart recovery reconstructs resumable `queued` and `reviewing` submissions from the database instead of only resetting status flags.
+- Website → swarm requests use `MIRAI_INTERNAL_API_KEY`, falling back to `NEXTAUTH_SECRET` for compatibility.
+- Swarm-side fallback throttling is only for loopback/no-key traffic and defaults to `50` analyses per `86400` seconds.

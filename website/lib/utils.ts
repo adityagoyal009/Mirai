@@ -1,6 +1,7 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 import type { Submission, User } from "@prisma/client";
+import { founderStatusMessage } from "./founder-status";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -55,5 +56,22 @@ export function serializeSubmission(
     ...(user
       ? { requester_name: user.name, requester_email: user.email }
       : {}),
+  };
+}
+
+export function serializeFounderSubmission(sub: Submission) {
+  return {
+    id: sub.id,
+    company_name: sub.companyName,
+    one_liner: sub.oneLiner,
+    industry: sub.industry,
+    stage: sub.stage,
+    status: sub.status,
+    score: sub.score,
+    verdict: sub.verdict,
+    report_url: sub.reportUrl,
+    status_message: founderStatusMessage(sub),
+    created_at: sub.createdAt.toISOString(),
+    updated_at: sub.updatedAt.toISOString(),
   };
 }

@@ -345,7 +345,7 @@ The cortex heartbeat loop processes these JSON actions from the LLM:
 | `browser_navigate` | browser-use Agent | Navigate + interact with web pages autonomously |
 | `terminal_command` | E2B sandbox / subprocess | Execute shell commands (code → sandbox, safe → subprocess) |
 | `swarm_predict` | HTTP → Flask `/api/predict/` | Wargame scenarios via MiroFish simulation |
-| `analyze_business` | HTTP → FastAPI `/api/bi/analyze` | BI engine: research → council → swarm → plan → OASIS (async job, poll `/api/bi/job/{id}`) |
+| `analyze_business` | HTTP → FastAPI `/api/bi/analyze` | BI engine: research → council → swarm → plan → OASIS (async job, poll `/api/bi/job/{id}`, internal-auth protected) |
 | `message_human` | `mirai message send` | Send WhatsApp messages to operator |
 | `standby` | (no-op) | Idle state |
 
@@ -378,6 +378,15 @@ Cycle N:
 | GET | `/health` | Health check |
 | GET | `/api/status` | Cortex state (cycle, objective, model, learning stats) |
 | GET | `/api/journal` | Strategy journal from learning system |
+
+### Website Queue + Swarm Boundary
+
+- Website submissions flow through a single-worker FIFO queue to stay within the operating budget target of `50 analyses / 24h`.
+- Queue startup recovery rebuilds resumable `queued` and `reviewing` jobs from the database back into memory.
+- Website callers authenticate to swarm using `x-internal-key`, sourced from `MIRAI_INTERNAL_API_KEY` and falling back to `NEXTAUTH_SECRET`.
+- Swarm endpoints `/api/bi/analyze`, `/api/bi/job/{id}`, and `/api/report/share` are for internal callers, not open public traffic.
+- If no internal key is configured, swarm allows loopback callers only and applies a fallback throttle of `50/day`.
+- Founder-facing APIs expose safe status messages and per-user queue positions rather than raw internal admin notes or global queue IDs.
 | POST | `/api/think` | Send prompt to LLM via cortex's MiraiBrain |
 | POST | `/api/objective` | Set new objective for cortex heartbeat |
 | POST | `/api/browse` | Browse single URL via browser-use Agent |

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
+import { serializeFounderSubmission } from "@/lib/utils";
 
 export async function GET() {
   const session = await getServerSession(authOptions);
@@ -15,13 +16,6 @@ export async function GET() {
   });
 
   return NextResponse.json({
-    submissions: subs.map((s) => ({
-      id: s.id,
-      company_name: s.companyName,
-      one_liner: s.oneLiner,
-      status: s.status,
-      admin_notes: s.adminNotes,
-      created_at: s.createdAt.toISOString(),
-    })),
+    submissions: subs.map(serializeFounderSubmission),
   });
 }

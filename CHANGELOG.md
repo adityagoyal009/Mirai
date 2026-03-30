@@ -1,5 +1,26 @@
 # Mirai Changelog
 
+## [0.11.1] — 2026-03-30
+
+### Changed — Queue Recovery, Internal API Hardening, Founder-Safe Status
+
+**Swarm API Hardening**
+- `/api/bi/analyze`, `/api/bi/job/{id}`, and `/api/report/share` now require an internal key for normal operation
+- Internal auth key is `MIRAI_INTERNAL_API_KEY`, with `NEXTAUTH_SECRET` as the compatibility fallback
+- No-key fallback mode only allows loopback callers
+- Local fallback throttle now matches operating budget defaults: `50/day`, configurable via `MIRAI_ANALYSIS_RATE_LIMIT_MAX` and `MIRAI_ANALYSIS_RATE_LIMIT_WINDOW`
+- Share-link creation now enforces a maximum HTML payload size before writing to disk
+
+**Queue Reliability**
+- Website queue startup recovery now reconstructs resumable `queued` and `reviewing` jobs from the database
+- Mid-analysis submissions are reset to `queued` and automatically reinserted into the in-memory queue after restart
+- Retry count is preserved from stored retry notes when resuming restart-safe jobs
+
+**Founder Portal Safety**
+- Founder dashboard and "my submissions" APIs now return sanitized `status_message` values instead of raw `admin_notes`
+- Founder queue API now returns per-user positions only, rather than global pending submission IDs
+- Dashboard UI now renders founder-safe status updates and user-specific queue positions
+
 ## [0.11.0] — 2026-03-30
 
 ### Added — Professional Form, Pipeline Bias Fixes, Full REST Parity

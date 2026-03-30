@@ -2,12 +2,12 @@
  * Simple in-memory FIFO queue for Mirai analysis jobs.
  * Processes ONE analysis at a time to avoid overloading the backend.
  * Survives across API calls (module-level singleton) but not server restarts.
- * On restart, any "reviewing" submissions get picked up automatically.
+ * On restart, auto-runnable "queued"/"reviewing" submissions get reconstructed.
  */
 
 import prisma from "./prisma";
-
-const MIRAI_API = process.env.MIRAI_API_URL || "http://127.0.0.1:5000";
+import type { Submission } from "@prisma/client";
+import { MIRAI_API, miraiInternalHeaders, miraiJsonHeaders } from "./mirai-api";
 const DAILY_LIMIT = 50;
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 10_000; // 10 seconds between retries
@@ -46,30 +46,141 @@ interface QueueJob {
   retries: number;
 }
 
+function buildExecSummaryFromSubmission(submission: Submission): string {
+  const lines: string[] = [];
+  const add = (label: string, value: string) => {
+    if (value) lines.push(`${label}: ${value}`);
+  };
+
+  add("Company", submission.companyName);
+  add("Website", submission.websiteUrl);
+  add("Industry", submission.industry);
+  add("Industry Priority Areas", submission.industryPriorityAreas);
+  add("Stage", submission.stage);
+  add("Location", submission.location);
+  add("Country", submission.country);
+  add("Year Founded", submission.yearFounded);
+  add("Product", submission.oneLiner);
+  add("Target Market", submission.customers);
+  add("Business Model", submission.businessModel);
+  add("Pricing", submission.pricing);
+  add("Traction", submission.traction);
+  add("Has Customers", submission.hasCustomers);
+  add("Generating Revenue", submission.generatingRevenue);
+  add("Revenue / ARR", submission.revenue);
+  add("Funding Raised", submission.funding);
+  add("Currently Fundraising", submission.currentlyFundraising);
+  add("Team", submission.team);
+  add("Ask", submission.ask);
+  add("Moat / Advantage", submission.advantage);
+  add("Known Competitors", submission.competitors);
+  add("Key Risks", submission.risk);
+  add("Keywords", submission.keywords);
+  if (submission.deckUrl) add("Deck", submission.deckUrl);
+  add("Referral Source", submission.referralSource);
+  if (submission.extraContext) lines.push(`\nAdditional Context:\n${submission.extraContext}`);
+
+  return lines.join("\n\n");
+}
+
+function buildStructuredFields(submission: Submission): StructuredFields {
+  return {
+    company: submission.companyName,
+    industry: submission.industry,
+    product: submission.oneLiner,
+    target_market: submission.customers,
+    business_model: submission.businessModel,
+    stage: submission.stage,
+    traction: submission.traction,
+    ask: submission.ask,
+    website_url: submission.websiteUrl,
+    year_founded: submission.yearFounded,
+    location: submission.location,
+    revenue: submission.revenue,
+    known_competitors: submission.competitors
+      ? submission.competitors.split(",").map((company) => company.trim()).filter(Boolean)
+      : [],
+    funding: submission.funding,
+    team: submission.team,
+    pricing: submission.pricing,
+    country: submission.country,
+    keywords: submission.keywords,
+    industry_priority_areas: submission.industryPriorityAreas,
+    has_customers: submission.hasCustomers,
+    generating_revenue: submission.generatingRevenue,
+    currently_fundraising: submission.currentlyFundraising,
+  };
+}
+
+function parseRetryCount(adminNotes: string): number {
+  const match = adminNotes.match(/^Retry (\d+)\/\d+:/);
+  if (!match) return 0;
+  const parsed = parseInt(match[1], 10);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function shouldAutoResume(submission: Submission): boolean {
+  if (submission.status === "reviewing") return true;
+  if (submission.status !== "queued" || Boolean(submission.reportUrl)) return false;
+
+  const note = submission.adminNotes.trim();
+  if (!note) return true;
+  if (note.startsWith("Retry ")) return true;
+  if (note.startsWith("Reset after server restart")) return true;
+  if (note.startsWith("Resumed after server restart")) return true;
+  return false;
+}
+
 class AnalysisQueue {
   private queue: QueueJob[] = [];
   private processing = false;
   private currentJob: QueueJob | null = null;
-  private initialized = false;
 
   constructor() {
-    // Recover stuck submissions on startup (handles server restarts)
+    // Recover auto-runnable submissions on startup (handles server restarts)
     this.recoverStuck().catch((err) =>
       console.error("[queue] Startup recovery failed:", err)
     );
   }
 
   private async recoverStuck() {
-    const stuck = await prisma.submission.findMany({
-      where: { status: "reviewing" },
-      select: { id: true, companyName: true },
+    const recoverable = await prisma.submission.findMany({
+      where: {
+        OR: [{ status: "queued" }, { status: "reviewing" }],
+      },
+      orderBy: { createdAt: "asc" },
     });
-    if (stuck.length > 0) {
-      console.log(`[queue] Found ${stuck.length} stuck "reviewing" submission(s) — resetting to queued`);
+
+    const resumable = recoverable.filter(shouldAutoResume);
+    const reviewingIds = resumable
+      .filter((submission) => submission.status === "reviewing")
+      .map((submission) => submission.id);
+
+    if (reviewingIds.length > 0) {
       await prisma.submission.updateMany({
-        where: { status: "reviewing" },
-        data: { status: "queued", adminNotes: "Reset after server restart — will be re-queued on next submission." },
+        where: { id: { in: reviewingIds } },
+        data: {
+          status: "queued",
+          adminNotes: "Resumed after server restart — automatically re-queued.",
+        },
       });
+    }
+
+    for (const submission of resumable) {
+      this.queue.push({
+        submissionId: submission.id,
+        execSummary: buildExecSummaryFromSubmission(submission),
+        structuredFields: buildStructuredFields(submission),
+        addedAt: Date.now(),
+        retries: parseRetryCount(submission.adminNotes),
+      });
+    }
+
+    if (resumable.length > 0) {
+      console.log(
+        `[queue] Recovered ${resumable.length} submission(s) after restart (${reviewingIds.length} were mid-analysis)`
+      );
+      this.tick();
     }
   }
 
@@ -193,7 +304,7 @@ class AnalysisQueue {
       // Submit job to Mirai BI engine (async mode — returns immediately with job ID)
       const submitRes = await fetch(`${MIRAI_API}/api/bi/analyze`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: miraiJsonHeaders(),
         body: JSON.stringify({
           exec_summary: execSummary,
           structured_fields: structuredFields || null,
@@ -228,6 +339,7 @@ class AnalysisQueue {
 
         try {
           const pollRes = await fetch(`${MIRAI_API}/api/bi/job/${jobId}`, {
+            headers: miraiInternalHeaders(),
             signal: AbortSignal.timeout(10_000),
           });
           const pollData = await pollRes.json() as Record<string, unknown>;
@@ -286,7 +398,7 @@ class AnalysisQueue {
         try {
           const shareRes = await fetch(`${MIRAI_API}/api/report/share`, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: miraiJsonHeaders(),
             body: JSON.stringify({
               html: reportHtml,
               company: analysis.extraction?.company || `Submission #${submissionId}`,

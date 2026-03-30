@@ -21,7 +21,7 @@ Key rules:
 - Hallucination guard runs on every swarm agent reasoning
 - Bias controls: neutral GEO_BEHAVIORAL, no MBTI scoring directives, DELIBERATION_WEIGHT=1.0, industry weights capped 1.5x, stage vocabulary normalized, verdict override removed (advisory note only)
 - Report: HTML via `generate_html_report()`. Opens in new tab. No Playwright/Chromium dependency.
-- Async API: `/api/bi/analyze` returns job_id, poll `/api/bi/job/{id}` every 15s
+- Async API: `/api/bi/analyze` returns job_id, poll `/api/bi/job/{id}` every 15s, internal-auth protected
 
 ## Website Form
 - 122 industries (searchable), 789 keywords (multiselect, max 15), 195 countries (searchable)
@@ -29,6 +29,9 @@ Key rules:
 - Backend validation: enum checks, URL format, 100K char limit, atomic Prisma transactions
 - Structured fields passthrough to backend (skips LLM extraction)
 - Retry queue: 3 retries with 10s delay, health check before each attempt, 60 min timeout
+- Restart recovery rebuilds safe `queued` and `reviewing` jobs into the queue
+- Founder APIs expose `status_message` instead of raw `admin_notes`
+- Internal website → swarm auth uses `MIRAI_INTERNAL_API_KEY`, falling back to `NEXTAUTH_SECRET`
 
 ## Model Routing (llm_client.py)
 - `@cf/` models → Cloudflare Workers AI (kept but not in active council)

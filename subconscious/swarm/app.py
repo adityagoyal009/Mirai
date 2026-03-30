@@ -100,6 +100,49 @@ def _session_secret() -> str:
     return "mirai-dev-session-secret-change-me"
 
 
+def _internal_api_key() -> str:
+    return (
+        os.environ.get("MIRAI_INTERNAL_API_KEY", "").strip()
+        or os.environ.get("NEXTAUTH_SECRET", "").strip()
+    )
+
+
+def _request_internal_key(request: Request) -> str:
+    header = request.headers.get("x-internal-key", "").strip()
+    if header:
+        return header
+
+    authorization = request.headers.get("authorization", "").strip()
+    if authorization.lower().startswith("bearer "):
+        return authorization[7:].strip()
+
+    return ""
+
+
+def _is_loopback_request(request: Request) -> bool:
+    host = request.client.host if request.client else ""
+    return host in {"127.0.0.1", "::1", "localhost"}
+
+
+def _require_internal_request(request: Request, *, throttle_local: bool = False):
+    expected = _internal_api_key()
+    provided = _request_internal_key(request)
+
+    if expected:
+        if provided and secrets.compare_digest(provided, expected):
+            return None
+        logger.warning("[Security] Rejected internal endpoint request without valid key")
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+
+    if _is_loopback_request(request):
+        if throttle_local and not check_rate_limit(request):
+            return JSONResponse({"error": "Rate limit exceeded"}, status_code=429)
+        return None
+
+    logger.warning("[Security] Rejected non-local internal endpoint request without MIRAI_INTERNAL_API_KEY configured")
+    return JSONResponse({"error": "Internal API not configured"}, status_code=503)
+
+
 app.add_middleware(
     SessionMiddleware,
     secret_key=_session_secret(),
@@ -755,8 +798,11 @@ def _cleanup_old_jobs():
 
 
 @app.get("/api/bi/job/{job_id}")
-async def bi_job_status(job_id: str):
+async def bi_job_status(job_id: str, request: Request):
     """Poll for async analysis result."""
+    auth_error = _require_internal_request(request)
+    if auth_error:
+        return auth_error
     with _job_lock:
         job = _job_results.get(job_id)
     if not job:
@@ -770,6 +816,9 @@ async def bi_job_status(job_id: str):
 
 @app.post("/api/bi/analyze")
 async def bi_analyze(request: Request):
+    auth_error = _require_internal_request(request, throttle_local=True)
+    if auth_error:
+        return auth_error
     body = await request.json()
     exec_summary = body.get("exec_summary", "")
     depth = body.get("depth", "deep")
@@ -1105,6 +1154,7 @@ import uuid as _uuid_mod
 import html as _html_mod
 
 _REPORTS_DIR = os.path.join(os.path.expanduser("~"), ".mirai", "shared_reports")
+_MAX_SHARED_REPORT_BYTES = int(os.environ.get("MIRAI_SHARED_REPORT_MAX_BYTES", "1000000"))
 os.makedirs(_REPORTS_DIR, exist_ok=True)
 
 
@@ -1183,11 +1233,16 @@ async def shared_report(report_id: str):
 @app.post("/api/report/share")
 async def create_share_link(request: Request):
     """Create a shareable link for a report."""
+    auth_error = _require_internal_request(request)
+    if auth_error:
+        return auth_error
     body = await request.json()
     report_html = body.get("html", "")
     company_name = body.get("company", "")
     if not report_html:
         return JSONResponse({"error": "No HTML provided"}, status_code=400)
+    if len(report_html.encode("utf-8")) > _MAX_SHARED_REPORT_BYTES:
+        return JSONResponse({"error": "Report HTML too large"}, status_code=413)
 
     report_id = save_shared_report(report_html, company_name)
     return {"report_id": report_id, "url": f"/report/{report_id}"}
@@ -1201,8 +1256,8 @@ import time as _time_mod
 from collections import defaultdict as _defaultdict
 
 _rate_limit_store: Dict = {}  # {ip: [timestamp, ...]}
-_RATE_LIMIT_MAX = 3           # max analyses per window
-_RATE_LIMIT_WINDOW = 3600     # 1 hour window
+_RATE_LIMIT_MAX = int(os.environ.get("MIRAI_ANALYSIS_RATE_LIMIT_MAX", "50"))
+_RATE_LIMIT_WINDOW = int(os.environ.get("MIRAI_ANALYSIS_RATE_LIMIT_WINDOW", "86400"))
 
 
 def _get_client_ip(request: Request) -> str:

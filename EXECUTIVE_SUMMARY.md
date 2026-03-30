@@ -103,7 +103,7 @@ The Cortex is an autonomous agent subsystem that runs independently of the dashb
 | `browser_navigate` | browser-use Agent | Navigate + interact with web pages autonomously |
 | `terminal_command` | E2B sandbox / subprocess | Execute shell commands (code to sandbox, safe to subprocess) |
 | `swarm_predict` | HTTP to Flask `/api/predict/` | Wargame scenarios via MiroFish simulation |
-| `analyze_business` | HTTP to Flask `/api/bi/analyze` | BI engine: research, predict, plan |
+| `analyze_business` | HTTP to FastAPI `/api/bi/analyze` | BI engine: research → council → swarm → plan → OASIS (async, internal-auth protected) |
 | `message_human` | `mirai message send` | Send WhatsApp messages to operator |
 | `standby` | (no-op) | Idle state |
 
@@ -449,7 +449,8 @@ Every analysis is logged to a JSONL file at `~/.mirai/logs/swarm_YYYYMMDD_HHMMSS
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/api/bi/analyze` | Full analysis pipeline (research + predict + plan) |
+| POST | `/api/bi/analyze` | Full analysis pipeline (research + predict + plan, internal callers) |
+| GET | `/api/bi/job/{id}` | Poll async analysis result for internal website/cortex callers |
 | POST | `/api/bi/validate` | Extract and validate exec summary fields (used by Smart Paste) |
 | POST | `/api/bi/report/pdf` | Generate PDF from analysis results |
 | POST | `/api/bi/feedback` | Record actual outcome (HIT/MISS) for accuracy tracking |

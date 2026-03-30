@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-
-const MIRAI_API = process.env.MIRAI_API_URL || "http://127.0.0.1:5000";
+import { MIRAI_API, getMiraiInternalApiKey, miraiJsonHeaders } from "@/lib/mirai-api";
 
 /**
  * Internal endpoint called after a submission is created.
@@ -10,7 +9,8 @@ const MIRAI_API = process.env.MIRAI_API_URL || "http://127.0.0.1:5000";
  */
 export async function POST(request: Request) {
   const authHeader = request.headers.get("x-internal-key");
-  if (authHeader !== process.env.NEXTAUTH_SECRET) {
+  const expectedInternalKey = getMiraiInternalApiKey();
+  if (expectedInternalKey && authHeader !== expectedInternalKey) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -52,7 +52,7 @@ async function runAnalysis(submissionId: number, execSummary: string) {
     console.log(`[analyze] Starting analysis for submission ${submissionId}`);
     const analyzeRes = await fetch(`${MIRAI_API}/api/bi/analyze`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: miraiJsonHeaders(),
       body: JSON.stringify({ exec_summary: execSummary, depth: "standard" }),
     });
 
@@ -93,7 +93,7 @@ async function runAnalysis(submissionId: number, execSummary: string) {
     if (reportHtml) {
       const shareRes = await fetch(`${MIRAI_API}/api/report/share`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: miraiJsonHeaders(),
         body: JSON.stringify({
           html: reportHtml,
           company: analysis.extraction?.company || `Submission #${submissionId}`,

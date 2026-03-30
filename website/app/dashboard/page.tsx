@@ -14,7 +14,7 @@ interface Submission {
   score: number | null;
   verdict: string;
   report_url: string;
-  admin_notes: string;
+  status_message: string;
   created_at: string;
   updated_at: string;
 }
@@ -22,11 +22,10 @@ interface Submission {
 interface QueueStatus {
   queueLength: number;
   processing: boolean;
-  currentSubmissionId: number | null;
-  pending: number[];
   dailyUsed: number;
   dailyLimit: number;
   dailyRemaining: number;
+  positions: Record<string, number>;
 }
 
 interface DashboardData {
@@ -115,6 +114,8 @@ export default function DashboardPage() {
   const subs = data?.submissions || [];
   const totals = data?.totals || { total: 0, queued: 0, reviewing: 0, report_sent: 0 };
   const readyReports = subs.filter((s) => s.status === "report_sent" && s.report_url);
+  const queuePosition = (submissionId: number): number =>
+    queue?.positions[String(submissionId)] ?? -1;
 
   return (
     <div className="max-w-[1080px] mx-auto px-5 py-8">
@@ -250,10 +251,10 @@ export default function DashboardPage() {
                     </a>
                   </div>
                 </div>
-                {sub.admin_notes && (
+                {sub.status_message && (
                   <div className="mt-4 p-3.5 rounded-[16px] bg-white/80 border border-[rgba(11,26,47,0.06)] text-sm text-ink-soft">
-                    <strong className="text-xs uppercase tracking-[0.08em] text-ink-faint block mb-1">Note from Mirai</strong>
-                    {sub.admin_notes}
+                    <strong className="text-xs uppercase tracking-[0.08em] text-ink-faint block mb-1">Status Update</strong>
+                    {sub.status_message}
                   </div>
                 )}
               </div>
@@ -284,12 +285,12 @@ export default function DashboardPage() {
                     <div className="flex items-center gap-3 flex-wrap">
                       <h3 className="font-bold tracking-tight">{sub.company_name}</h3>
                       <StatusPill status={sub.status} />
-                      {sub.status === "reviewing" && queue?.currentSubmissionId === sub.id && (
+                      {sub.status === "reviewing" && queuePosition(sub.id) === 0 && (
                         <span className="text-xs font-bold text-[#196cff] animate-pulse">Analyzing now...</span>
                       )}
-                      {sub.status === "queued" && queue?.pending.includes(sub.id) && (
+                      {sub.status === "queued" && queuePosition(sub.id) > 0 && (
                         <span className="text-xs text-ink-faint">
-                          Position {(queue.pending.indexOf(sub.id) + 1) + (queue.processing ? 1 : 0)} in queue
+                          Position {queuePosition(sub.id)} in queue
                         </span>
                       )}
                       {sub.score != null && (
@@ -306,9 +307,9 @@ export default function DashboardPage() {
                       <span>{formatDate(sub.created_at)}</span>
                       <span className="text-ink-faint">{timeAgo(sub.created_at)}</span>
                     </div>
-                    {sub.admin_notes && (
+                    {sub.status_message && (
                       <div className="mt-3 p-3 rounded-[14px] bg-[rgba(25,108,255,0.04)] border border-[rgba(25,108,255,0.08)] text-sm text-ink-soft">
-                        {sub.admin_notes}
+                        {sub.status_message}
                       </div>
                     )}
                   </div>
