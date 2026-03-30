@@ -462,6 +462,11 @@ def run_backtest(agents_per_run: int = 50, limit: int = 0) -> Dict[str, Any]:
                 exec_summary=exec_summary,
                 research_context=f"Historical company: {company}. Actual outcome: HIDDEN (backtesting).",
                 agent_count=agents_per_run,
+                company=company,
+                industry=startup.get('industry', ''),
+                product=startup.get('product', ''),
+                target_market=startup.get('target_market', ''),
+                stage=startup.get('stage', ''),
             )
 
             company_result = _build_company_result(

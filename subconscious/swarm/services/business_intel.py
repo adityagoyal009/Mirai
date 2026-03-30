@@ -1,18 +1,15 @@
 """
-Business Intelligence Engine — research, predict, plan.
+Business Intelligence Engine — extract, score, and plan around live research.
 
 Given an executive summary, the engine:
-  1. Researches the market (SearXNG + ChromaDB + Mem0 + OpenBB + LLM synthesis)
-  2. Predicts hit or miss across 7 dimensions (LLM Council in deep mode)
-  3. Plans strategic next moves
+  1. Extracts structured startup fields
+  2. Runs live external research (OpenClaw primary, Gemini fallback)
+  3. Predicts hit or miss across 7 dimensions (LLM Council in deep mode)
+  4. Plans strategic next moves
 
-Capability stack:
-  - SearXNG: Fast structured URL discovery (replaces DuckDuckGo navigation)
-  - Crawl4AI / browser-use: Content extraction (fast path / full path)
-  - Mem0: Relationship-aware memory (past analyses inform future ones)
-  - OpenBB: Live financial data (stock prices, fundamentals, market news)
-  - CrewAI: Multi-agent parallel analysis (deep mode)
-  - ChromaDB: Episode storage + semantic search (unchanged for MiroFish)
+The legacy BI web-research stack has been retired from runtime. Fresh external
+facts now come from the live research pipeline so downstream scoring, swarm,
+OASIS, and reporting all consume the same grounded research object.
 """
 
 import os
@@ -150,15 +147,26 @@ class ResearchReport:
     company: str
     industry: str
     product: str
-    market_data: List[str] = field(default_factory=list)
+    target_market: str = ""
+    business_model: str = ""
+    summary: str = ""
+    company_profile: Dict[str, Any] = field(default_factory=dict)
+    market_data: Dict[str, Any] = field(default_factory=dict)
     competitors: List[str] = field(default_factory=list)
+    competitor_details: List[Dict[str, Any]] = field(default_factory=list)
     news: List[str] = field(default_factory=list)
     trends: List[str] = field(default_factory=list)
+    regulatory: List[str] = field(default_factory=list)
+    pricing_analysis: Dict[str, Any] = field(default_factory=dict)
+    customer_evidence: List[str] = field(default_factory=list)
+    patent_landscape: Dict[str, Any] = field(default_factory=dict)
+    risks: List[str] = field(default_factory=list)
+    facts: List[str] = field(default_factory=list)
+    sources: List[Dict[str, Any]] = field(default_factory=list)
     sentiment: str = "neutral"
     context_facts: List[str] = field(default_factory=list)
     cited_facts: List[Dict] = field(default_factory=list)  # [{text, source_url, source_domain, confidence}]
     browser_queries: List[str] = field(default_factory=list)
-    # New: data source tracking
     financial_data: Dict[str, Any] = field(default_factory=dict)
     mem0_context: List[str] = field(default_factory=list)
     data_sources_used: List[str] = field(default_factory=list)
@@ -197,6 +205,11 @@ class Prediction:
             "verdict": self.verdict,
             "confidence": self.confidence,
             "reasoning": self.reasoning,
+            "fact_check": self.fact_check,
+            "council_used": self.council_used,
+            "council_models": self.council_models,
+            "contested_dimensions": self.contested_dimensions,
+            "model_scores": self.model_scores,
         }
         if self.council_used:
             result["council"] = {
@@ -331,7 +344,8 @@ class BusinessIntelEngine:
     """
     Core BI engine. Three phases: research → predict → plan.
     Reuses LLMClient for all LLM calls, EpisodicMemoryStore for storage.
-    Integrates SearXNG, Mem0, OpenBB, Crawl4AI, and CrewAI when available.
+    Runtime research is now the live OpenClaw/Gemini pipeline; legacy BI
+    web-enrichment components are retained only for non-runtime support code.
     """
 
     def __init__(self, llm: Optional[LLMClient] = None):
@@ -544,12 +558,10 @@ class BusinessIntelEngine:
         exec_summary: str,
         depth: str = "standard",
         extraction: Optional[ExtractionResult] = None,
+        on_progress=None,
+        allow_gemini_fallback: bool = True,
     ) -> ResearchReport:
-        """Parse exec summary, generate research queries, gather context from all sources."""
-        cfg = _DEPTH_CONFIG.get(depth, _DEPTH_CONFIG["standard"])
-        data_sources_used = []
-
-        # Step 1: Extract structured info (reuse if already done)
+        """Run the live research pipeline and normalize it to ResearchReport."""
         if extraction is None:
             extraction = self.extract_and_validate(exec_summary)
 
@@ -558,200 +570,171 @@ class BusinessIntelEngine:
         product = extraction.product or "Unknown"
         target_market = extraction.target_market or ""
         business_model = extraction.business_model or ""
-
-        # Step 2: Generate research queries
-        query_prompt = self.llm.chat(
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        f"Generate exactly {cfg['query_count']} research queries to evaluate this business. "
-                        "Cover: market size, competitors, recent news, regulatory landscape, "
-                        "demand signals, and similar companies' outcomes. "
-                        "Return one query per line, no numbering or bullets."
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": (
-                        f"Company: {company}\nIndustry: {industry}\nProduct: {product}\n"
-                        f"Target market: {target_market}\nBusiness model: {business_model}"
-                    ),
-                },
-            ],
-            temperature=0.5,
-            max_tokens=500,
-        )
-        queries = [q.strip() for q in query_prompt.strip().split("\n") if q.strip()]
-
-        # Step 3: Search ChromaDB for the current submission's collection only.
-        # SECURITY: Previously iterated over ALL collections (episode_collections[:5]),
-        # which leaked data between submissions (cross-tenant data leakage).
-        # Now restricted to the scoped collection for this analysis only.
-        context_facts = []
         try:
-            from subconscious.memory import EpisodicMemoryStore
-            store = EpisodicMemoryStore(persist_path=Config.CHROMADB_PERSIST_PATH)
-            scoped_collection = f"{company.lower().replace(' ', '_')}_episodes"
-            collections = store.client.list_collections()
-            collection_names = [c.name for c in collections]
-            if scoped_collection in collection_names:
-                graph_id = scoped_collection.replace("_episodes", "")
-                for query in queries[:cfg["query_count"]]:
-                    results = store.search(
-                        graph_id=graph_id,
-                        query=query,
-                        limit=cfg["search_limit"] // max(len(queries), 1),
-                    )
-                    for r in results:
-                        if r.get("document") and r["document"] not in context_facts:
-                            context_facts.append(r["document"])
-            if context_facts:
-                data_sources_used.append("chromadb")
-        except Exception as e:
-            logger.warning(f"ChromaDB search during BI research failed: {e}")
+            from .agentic_researcher import AgenticResearcher
 
-        # Step 3b: Search Mem0 for relationship-aware context
-        mem0_context = []
-        mem0 = self._get_mem0()
-        if mem0:
-            try:
-                mem0_results = mem0.recall_industry_context(industry, limit=5)
-                for m in mem0_results:
-                    memory_text = m.get("memory", "")
-                    if memory_text and memory_text not in mem0_context:
-                        mem0_context.append(memory_text)
-                if mem0_context:
-                    data_sources_used.append("mem0")
-                    logger.info(f"[BI] Mem0 recalled {len(mem0_context)} relevant memories")
-            except Exception as e:
-                logger.warning(f"Mem0 search during BI research failed: {e}")
+            if on_progress:
+                on_progress(1, "Deep web research in progress...")
 
-        # Step 3c: Fetch live financial data via OpenBB
-        financial_data = {}
-        market_data_svc = self._get_market_data()
-        if market_data_svc:
-            try:
-                financial_data = market_data_svc.get_industry_context(company, industry)
-                if financial_data.get("data_sources"):
-                    data_sources_used.append("openbb")
-                    logger.info(
-                        f"[BI] OpenBB provided: {', '.join(financial_data['data_sources'])}"
-                    )
-            except Exception as e:
-                logger.warning(f"OpenBB data fetch during BI research failed: {e}")
-
-        # Step 4: Live web research (SearXNG + Crawl4AI/browser)
-        browser_queries = [q for q in queries if any(
-            kw in q.lower() for kw in ("news", "recent", "2025", "2026", "latest", "announced")
-        )]
-        web_findings = []
-
-        # Use web research for standard (news queries only) and deep (all queries)
-        research_queries = browser_queries if depth != "deep" else queries
-        if research_queries:
-            logger.info(f"[BI] Skipping web research ({len(research_queries)} queries) — web_researcher module removed")
-
-        # Step 5: Synthesize all findings via LLM
-        context_block = ""
-        if context_facts:
-            context_block = (
-                "\n\nRelevant knowledge from existing data:\n"
-                + "\n".join(f"- {f[:200]}" for f in context_facts[:30])
+            findings = AgenticResearcher().research(
+                company=company,
+                industry=industry,
+                product=product,
+                target_market=target_market,
+                website_url=extraction.website_url,
+                known_competitors=", ".join(extraction.known_competitors or []),
+                on_progress=on_progress,
             )
-        if mem0_context:
-            context_block += (
-                "\n\nRelated past analyses and knowledge (Mem0):\n"
-                + "\n".join(f"- {m[:300]}" for m in mem0_context[:10])
+            findings_dict = asdict(findings) if hasattr(findings, "__dataclass_fields__") else findings
+            report = self._normalize_live_research(findings_dict, extraction, engine_name="openclaw")
+            logger.info(
+                f"[BI] Live research complete via OpenClaw: "
+                f"{len(report.facts)} facts, {len(report.competitors)} competitors, {len(report.sources)} sources"
             )
-        if financial_data and financial_data.get("data_sources"):
-            context_block += "\n\nLive financial data (OpenBB):\n"
-            if financial_data.get("overview"):
-                ov = financial_data["overview"]
-                context_block += (
-                    f"- Company: {ov.get('name', '')} | Sector: {ov.get('sector', '')} | "
-                    f"Market Cap: {ov.get('market_cap', 'N/A')} | "
-                    f"Employees: {ov.get('employees', 'N/A')}\n"
-                )
-            if financial_data.get("stock_price"):
-                sp = financial_data["stock_price"]
-                context_block += (
-                    f"- Stock: ${sp.get('price', 'N/A')} | "
-                    f"Change: {sp.get('change_percent', 'N/A')}% | "
-                    f"52w High: ${sp.get('year_high', 'N/A')} | "
-                    f"52w Low: ${sp.get('year_low', 'N/A')}\n"
-                )
-            if financial_data.get("financial_metrics"):
-                fm = financial_data["financial_metrics"]
-                context_block += (
-                    f"- P/E: {fm.get('pe_ratio', 'N/A')} | "
-                    f"Revenue Growth: {fm.get('revenue_growth', 'N/A')} | "
-                    f"ROE: {fm.get('roe', 'N/A')}\n"
-                )
-            if financial_data.get("company_news"):
-                context_block += "- Recent news:\n"
-                for n in financial_data["company_news"][:3]:
-                    context_block += f"  - [{n.get('date', '')}] {n.get('title', '')}\n"
-        if web_findings:
-            context_block += (
-                "\n\nLive web research findings:\n"
-                + "\n".join(f"- {f[:300]}" for f in web_findings[:10])
-            )
+            return report
+        except Exception as openclaw_err:
+            logger.warning(f"[BI] OpenClaw research failed: {openclaw_err}")
+            if not allow_gemini_fallback:
+                raise RuntimeError(f"OpenClaw research failed: {openclaw_err}") from openclaw_err
 
-        # Funding signals (live funding rounds, acquisitions)
         try:
-            from .funding_signals import FundingSignals
-            fs = FundingSignals()
-            funding_data = fs.search_funding(
-                company_name=extraction.company,
-                industry=extraction.industry,
-            )
-            funding_text = fs.format_for_prompt(funding_data)
-            if funding_text:
-                context_block += f"\n\n{funding_text}"
-                data_sources_used.append("funding_signals")
-                logger.info(f"[BI] Funding signals: {funding_data.get('signal_count', 0)} found")
-        except Exception as e:
-            logger.warning(f"Funding signals failed (non-fatal): {e}")
+            from .gemini_researcher import GeminiResearcher
 
-        synthesis = self.llm.chat_json(
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a business research analyst. Synthesize research findings into "
-                        "a structured report. Return JSON with keys: "
-                        "market_data (list of findings), competitors (list of names/descriptions), "
-                        "news (list of relevant items), trends (list), sentiment (bullish/neutral/bearish)."
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": (
-                        f"Executive summary:\n<user_input>\n{exec_summary}\n</user_input>\n\n"
-                        f"Company: {company} | Industry: {industry} | Product: {product}"
-                        f"{context_block}\n\n"
-                        "Synthesize all available information into research findings."
-                    ),
-                },
-            ],
-            temperature=0.3,
-            max_tokens=cfg["max_tokens"],
-        )
+            if on_progress:
+                on_progress(0, "OpenClaw failed, trying Gemini fallback...")
+
+            findings_dict = GeminiResearcher().research(
+                company=company,
+                industry=industry,
+                product=product,
+                target_market=target_market,
+                website_url=extraction.website_url,
+                known_competitors=", ".join(extraction.known_competitors or []),
+                on_progress=on_progress,
+            )
+            report = self._normalize_live_research(findings_dict, extraction, engine_name="gemini")
+            logger.info(
+                f"[BI] Live research complete via Gemini fallback: "
+                f"{len(report.facts)} facts, {len(report.competitors)} competitors, {len(report.sources)} sources"
+            )
+            return report
+        except Exception as gemini_err:
+            raise RuntimeError(
+                f"Live research failed. OpenClaw error: {openclaw_err}; Gemini error: {gemini_err}"
+            ) from gemini_err
+
+    def _normalize_live_research(
+        self,
+        findings: Dict[str, Any],
+        extraction: ExtractionResult,
+        *,
+        engine_name: str,
+    ) -> ResearchReport:
+        """Normalize live research output into the stable ResearchReport schema."""
+        findings = findings if isinstance(findings, dict) else {}
+
+        company_profile = findings.get("company_profile", {})
+        company_profile = dict(company_profile) if isinstance(company_profile, dict) else {}
+        if extraction.website_url and not company_profile.get("website"):
+            company_profile["website"] = extraction.website_url
+        if extraction.year_founded and not company_profile.get("year_founded"):
+            company_profile["year_founded"] = extraction.year_founded
+        if extraction.location and not company_profile.get("hq_location"):
+            company_profile["hq_location"] = extraction.location
+        if extraction.team and not company_profile.get("team_summary"):
+            company_profile["team_summary"] = extraction.team
+        if extraction.pricing and not company_profile.get("pricing"):
+            company_profile["pricing"] = extraction.pricing
+        if extraction.funding and not company_profile.get("total_raised"):
+            company_profile["total_raised"] = extraction.funding
+        if extraction.revenue:
+            financials = company_profile.get("financials", {})
+            financials = dict(financials) if isinstance(financials, dict) else {}
+            financials.setdefault("revenue", extraction.revenue)
+            company_profile["financials"] = financials
+
+        facts = findings.get("facts", [])
+        facts = facts if isinstance(facts, list) else []
+        cited_facts = findings.get("cited_facts", [])
+        cited_facts = cited_facts if isinstance(cited_facts, list) else []
+        sources = findings.get("sources", [])
+        sources = sources if isinstance(sources, list) else []
+
+        market_data = findings.get("market_data", {})
+        if not isinstance(market_data, dict):
+            market_data = {}
+
+        browser_queries = [
+            q for q in [
+                f"{extraction.company} funding competitors market size",
+                f"{extraction.company} {extraction.product} news",
+                f"{extraction.industry} {extraction.target_market} market news".strip(),
+                f"{extraction.company} {extraction.business_model} pricing".strip(),
+            ] if q.strip()
+        ]
+
+        data_sources_used = [engine_name, "live_web_search"]
+        parse_quality = findings.get("parse_quality")
+        if parse_quality:
+            data_sources_used.append(f"parse:{parse_quality}")
+        trust_score = findings.get("trust_score")
+        if isinstance(trust_score, (int, float)):
+            data_sources_used.append(f"trust:{trust_score:.2f}")
 
         return ResearchReport(
-            company=company,
-            industry=industry,
-            product=product,
-            market_data=synthesis.get("market_data", []),
-            competitors=synthesis.get("competitors", []),
-            news=synthesis.get("news", []),
-            trends=synthesis.get("trends", []),
-            sentiment=synthesis.get("sentiment", "neutral"),
-            context_facts=context_facts[:20],
+            company=extraction.company or company_profile.get("name", "Unknown"),
+            industry=extraction.industry or str(findings.get("industry", "Unknown") or "Unknown"),
+            product=extraction.product or str(company_profile.get("product_description", "") or ""),
+            target_market=extraction.target_market,
+            business_model=extraction.business_model,
+            summary=str(findings.get("summary", "") or ""),
+            company_profile=company_profile,
+            market_data=market_data,
+            competitors=(
+                findings.get("competitors", [])
+                if isinstance(findings.get("competitors", []), list)
+                else []
+            ),
+            competitor_details=(
+                findings.get("competitor_details", [])
+                if isinstance(findings.get("competitor_details", []), list)
+                else []
+            ),
+            news=[
+                s.get("title", "")
+                for s in sources[:10]
+                if isinstance(s, dict) and s.get("title")
+            ],
+            trends=findings.get("trends", []) if isinstance(findings.get("trends", []), list) else [],
+            regulatory=(
+                findings.get("regulatory", [])
+                if isinstance(findings.get("regulatory", []), list)
+                else []
+            ),
+            pricing_analysis=(
+                findings.get("pricing_analysis", {})
+                if isinstance(findings.get("pricing_analysis", {}), dict)
+                else {}
+            ),
+            customer_evidence=(
+                findings.get("customer_evidence", [])
+                if isinstance(findings.get("customer_evidence", []), list)
+                else []
+            ),
+            patent_landscape=(
+                findings.get("patents", findings.get("patent_landscape", {}))
+                if isinstance(findings.get("patents", findings.get("patent_landscape", {})), dict)
+                else {}
+            ),
+            risks=findings.get("risks", []) if isinstance(findings.get("risks", []), list) else [],
+            facts=facts,
+            sources=sources,
+            sentiment=str(findings.get("sentiment", "neutral") or "neutral"),
+            context_facts=facts[:20],
+            cited_facts=cited_facts,
             browser_queries=browser_queries,
-            financial_data=financial_data,
-            mem0_context=mem0_context,
+            financial_data={},
+            mem0_context=[],
             data_sources_used=data_sources_used,
         )
 
@@ -1590,8 +1573,10 @@ class BusinessIntelEngine:
                     exec_summary=exec_summary,
                     research_context=research_context,
                     agent_count=swarm_count,
+                    company=extraction.company if extraction else '',
                     industry=extraction.industry if extraction else '',
                     product=extraction.product if extraction else '',
+                    target_market=extraction.target_market if extraction else '',
                     stage=extraction.stage if extraction else '',
                 )
                 logger.info(

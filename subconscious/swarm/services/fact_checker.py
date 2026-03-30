@@ -5,9 +5,8 @@ against REAL external sources instead of LLM-asking-LLM circular verification.
 Verification sources:
   1. LLM extracts specific quantitative claims (acceptable use of LLM)
   2. Jina Grounding API (most authoritative, optional — requires JINA_API_KEY)
-  3. Brave Search API (free tier, best relevance scoring)
-  4. SearXNG targeted search (free, self-hosted — fallback)
-  5. SEC EDGAR + Yahoo Finance (free, no API key — public company data via HTTP)
+  3. OpenClaw-backed live web search
+  4. SEC EDGAR + Yahoo Finance (free, no API key — public company data via HTTP)
 
 Each claim is independently verified against external evidence.
 """
@@ -66,19 +65,25 @@ def _extract_claims(agent_reasonings: List[str]) -> List[Dict[str, Any]]:
 
 
 # ---------------------------------------------------------------------------
-# Source 1: Brave Search (free tier — best relevance scoring)
+# Source 1: Live web search (OpenClaw-backed)
 # ---------------------------------------------------------------------------
 
-def _check_brave(claim_text: str, search_query: str) -> Optional[Dict[str, Any]]:
-    """Brave Search removed. Returns None (skips to next source)."""
+def _check_live_search(engine: Any, claim_text: str, search_query: str) -> Optional[Dict[str, Any]]:
+    """Verify a claim against the live OpenClaw-backed search wrapper."""
+    query = (search_query or claim_text or "").strip()
+    if not query:
+        return None
+    try:
+        results = engine.search(query, max_results=5, time_range="past 180 days")
+        verification = _score_search_results(claim_text, results, source_label="OpenClaw Search")
+        if verification:
+            return verification
+        if query != claim_text:
+            fallback_results = engine.search(claim_text, max_results=5, time_range="past 180 days")
+            return _score_search_results(claim_text, fallback_results, source_label="OpenClaw Search")
+    except Exception as e:
+        logger.debug(f"[FactCheck] Live search lookup failed: {e}")
     return None
-
-
-def _check_searxng(claim_text: str, search_query: str) -> Optional[Dict[str, Any]]:
-    """SearXNG removed. Returns None (skips to next source)."""
-    return None
-
-    return _score_search_results(claim_text, results, source_label="SearXNG")
 
 
 # ---------------------------------------------------------------------------
@@ -204,13 +209,13 @@ def _check_yahoo_finance(claim_text: str, company: Optional[str], ticker: Option
 
 
 # ---------------------------------------------------------------------------
-# Shared search-result scoring logic (used by Brave and SearXNG)
+# Shared search-result scoring logic (used by live search handlers)
 # ---------------------------------------------------------------------------
 
 def _score_search_results(claim_text: str, results: List[Dict[str, Any]], source_label: str) -> Optional[Dict[str, Any]]:
     """
     Score a list of search results against a claim.
-    Used by both Brave Search and SearXNG handlers.
+    Used by live search handlers.
 
     Returns the best matching result as a verification dict, or None.
     """
@@ -409,14 +414,20 @@ class VerifiedFactChecker:
 
     Sources (checked in order, first definitive result wins):
       0. Jina Grounding API (if JINA_API_KEY is set — most authoritative)
-      1. Brave Search API (free tier, if BRAVE_SEARCH_API_KEY is set)
-      2. SearXNG self-hosted metasearch (fallback)
-      3. SEC EDGAR filings (direct HTTP, no library needed)
-      4. Yahoo Finance stock/revenue/market cap data (direct HTTP, no library needed)
+      1. OpenClaw-backed live search
+      2. SEC EDGAR filings (direct HTTP, no library needed)
+      3. Yahoo Finance stock/revenue/market cap data (direct HTTP, no library needed)
     """
 
     def __init__(self):
         self._search_engine = None
+
+    def _get_search_engine(self):
+        if self._search_engine is None:
+            from .search_engine import SearchEngine
+
+            self._search_engine = SearchEngine()
+        return self._search_engine
 
     def _check_jina_grounding(self, claim_text: str) -> Optional[Dict]:
         """Use Jina's grounding API for factuality verification."""
@@ -513,9 +524,8 @@ class VerifiedFactChecker:
 
         Pipeline order:
           0. Jina Grounding (most authoritative, if JINA_API_KEY is set)
-          1. Brave Search (best relevance scoring)
-          2. SearXNG (fallback search)
-          3. SEC EDGAR + Yahoo Finance (for public company financial claims)
+          1. OpenClaw-backed live search
+          2. SEC EDGAR + Yahoo Finance (for public company financial claims)
         """
         claim_text = claim.get("text", "")
         category = claim.get("category", "")
@@ -543,38 +553,24 @@ class VerifiedFactChecker:
             logger.debug(f"[FactCheck] Jina: '{claim_text[:60]}' -> {jina['status']}")
             return result
 
-        # --- Source 1: Brave Search (preferred — real relevance scores) ---
-        brave = _check_brave(claim_text, search_query)
-        if brave and brave["status"] in ("VERIFIED", "CONTRADICTED"):
+        # --- Source 1: OpenClaw-backed live search ---
+        live_search = _check_live_search(self._get_search_engine(), claim_text, search_query)
+        if live_search and live_search["status"] in ("VERIFIED", "CONTRADICTED"):
             result.update({
-                "status": brave["status"],
-                "source": brave["source"],
-                "source_url": brave["source_url"],
-                "evidence": brave["evidence"],
+                "status": live_search["status"],
+                "source": live_search["source"],
+                "source_url": live_search["source_url"],
+                "evidence": live_search["evidence"],
             })
-            logger.debug(f"[FactCheck] Brave: '{claim_text[:60]}' -> {brave['status']}")
+            logger.debug(f"[FactCheck] LiveSearch: '{claim_text[:60]}' -> {live_search['status']}")
             return result
 
-        # --- Source 2: SearXNG fallback search ---
-        searx = _check_searxng(claim_text, search_query)
-        if searx and searx["status"] in ("VERIFIED", "CONTRADICTED"):
-            result.update({
-                "status": searx["status"],
-                "source": searx["source"],
-                "source_url": searx["source_url"],
-                "evidence": searx["evidence"],
-            })
-            logger.debug(f"[FactCheck] SearXNG: '{claim_text[:60]}' -> {searx['status']}")
-            return result
+        if live_search:
+            result["source"] = live_search["source"]
+            result["source_url"] = live_search["source_url"]
+            result["evidence"] = live_search["evidence"]
 
-        # Keep the best partial match from search so far
-        best_search = brave or searx
-        if best_search:
-            result["source"] = best_search["source"]
-            result["source_url"] = best_search["source_url"]
-            result["evidence"] = best_search["evidence"]
-
-        # --- Source 3: SEC EDGAR (filings for public companies, direct HTTP) ---
+        # --- Source 2: SEC EDGAR (filings for public companies, direct HTTP) ---
         edgar = _check_sec_edgar(company, ticker, category)
         if edgar:
             if result["source"] is None:
@@ -582,7 +578,7 @@ class VerifiedFactChecker:
                 result["source_url"] = edgar["source_url"]
                 result["evidence"] = edgar["evidence"]
 
-        # --- Source 4: Yahoo Finance (stock/revenue/market cap, direct HTTP) ---
+        # --- Source 3: Yahoo Finance (stock/revenue/market cap, direct HTTP) ---
         yf_result = _check_yahoo_finance(claim_text, company, ticker, category)
         if yf_result:
             if yf_result["status"] in ("VERIFIED", "CONTRADICTED"):

@@ -109,6 +109,25 @@ class ReportAgent:
         if comps:
             lines.append("\nCOMPETITORS: " + ', '.join(str(c) for c in comps[:8]))
 
+        market_data = research.get('market_data', {})
+        if isinstance(market_data, dict) and market_data:
+            lines.append(
+                "\nMARKET DATA: "
+                + "; ".join(
+                    f"{k.upper()}: {v}" for k, v in market_data.items() if v
+                )
+            )
+
+        pricing_analysis = research.get('pricing_analysis', {})
+        if isinstance(pricing_analysis, dict) and pricing_analysis:
+            lines.append(
+                "\nPRICING ANALYSIS: "
+                + "; ".join(
+                    f"{k.replace('_', ' ').title()}: {v}"
+                    for k, v in pricing_analysis.items() if v
+                )
+            )
+
         summary = research.get('summary', '')
         if summary:
             lines.append(f"\nRESEARCH: {summary[:800]}")

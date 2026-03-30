@@ -35,12 +35,13 @@ class OasisSimulator:
 
     def __init__(self):
         self.llm = LLMClient()
-        self._headline_cache: Dict[Tuple[str, str, int], List[str]] = {}
+        self._headline_cache: Dict[Tuple[str, ...], List[Dict[str, str]]] = {}
 
     def simulate(self, exec_summary: str, research_context: str,
                  council_verdict: str, on_round_complete=None,
                  swarm_agents: Optional[List] = None,
-                 stage: str = "") -> Dict[str, Any]:
+                 stage: str = "",
+                 extraction: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
         Simulate market reaction over the configured number of rounds.
 
@@ -60,9 +61,12 @@ class OasisSimulator:
                 logger.info(f"[OASIS] Swarm too small ({len(swarm_agents) if swarm_agents else 0} agents), "
                            f"falling back to hardcoded panel")
 
-        # Extract company name and industry once for all rounds
-        company_name, industry = self._extract_company_and_industry(exec_summary)
-        logger.info(f"[OASIS] Extracted company='{company_name}', industry='{industry}'")
+        startup_context = self._resolve_startup_context(exec_summary, extraction=extraction)
+        logger.info(
+            f"[OASIS] Context company='{startup_context['company']}', "
+            f"industry='{startup_context['industry']}', "
+            f"product='{startup_context['product'][:60]}'"
+        )
 
         timeline = []
         previous_events = []
@@ -86,7 +90,7 @@ class OasisSimulator:
             # Source real market event for this month
             event = self._source_real_event(
                 exec_summary, month, previous_events, previous_sentiment,
-                company_name=company_name, industry=industry,
+                startup_context=startup_context,
             )
             previous_events.append(event)
 
@@ -361,36 +365,62 @@ class OasisSimulator:
 
         return panel
 
-    # ── company / industry extraction ────────────────────────────
+    # ── startup context resolution ───────────────────────────────
 
-    def _extract_company_and_industry(self, exec_summary: str) -> Tuple[str, str]:
-        """Use the LLM to pull a company name and industry from the exec summary.
+    def _resolve_startup_context(
+        self,
+        exec_summary: str,
+        *,
+        extraction: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, str]:
+        """Resolve company context for OASIS without discarding structured fields."""
+        extraction = extraction if isinstance(extraction, dict) else {}
 
-        Returns (company_name, industry) — both short strings suitable for
-        search queries.  Falls back to generic terms if extraction fails.
-        """
+        company = str(extraction.get("company", "") or "").strip()
+        industry = str(extraction.get("industry", "") or "").strip()
+        product = str(extraction.get("product", "") or "").strip()
+        target_market = str(extraction.get("target_market", "") or "").strip()
+        business_model = str(extraction.get("business_model", "") or "").strip()
+
+        if company and industry:
+            return {
+                "company": company,
+                "industry": industry,
+                "product": product,
+                "target_market": target_market,
+                "business_model": business_model,
+            }
+
         prompt = (
-            "Extract the company name and industry from this startup summary. "
-            "Reply with EXACTLY two lines — nothing else:\n"
+            "Extract the company name, industry, product, target market, and business model "
+            "from this startup summary. Reply with EXACTLY five lines — nothing else:\n"
             "COMPANY: <name>\n"
-            "INDUSTRY: <industry>\n\n"
+            "INDUSTRY: <industry>\n"
+            "PRODUCT: <product>\n"
+            "TARGET MARKET: <target market>\n"
+            "BUSINESS MODEL: <business model>\n\n"
             f"Summary:\n{exec_summary[:500]}"
         )
         response = (
             self.llm.chat([{"role": "user", "content": prompt}], max_tokens=60) or ""
         ).strip()
 
-        company = ""
-        industry = ""
+        company = company or ""
+        industry = industry or ""
         for line in response.splitlines():
-            line_upper = line.strip().upper()
+            raw = line.strip()
+            line_upper = raw.upper()
             if line_upper.startswith("COMPANY:"):
-                company = line.strip()[len("COMPANY:"):].strip()
+                company = raw[len("COMPANY:"):].strip()
             elif line_upper.startswith("INDUSTRY:"):
-                industry = line.strip()[len("INDUSTRY:"):].strip()
+                industry = raw[len("INDUSTRY:"):].strip()
+            elif line_upper.startswith("PRODUCT:") and not product:
+                product = raw[len("PRODUCT:"):].strip()
+            elif line_upper.startswith("TARGET MARKET:") and not target_market:
+                target_market = raw[len("TARGET MARKET:"):].strip()
+            elif line_upper.startswith("BUSINESS MODEL:") and not business_model:
+                business_model = raw[len("BUSINESS MODEL:"):].strip()
 
-        # OA-1 FIX: log when falling back to generic terms — OASIS will simulate
-        # generic industry trends instead of the actual company.
         if not company:
             logger.warning(
                 "[OASIS] Could not extract company name from exec summary — "
@@ -404,31 +434,100 @@ class OasisSimulator:
             )
             industry = "technology"
 
-        return company, industry
+        return {
+            "company": company,
+            "industry": industry,
+            "product": product,
+            "target_market": target_market,
+            "business_model": business_model,
+        }
+
+    def _headline_queries(self, startup_context: Dict[str, str]) -> List[str]:
+        """Build multiple grounded search queries instead of a single company/industry string."""
+        company = startup_context.get("company", "").strip()
+        industry = startup_context.get("industry", "").strip()
+        product = startup_context.get("product", "").strip()
+        target_market = startup_context.get("target_market", "").strip()
+        business_model = startup_context.get("business_model", "").strip()
+
+        queries = []
+        if company and company.lower() != "startup":
+            queries.append(f"\"{company}\" news")
+            if product:
+                queries.append(f"\"{company}\" {product} news")
+            if target_market:
+                queries.append(f"\"{company}\" {target_market} customer partnership news")
+        if industry and target_market:
+            queries.append(f"{industry} {target_market} market news")
+        if industry and product:
+            queries.append(f"{industry} {product} market adoption news")
+        if industry and business_model:
+            queries.append(f"{industry} {business_model} pricing regulation news")
+        if industry:
+            queries.append(f"{industry} startup funding regulation news")
+
+        deduped = []
+        seen = set()
+        for query in queries:
+            norm = " ".join(query.lower().split())
+            if norm and norm not in seen:
+                seen.add(norm)
+                deduped.append(query)
+        return deduped[:5]
 
     # ── real headline sourcing ────────────────────────────────────
 
     def _fetch_real_headlines(
-        self, company_name: str, industry: str, max_headlines: int = 5,
-    ) -> List[str]:
+        self, startup_context: Dict[str, str], max_headlines: int = 6,
+    ) -> List[Dict[str, str]]:
         """Fetch real news headlines via OpenClaw-backed web search.
 
-        Returns a list of headline strings (may be empty if search unavailable).
+        Returns a list of headline dicts (may be empty if search unavailable).
         """
-        cache_key = (company_name.strip().lower(), industry.strip().lower(), max_headlines)
+        cache_key = (
+            startup_context.get("company", "").strip().lower(),
+            startup_context.get("industry", "").strip().lower(),
+            startup_context.get("product", "").strip().lower(),
+            startup_context.get("target_market", "").strip().lower(),
+            startup_context.get("business_model", "").strip().lower(),
+            max_headlines,
+        )
         cached = self._headline_cache.get(cache_key)
         if cached is not None:
-            return list(cached)
+            return [dict(item) for item in cached]
 
         try:
             from .gateway_client import web_search
-            query = f"{company_name} {industry} news"
-            results = web_search(query, count=max_headlines)
-            headlines = [r.get("title", "") for r in results if r.get("title")]
-            if headlines:
-                self._headline_cache[cache_key] = headlines[:max_headlines]
-                logger.info(f"[OASIS] Web search returned {len(headlines)} headlines for '{query[:60]}'")
-                return headlines[:max_headlines]
+            collected: List[Dict[str, str]] = []
+            seen = set()
+            for query in self._headline_queries(startup_context):
+                results = web_search(query, count=min(4, max_headlines), freshness="past 120 days")
+                for result in results:
+                    title = str(result.get("title", "") or "").strip()
+                    url = str(result.get("url", "") or "").strip()
+                    if not title:
+                        continue
+                    dedupe_key = (title.lower(), url.lower())
+                    if dedupe_key in seen:
+                        continue
+                    seen.add(dedupe_key)
+                    collected.append({
+                        "title": title,
+                        "url": url,
+                        "description": str(result.get("description", "") or "").strip(),
+                        "query": query,
+                    })
+                    if len(collected) >= max_headlines:
+                        break
+                if len(collected) >= max_headlines:
+                    break
+            if collected:
+                self._headline_cache[cache_key] = collected[:max_headlines]
+                logger.info(
+                    f"[OASIS] Web search returned {len(collected)} headlines across "
+                    f"{len(self._headline_queries(startup_context))} queries"
+                )
+                return [dict(item) for item in collected[:max_headlines]]
         except Exception as e:
             logger.warning(f"[OASIS] Web search for headlines failed (non-fatal): {e}")
 
@@ -444,8 +543,7 @@ class OasisSimulator:
         previous_events: List[str],
         current_sentiment: int,
         *,
-        company_name: str,
-        industry: str,
+        startup_context: Dict[str, str],
     ) -> str:
         """Source a market event grounded in REAL news data.
 
@@ -457,9 +555,14 @@ class OasisSimulator:
            fabricate.
 
         Accepts the same positional parameters as the old _generate_event()
-        plus company_name and industry as keyword arguments.
+        plus structured startup context.
         """
-        headlines = self._fetch_real_headlines(company_name, industry)
+        company_name = startup_context.get("company", "startup")
+        industry = startup_context.get("industry", "technology")
+        product = startup_context.get("product", "")
+        target_market = startup_context.get("target_market", "")
+        business_model = startup_context.get("business_model", "")
+        headlines = self._fetch_real_headlines(startup_context)
 
         # --- No headlines → no fabrication ---
         if not headlines:
@@ -470,12 +573,18 @@ class OasisSimulator:
             return _NO_EVENT
 
         # --- LLM summarization grounded in real data ---
-        headline_block = "\n".join(f"  - {h}" for h in headlines)
+        headline_block = "\n".join(
+            f"  - {item.get('title', '')} | Query: {item.get('query', '')} | URL: {item.get('url', '')}"
+            for item in headlines
+        )
         prompt = (
             f"You are summarizing real market news for a startup simulation.\n\n"
             f"STARTUP: {exec_summary[:300]}\n"
             f"COMPANY: {company_name}\n"
             f"INDUSTRY: {industry}\n"
+            f"PRODUCT: {product or 'Not specified'}\n"
+            f"TARGET MARKET: {target_market or 'Not specified'}\n"
+            f"BUSINESS MODEL: {business_model or 'Not specified'}\n"
             f"MONTH: {month} of {SIMULATION_ROUNDS}\n"
             f"CURRENT MARKET SENTIMENT: {current_sentiment}%\n"
             f"PREVIOUS EVENTS:\n"

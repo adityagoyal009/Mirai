@@ -915,42 +915,17 @@ async def bi_analyze(request: Request):
                 _blind_thread = threading.Thread(target=_run_blind_scoring, daemon=True)
                 _blind_thread.start()
 
-        # Phase 1: Research (OpenClaw primary, Gemini fallback — same as dashboard)
-        research = None
+        # Phase 1: Research (OpenClaw primary, Gemini fallback)
         try:
-            from .services.agentic_researcher import AgenticResearcher
-            import dataclasses
-            agentic = AgenticResearcher()
-            findings = agentic.research(
-                company=extraction.company,
-                industry=extraction.industry,
-                product=extraction.product,
-                target_market=extraction.target_market,
-                website_url=extraction.website_url,
-                known_competitors=', '.join(extraction.known_competitors or []),
+            research_report = bi.research(exec_summary, depth=depth, extraction=extraction)
+            research = research_report.to_dict() if hasattr(research_report, "to_dict") else research_report
+            logger.info(
+                f"[BI-REST] Live research: {len(research.get('facts', []))} facts, "
+                f"{len(research.get('competitors', []))} competitors, {len(research.get('sources', []))} sources"
             )
-            research = dataclasses.asdict(findings) if dataclasses.is_dataclass(findings) else findings
-            logger.info(f"[BI-REST] OpenClaw research: {len(research.get('facts', []))} facts")
         except Exception as e:
-            logger.warning(f"[BI-REST] OpenClaw failed, trying Gemini: {e}")
-            try:
-                from .services.gemini_researcher import GeminiResearcher
-                gemini = GeminiResearcher()
-                research = gemini.research(
-                    company=extraction.company,
-                    industry=extraction.industry,
-                    product=extraction.product,
-                    target_market=extraction.target_market,
-                    website_url=extraction.website_url,
-                    known_competitors=', '.join(extraction.known_competitors or []),
-                )
-                logger.info(f"[BI-REST] Gemini research: {len(research.get('facts', []))} facts")
-            except Exception as e2:
-                logger.warning(f"[BI-REST] Both research engines failed: {e2}")
-                # Fall back to BI's built-in research
-                research = bi.research(exec_summary, depth=depth, extraction=extraction)
-                if hasattr(research, 'to_dict'):
-                    research = research.to_dict()
+            logger.error(f"[BI-REST] Live research failed — stopping pipeline: {e}")
+            raise RuntimeError(f"Research failed: {e}") from e
 
         # Wait for blind scoring to fully finish before council/swarm
         # No timeout — blind scoring has its own per-model timeouts (7 min Claude, 3 min others).
@@ -982,8 +957,10 @@ async def bi_analyze(request: Request):
                     exec_summary=exec_summary,
                     research_context=enriched_context,
                     agent_count=agent_count,
+                    company=extraction.company,
                     industry=extraction.industry,
                     product=extraction.product,
+                    target_market=extraction.target_market,
                     stage=stage,
                     research_data=research if isinstance(research, dict) else None,
                 )
@@ -1032,6 +1009,7 @@ async def bi_analyze(request: Request):
                     exec_summary=exec_summary, research_context=res_ctx,
                     council_verdict=council_v, stage=stg,
                     swarm_agents=oasis_swarm_agents,
+                    extraction=result.get("extraction", {}),
                 )
                 result["oasis"] = oasis_result
                 logger.info(f"[BI-REST] OASIS: {oasis_result.get('trajectory')}")
@@ -1057,6 +1035,7 @@ async def bi_analyze(request: Request):
             "council_score": final_prediction["council_score"],
             "swarm_verdict": final_prediction["swarm_verdict"],
             "swarm_confidence": final_prediction["swarm_confidence"],
+            "swarm_score": final_prediction["swarm_score"],
         })
         result["prediction"] = prediction_view
         result["final_verdict"] = final_prediction["final_verdict"]

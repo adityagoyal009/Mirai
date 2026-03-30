@@ -98,6 +98,26 @@ def _extract_key_figures(text: str) -> List[Dict[str, str]]:
     return figures[:5]
 
 
+def _structured_market_figures(market_data: Any) -> List[Dict[str, str]]:
+    """Prefer structured market figures over regex reconstruction from prose."""
+    if not isinstance(market_data, dict):
+        return []
+
+    figures = []
+    mapping = [
+        ("tam", "Market Size"),
+        ("sam", "Serviceable Market"),
+        ("som", "Beachhead Market"),
+        ("growth_rate", "Growth Rate"),
+        ("source", "Market Source"),
+    ]
+    for key, label in mapping:
+        value = market_data.get(key)
+        if value:
+            figures.append({"label": label, "value": str(value)})
+    return figures[:5]
+
+
 # ── Secret Sanitization (hide LLM names and methodology details) ──
 
 _SECRET_TERMS = ['Claude', 'Opus', 'Sonnet', 'GPT-5', 'GPT-4', 'GPT-3', 'Gemini',
@@ -660,13 +680,17 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
     confidence = float(prediction.get('confidence', 0) or 0)
     data_quality = float(analysis.get('data_quality', 0) or 0)
     timestamp = datetime.now().strftime('%d %B %Y')
+    council_meta = prediction.get('council', {})
+    council_meta = council_meta if isinstance(council_meta, dict) else {}
     # Type-safe data extraction — protect against unexpected types
     dims = prediction.get('dimensions', [])
     dims = dims if isinstance(dims, list) else []
-    contested = prediction.get('contested_dimensions', [])
+    contested = prediction.get('contested_dimensions', council_meta.get('contested_dimensions', []))
     contested = contested if isinstance(contested, list) else []
-    council_models = prediction.get('council_models', [])
+    council_models = prediction.get('council_models', council_meta.get('models', []))
     council_models = council_models if isinstance(council_models, list) else []
+    council_model_scores = prediction.get('model_scores', council_meta.get('model_scores', {}))
+    council_model_scores = council_model_scores if isinstance(council_model_scores, dict) else {}
     risks = plan.get('risks', []) or []
     risks = risks if isinstance(risks, list) else []
     moves = plan.get('next_moves', plan.get('moves', [])) or []
@@ -710,10 +734,17 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
     cited_facts = cited_facts if isinstance(cited_facts, list) else []
     sample_agents = swarm.get('sample_agents', []) or []
     sample_agents = sample_agents if isinstance(sample_agents, list) else []
+    fact_check = analysis.get('fact_check', prediction.get('fact_check', analysis.get('fact_verification', {})))
+    fact_check = fact_check if isinstance(fact_check, dict) else {}
     _pos_raw = swarm.get('positive_pct', swarm.get('positivePct', None))
     pos_pct = float(_pos_raw) if _pos_raw is not None else 50.0
     neg_pct = 100 - pos_pct
     total_agents = swarm.get('total_agents', swarm.get('totalAgents', len(sample_agents)))
+    evaluator_count = len(council_models)
+    if not evaluator_count and council_model_scores:
+        evaluator_count = len(council_model_scores)
+    if not evaluator_count and prediction:
+        evaluator_count = 1
     suggestions = _generate_suggestions(prediction)
 
     # Prepare dimension items for chart
@@ -761,7 +792,9 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
                 verdict_summary = _strip_markdown(s.split('\n', 1)[-1] if '\n' in s else s)
 
     # Extract key figures for summary cards
-    market_figures = _extract_key_figures(market_analysis or research_summary)
+    market_figures = _structured_market_figures(research.get('market_data', {}))
+    if not market_figures:
+        market_figures = _extract_key_figures(market_analysis or research_summary)
 
     # Pre-compute zone agreement for zone donut chart
     divergence_data = swarm.get('divergence') or analysis.get('divergence') or {}
@@ -903,7 +936,7 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
 <div class="metrics">
   <div class="metric"><div class="value">{confidence:.0%}</div><div class="label">Council Confidence</div></div>
   <div class="metric"><div class="value">{data_quality:.0%}</div><div class="label">Data Quality</div></div>
-  <div class="metric"><div class="value">{len(council_models) or 4}</div><div class="label">Evaluators</div></div>
+  <div class="metric"><div class="value">{evaluator_count}</div><div class="label">Evaluators</div></div>
   <div class="metric"><div class="value">{total_agents}</div><div class="label">Swarm Agents</div></div>
 </div>
 '''
@@ -1104,7 +1137,6 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
     html += svg_horizontal_bars(dim_items)
 
     # Per-model score breakdown (if council used multiple models)
-    council_model_scores = prediction.get('model_scores', {})
     if council_model_scores and isinstance(council_model_scores, dict) and len(council_model_scores) > 1:
         html += '<div style="margin-top: 12px;">\n'
         html += '<p style="font-size: 11px; color: #666; margin-bottom: 6px;">Per-model dimension scores:</p>\n'
@@ -1454,13 +1486,12 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
         html += f'<div class="section-bar">Investment Verdict</div>\n<div class="narrative">{_to_paragraphs(_replace_em_dashes(verdict_summary))}</div>\n'
 
     # ═══ Fact Verification Summary ═══
-    fact_check = analysis.get('fact_check', analysis.get('fact_verification', {}))
     if fact_check and isinstance(fact_check, dict):
         verified = fact_check.get('verified_count', fact_check.get('verified', 0))
         contradicted = fact_check.get('contradicted_count', fact_check.get('contradicted', 0))
         unverified = fact_check.get('unverified_count', fact_check.get('unverified', 0))
         total = verified + contradicted + unverified
-        trust = fact_check.get('trust_score', 0)
+        trust = float(fact_check.get('trust_score') or 0)
         if total > 0:
             html += '<div class="section-heading">Fact Verification Summary</div>\n'
             html += f'<div style="display:flex;gap:16px;margin:8px 0;">\n'

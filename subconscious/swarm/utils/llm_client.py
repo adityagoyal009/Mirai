@@ -133,12 +133,19 @@ def _check_gateway() -> bool:
     return _GATEWAY_AVAILABLE
 
 
+def _is_nemotron_model(model: str) -> bool:
+    lowered = (model or "").lower()
+    return lowered.startswith("nvidia/") and "nemotron" in lowered
+
+
 def _call_gateway(
     model: str,
     messages: List[Dict[str, str]],
     max_tokens: int = 4096,
     temperature: float = 0.7,
     timeout: int = 180,
+    response_format: Optional[Dict[str, Any]] = None,
+    extra_body: Optional[Dict[str, Any]] = None,
 ) -> str:
     """Call Mirai Gateway, OpenClaw Gateway, or Cloudflare Workers AI."""
     # Route openclaw model to OpenClaw gateway
@@ -164,7 +171,15 @@ def _call_gateway(
                       "qwen/qwen3-coder-480b-a35b-instruct",
                       "qwen/qwen3-next-80b-a3b-instruct"}
     if model in _NVIDIA_MODELS:
-        return _call_nvidia(model, messages, max_tokens, temperature, timeout)
+        return _call_nvidia(
+            model,
+            messages,
+            max_tokens,
+            temperature,
+            timeout,
+            response_format=response_format,
+            extra_body=extra_body,
+        )
 
     # Route Groq models directly to Groq API (OpenAI-compatible)
     # Only models that are Groq-exclusive (not also on NVIDIA council)
@@ -216,12 +231,18 @@ def _call_gateway(
         if "gemini" in model.lower():
             model = f"google/{model}"
 
-    payload = json.dumps({
+    payload_obj: Dict[str, Any] = {
         "model": model,
         "messages": messages,
         "max_tokens": max_tokens,
         "temperature": temperature,
-    }).encode("utf-8")
+    }
+    if response_format:
+        payload_obj["response_format"] = response_format
+    if extra_body:
+        payload_obj.update(extra_body)
+
+    payload = json.dumps(payload_obj).encode("utf-8")
 
     req = urllib.request.Request(
         f"{_GATEWAY_URL}/v1/chat/completions",
@@ -401,17 +422,26 @@ def _call_nvidia(
     max_tokens: int = 4096,
     temperature: float = 0.7,
     timeout: int = 60,
+    response_format: Optional[Dict[str, Any]] = None,
+    extra_body: Optional[Dict[str, Any]] = None,
 ) -> str:
     """Call NVIDIA NIM API (OpenAI-compatible). Free developer tier."""
     import http.client
     import ssl
 
-    payload = json.dumps({
+    payload_obj: Dict[str, Any] = {
         "model": model,
         "messages": messages,
         "max_tokens": max_tokens,
         "temperature": temperature,
-    }).encode("utf-8")
+        "top_p": 0.95,
+    }
+    if response_format:
+        payload_obj["response_format"] = response_format
+    if extra_body:
+        payload_obj.update(extra_body)
+
+    payload = json.dumps(payload_obj).encode("utf-8")
 
     conn = http.client.HTTPSConnection("integrate.api.nvidia.com", timeout=timeout,
                                         context=ssl.create_default_context())
@@ -432,9 +462,18 @@ def _call_nvidia(
     if not choices:
         raise RuntimeError(f"NVIDIA returned no choices for {model}: {body}")
 
-    content = choices[0].get("message", {}).get("content", "")
+    message = choices[0].get("message", {}) or {}
+    content = message.get("content", "")
     if not content:
-        raise RuntimeError(f"NVIDIA returned empty content for {model}: {body}")
+        finish_reason = choices[0].get("finish_reason")
+        reasoning = message.get("reasoning")
+        reason_bits = []
+        if finish_reason:
+            reason_bits.append(f"finish_reason={finish_reason}")
+        if reasoning:
+            reason_bits.append("reasoning_present=True")
+        reason_suffix = f" ({', '.join(reason_bits)})" if reason_bits else ""
+        raise RuntimeError(f"NVIDIA returned empty content for {model}{reason_suffix}: {body}")
 
     # Strip thinking tags from reasoning models
     if "</think>" in content:
@@ -889,7 +928,8 @@ class LLMClient:
         messages: List[Dict[str, str]],
         temperature: float = 0.7,
         max_tokens: int = 4096,
-        response_format: Optional[Dict] = None
+        response_format: Optional[Dict] = None,
+        extra_body: Optional[Dict[str, Any]] = None,
     ) -> str:
         """Send a chat request via gateway API. No CLI fallback — fails loud if gateway is down."""
         t0 = time.perf_counter()
@@ -899,6 +939,8 @@ class LLMClient:
                 self.model, messages,
                 max_tokens=max_tokens,
                 temperature=temperature,
+                response_format=response_format,
+                extra_body=extra_body,
             )
 
             result = _strip_markdown_fences(result)
@@ -934,6 +976,11 @@ class LLMClient:
         """Send a chat request and return parsed JSON."""
         # Add JSON enforcement to the last user message
         json_instruction = "\n\nYou MUST respond with valid JSON only. No markdown fences, no explanation, no text before or after the JSON."
+        if _is_nemotron_model(self.model):
+            json_instruction += (
+                "\nReturn a single compact JSON object only. "
+                "Do not emit hidden reasoning or chain-of-thought."
+            )
         enriched = list(messages)
         if enriched and enriched[-1].get("role") == "user":
             enriched[-1] = {**enriched[-1], "content": enriched[-1]["content"] + json_instruction}
@@ -941,18 +988,76 @@ class LLMClient:
             enriched.append({"role": "user", "content": json_instruction})
 
         t0 = time.perf_counter()
-        try:
-            raw = self.chat(enriched, temperature=temperature, max_tokens=max_tokens)
-            json_text = _extract_json_from_text(raw)
+        is_nemotron = _is_nemotron_model(self.model)
+        attempts: List[Dict[str, Any]]
+        if is_nemotron:
+            # NVIDIA's Nemotron family supports chat template kwargs to disable
+            # internal thinking and force a visible completion, which prevents
+            # hidden reasoning from consuming the full output budget on JSON tasks.
+            attempts = [
+                {
+                    "temperature": min(temperature, 0.4),
+                    "max_tokens": max_tokens,
+                    "response_format": {"type": "json_object"},
+                    "extra_body": {
+                        "chat_template_kwargs": {
+                            "enable_thinking": False,
+                            "force_nonempty_content": True,
+                        }
+                    },
+                },
+                {
+                    "temperature": 0.2,
+                    "max_tokens": max_tokens,
+                    "response_format": {"type": "json_object"},
+                    "extra_body": {
+                        "chat_template_kwargs": {
+                            "enable_thinking": False,
+                            "force_nonempty_content": True,
+                        }
+                    },
+                },
+            ]
+        else:
+            attempts = [
+                {
+                    "temperature": temperature,
+                    "max_tokens": max_tokens,
+                    "response_format": None,
+                    "extra_body": None,
+                }
+            ]
 
-            try:
-                result = json.loads(json_text)
-            except json.JSONDecodeError:
-                repaired = _repair_truncated_json(json_text)
-                if repaired is not None:
-                    result = repaired
-                else:
-                    raise ValueError(f"Invalid JSON from {self.model}: {json_text[:200]}")
+        try:
+            last_exc: Optional[Exception] = None
+            for idx, attempt in enumerate(attempts):
+                try:
+                    raw = self.chat(
+                        enriched,
+                        temperature=attempt["temperature"],
+                        max_tokens=attempt["max_tokens"],
+                        response_format=attempt["response_format"],
+                        extra_body=attempt["extra_body"],
+                    )
+                    json_text = _extract_json_from_text(raw)
+
+                    try:
+                        result = json.loads(json_text)
+                    except json.JSONDecodeError:
+                        repaired = _repair_truncated_json(json_text)
+                        if repaired is not None:
+                            result = repaired
+                        else:
+                            raise ValueError(f"Invalid JSON from {self.model}: {json_text[:200]}")
+                    break
+                except Exception as exc:
+                    last_exc = exc
+                    if idx < len(attempts) - 1:
+                        logger.warning(
+                            f"[LLMClient] chat_json retrying {self.model} after attempt {idx + 1} failed: {exc}"
+                        )
+                        continue
+                    raise last_exc
 
             latency_ms = (time.perf_counter() - t0) * 1000
             _observer.record(
@@ -966,6 +1071,16 @@ class LLMClient:
             return result
 
         except ValueError:
+            latency_ms = (time.perf_counter() - t0) * 1000
+            _observer.record(
+                model=self.model,
+                latency_ms=latency_ms,
+                input_tokens=sum(len(m.get('content', '')) for m in messages) // 4,
+                output_tokens=0,
+                success=False,
+                json_parse_ok=False,
+                error="ValueError: invalid JSON response",
+            )
             raise
         except Exception as exc:
             latency_ms = (time.perf_counter() - t0) * 1000

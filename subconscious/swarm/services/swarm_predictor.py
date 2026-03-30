@@ -10,6 +10,7 @@ Calls distributed round-robin across all logged-in models.
 """
 
 import json
+import hashlib
 import time
 import random
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -239,8 +240,10 @@ class SwarmPredictor:
                 on_agent_complete=None,
                 on_agent_start=None,
                 on_deliberation_start=None,
+                company: str = "",
                 industry: str = "",
                 product: str = "",
+                target_market: str = "",
                 stage: str = "",
                 research_data: dict = None) -> SwarmResult:
         """Run swarm prediction with hybrid wave execution.
@@ -252,10 +255,18 @@ class SwarmPredictor:
         stage: startup stage (idea, pre-seed, seed, series-a, etc.) for calibrated scoring."""
         start_time = time.time()
 
-        # Log random seed for reproducibility — set and record so runs can be replayed
-        _seed = int(time.time() * 1000) % (2**31)
+        # Seed from company context so persona mixes are reproducible per startup.
+        seed_source = "|".join([
+            company or exec_summary.splitlines()[0][:120],
+            industry,
+            product,
+            target_market,
+            stage,
+            str(agent_count),
+        ])
+        _seed = int(hashlib.sha256(seed_source.encode("utf-8")).hexdigest()[:8], 16)
         random.seed(_seed)
-        logger.info(f"[Swarm] Random seed: {_seed} (set for reproducibility)")
+        logger.info(f"[Swarm] Random seed: {_seed} (derived from startup context)")
 
         if agent_count not in VALID_COUNTS:
             agent_count = min(VALID_COUNTS, key=lambda x: abs(x - agent_count))
@@ -267,7 +278,7 @@ class SwarmPredictor:
         wave1_count = min(agent_count, WAVE1_MAX)
         wave2_remaining = agent_count - wave1_count
 
-        # Fall back to regex extraction if industry/product not provided
+        # Fall back to regex extraction if industry/product/target market not provided
         if not industry:
             for line in exec_summary.split('\n'):
                 if 'industry' in line.lower():
@@ -278,6 +289,11 @@ class SwarmPredictor:
                 if 'product' in line.lower():
                     product = line.split(':', 1)[-1].strip() if ':' in line else ""
                     break
+        if not target_market:
+            for line in exec_summary.split('\n'):
+                if 'target market' in line.lower():
+                    target_market = line.split(':', 1)[-1].strip() if ':' in line else ""
+                    break
 
         all_model_labels = [m['label'] for m in tier1_models] + [m['label'] for m in tier2_models]
         logger.info(f"[Swarm] Starting {agent_count} agents "
@@ -286,7 +302,8 @@ class SwarmPredictor:
 
         # Select zone-appropriate personas
         all_personas = self._persona_engine.select_personas_by_zone(
-            count=wave1_count, industry=industry, product=product
+            count=wave1_count, industry=industry, product=product,
+            target_market=target_market, stage=stage,
         )
         wave1_personas = []
         for i, p in enumerate(all_personas):
@@ -386,7 +403,10 @@ class SwarmPredictor:
                         research_context, model_cfg,
                         start_id=wave1_count + i * BATCH_SIZE,
                         exclude_personas=wave1_roles,
+                        company=company,
                         industry=industry,
+                        product=product,
+                        target_market=target_market,
                         stage=stage,
                     ))
                 for future in as_completed(futures):
@@ -689,7 +709,8 @@ class SwarmPredictor:
     def _run_batch(self, batch_size: int, exec_summary: str,
                    research_context: str, model_cfg: dict,
                    start_id: int, exclude_personas: str = "",
-                   industry: str = "", stage: str = "") -> List[SwarmAgent]:
+                   company: str = "", industry: str = "", product: str = "",
+                   target_market: str = "", stage: str = "") -> List[SwarmAgent]:
         try:
             llm = LLMClient(model=model_cfg['model'])
             # Generate real persona briefs for this batch via PersonaEngine
@@ -699,6 +720,7 @@ class SwarmPredictor:
             try:
                 batch_personas = self._persona_engine._generate_personas(
                     count=batch_size, zone="wildcard", startup_industry=industry,
+                    product=product, target_market=target_market, stage=stage,
                 )
                 persona_lines = []
                 for j, p in enumerate(batch_personas):

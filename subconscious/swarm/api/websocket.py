@@ -233,75 +233,35 @@ def _handle_full_analysis(msg: dict):
                     _blind_thread.start()
                     logger.info("[WS] Blind scoring started in parallel with research")
 
-            # Research cache disabled — always run fresh research for every analysis
-            research = None
+            def on_progress(round_num, status):
+                broadcast({"type": "researchProgress", "round": round_num, "status": status})
+
             research_failed = False
-            cache = None
-            cache_key = None
-
-            # Run research if no cache — OpenClaw primary, Gemini fallback
-            if research is None:
-                def on_progress(round_num, status):
-                    broadcast({"type": "researchProgress", "round": round_num, "status": status})
-
-                _research_company = getattr(extraction, 'company', '')
-                _research_industry = getattr(extraction, 'industry', '')
-                _research_product = getattr(extraction, 'product', '')
-                _research_target = getattr(extraction, 'target_market', '')
-                _research_website = getattr(extraction, 'website_url', '')
-                _research_competitors = ', '.join(getattr(extraction, 'known_competitors', []) or [])
-
-                # PRIMARY: OpenClaw agentic research (deeper, more thorough)
-                try:
-                    from ..services.agentic_researcher import AgenticResearcher
-                    import dataclasses
-
-                    agentic = AgenticResearcher()
-                    findings = agentic.research(
-                        company=_research_company,
-                        industry=_research_industry,
-                        product=_research_product,
-                        target_market=_research_target,
-                        website_url=_research_website,
-                        known_competitors=_research_competitors,
-                        on_progress=on_progress,
-                    )
-                    research = dataclasses.asdict(findings) if dataclasses.is_dataclass(findings) else (findings if isinstance(findings, dict) else {})
-                    logger.info(f"[WS] OpenClaw research done: {len(research.get('facts', []))} facts, "
-                               f"{len(research.get('competitors', []))} competitors, "
-                               f"{len(research.get('sources', []))} sources")
-                except Exception as openclaw_err:
-                    logger.warning(f"[WS] OpenClaw research failed, trying Gemini fallback: {openclaw_err}")
-                    broadcast({"type": "researchProgress", "round": 0, "status": "OpenClaw failed, trying Gemini..."})
-
-                    # FALLBACK: Gemini grounded research (works when Anthropic is down)
-                    try:
-                        from ..services.gemini_researcher import GeminiResearcher
-
-                        gemini = GeminiResearcher()
-                        research = gemini.research(
-                            company=_research_company,
-                            industry=_research_industry,
-                            product=_research_product,
-                            target_market=_research_target,
-                            website_url=_research_website,
-                            known_competitors=_research_competitors,
-                            on_progress=on_progress,
-                        )
-                        logger.info(f"[WS] Gemini fallback research done: {len(research.get('facts', []))} facts, "
-                                   f"{len(research.get('sources', []))} sources")
-                    except Exception as gemini_err:
-                        logger.error(f"[WS] Both OpenClaw and Gemini failed — STOPPING pipeline: "
-                                    f"OpenClaw: {openclaw_err} | Gemini: {gemini_err}\n{traceback.format_exc()}")
-                        broadcast({
-                            "type": "error",
-                            "error": f"Research failed (both OpenClaw and Gemini). Analysis aborted.",
-                            "phase": "research",
-                            "fatal": True,
-                        })
-                        return
-
-                # Research cache disabled — fresh research every time
+            try:
+                research_report = bi.research(
+                    exec_summary,
+                    depth=depth,
+                    extraction=extraction,
+                    on_progress=on_progress,
+                )
+                research = research_report.to_dict() if hasattr(research_report, "to_dict") else research_report
+                logger.info(
+                    f"[WS] Live research done: {len(research.get('facts', []))} facts, "
+                    f"{len(research.get('competitors', []))} competitors, "
+                    f"{len(research.get('sources', []))} sources"
+                )
+            except Exception as research_err:
+                research_failed = True
+                logger.error(
+                    f"[WS] Live research failed — STOPPING pipeline: {research_err}\n{traceback.format_exc()}"
+                )
+                broadcast({
+                    "type": "error",
+                    "error": "Research failed (OpenClaw primary, Gemini fallback). Analysis aborted.",
+                    "phase": "research",
+                    "fatal": True,
+                })
+                return
 
             broadcast({
                 "type": "researchComplete",
@@ -435,8 +395,10 @@ def _handle_full_analysis(msg: dict):
                     on_agent_complete=on_agent_complete,
                     on_agent_start=on_agent_start,
                     on_deliberation_start=on_deliberation_start,
+                    company=extraction.company if hasattr(extraction, 'company') else '',
                     industry=extraction.industry if hasattr(extraction, 'industry') else '',
                     product=extraction.product if hasattr(extraction, 'product') else '',
+                    target_market=extraction.target_market if hasattr(extraction, 'target_market') else '',
                     stage=stage or (extraction.stage if hasattr(extraction, 'stage') else ''),
                     research_data=research if isinstance(research, dict) else None,
                 )
@@ -520,6 +482,7 @@ def _handle_full_analysis(msg: dict):
                         on_round_complete=on_round,
                         swarm_agents=oasis_swarm_agents,
                         stage=stage or (extraction.stage if hasattr(extraction, 'stage') else ''),
+                        extraction=extraction.to_dict() if hasattr(extraction, "to_dict") else {},
                     )
                     broadcast({
                         "type": "oasisComplete",
@@ -544,13 +507,25 @@ def _handle_full_analysis(msg: dict):
             try:
                 research_dict = {
                     "summary": research.get('summary', '') or '',
+                    "company_profile": research.get('company_profile', {}) or {},
+                    "market_data": research.get('market_data', {}) or {},
                     "competitors": [
                         (c if isinstance(c, str) else c.get('name', str(c)) if isinstance(c, dict) else str(c))
                         for c in (research.get('competitors', []) or [])
                     ][:10],
+                    "competitor_details": (research.get('competitor_details', []) or [])[:10],
+                    "regulatory": (research.get('regulatory', []) or [])[:8],
                     "trends": (research.get('trends', []) or [])[:5],
+                    "pricing_analysis": research.get('pricing_analysis', {}) or {},
+                    "customer_evidence": (research.get('customer_evidence', []) or [])[:8],
+                    "patent_landscape": research.get('patent_landscape', {}) or {},
+                    "risks": (research.get('risks', []) or [])[:8],
+                    "facts": (research.get('facts', []) or [])[:20],
+                    "sources": (research.get('sources', []) or [])[:20],
                     "context_facts": (research.get('context_facts', research.get('facts', [])) or [])[:10],
                     "cited_facts": (research.get('cited_facts', []) or [])[:15],
+                    "target_market": getattr(extraction, 'target_market', ''),
+                    "business_model": getattr(extraction, 'business_model', ''),
                 }
             except Exception:
                 pass
@@ -563,6 +538,9 @@ def _handle_full_analysis(msg: dict):
                         "total_agents": raw_swarm.get("total_agents", 0),
                         "positive_pct": raw_swarm.get("positive_pct", 0),
                         "negative_pct": raw_swarm.get("negative_pct", 0),
+                        "avg_scores": raw_swarm.get("avg_scores", {}),
+                        "median_overall": raw_swarm.get("median_overall", 0),
+                        "std_overall": raw_swarm.get("std_overall", 0),
                         "sample_agents": raw_swarm.get("sample_agents", []),
                         "key_themes_positive": raw_swarm.get("key_themes_positive", []),
                         "key_themes_negative": raw_swarm.get("key_themes_negative", []),
@@ -755,6 +733,7 @@ def _handle_full_analysis(msg: dict):
                         "council_verdict": p_verdict,
                         "council_score": p_score,
                         "council_confidence": p_confidence,
+                        "swarm_score": final_prediction["swarm_score"],
                         "dimensions": dims,
                         "contested_dimensions": contested,
                         "council_models": model_labels,
@@ -1030,6 +1009,10 @@ def _handle_start_swarm(msg: dict):
                 agent_count=agent_count,
                 on_agent_complete=on_agent_complete,
                 on_agent_start=on_agent_start,
+                company=msg.get('company', ''),
+                industry=msg.get('industry', ''),
+                product=msg.get('product', ''),
+                target_market=msg.get('target_market', ''),
                 stage=msg.get('stage', ''),
             )
 

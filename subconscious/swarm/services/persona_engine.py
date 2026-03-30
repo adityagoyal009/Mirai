@@ -13,6 +13,7 @@ The engine matches personas to the startup being evaluated by label relevance.
 import json
 import os
 import random
+import re
 import linecache
 from typing import ClassVar, List, Dict, Optional, Tuple
 from dataclasses import dataclass
@@ -671,6 +672,158 @@ INDUSTRY_ROLE_EXCLUSIONS = {
     "hardware": ["Crypto VC"],
 }
 
+STAGE_ROLE_PRIORITIES = {
+    "idea": {
+        "investor": ["Pre-Seed VC", "Angel Investor (solo)", "Angel Investor (syndicate lead)",
+                      "Micro VC ($1-5M fund)", "Accelerator Partner (YC-style)"],
+        "operator": ["First-Time Founder (technical)", "CTO (early stage)", "Engineering Manager",
+                      "Product Manager (B2B SaaS)", "Serial Entrepreneur (3+ companies)"],
+    },
+    "pre-seed": {
+        "investor": ["Pre-Seed VC", "Seed VC", "Angel Investor (solo)",
+                      "Angel Investor (syndicate lead)", "Micro VC ($1-5M fund)",
+                      "Deep Tech VC", "Accelerator Partner (YC-style)"],
+        "operator": ["First-Time Founder (technical)", "CTO (early stage)",
+                      "Engineering Manager", "Product Manager (B2B SaaS)",
+                      "Serial Entrepreneur (3+ companies)"],
+    },
+    "seed": {
+        "investor": ["Seed VC", "Pre-Seed VC", "Angel Investor (solo)",
+                      "Angel Investor (syndicate lead)", "Micro VC ($1-5M fund)",
+                      "Deep Tech VC", "Accelerator Partner (YC-style)", "Series-A VC"],
+        "operator": ["CTO (early stage)", "First-Time Founder (technical)",
+                      "Engineering Manager", "Product Manager (B2B SaaS)",
+                      "Chief Product Officer", "Serial Entrepreneur (3+ companies)"],
+    },
+    "series a": {
+        "investor": ["Series-A VC", "Seed VC", "Deep Tech VC",
+                      "Corporate VC (strategic)", "Growth Equity VC"],
+        "operator": ["CTO (early stage)", "CTO (scaling stage)", "Chief Product Officer",
+                      "VP Engineering (product)", "VP Sales (enterprise)"],
+    },
+}
+
+STAGE_ROLE_EXCLUSIONS = {
+    "idea": {
+        "investor": ["Series-B VC", "Growth Equity VC", "Late-Stage VC", "PE Partner (buyout)",
+                      "PE Partner (growth equity)", "Sovereign Wealth Fund Manager",
+                      "Endowment Fund Manager", "Venture Debt Provider",
+                      "Revenue-Based Financing Provider", "LP Evaluating Fund Allocation",
+                      "Investment Banker (tech M&A)", "Hedge Fund Analyst (long/short)",
+                      "Retail Investor (sophisticated)", "Retail Investor (first-time)",
+                      "Family Office (single family)", "Family Office (multi-family)"],
+        "operator": ["CTO (scaling stage)", "CFO (venture-backed)", "Chief Revenue Officer",
+                     "VP Sales (enterprise)", "VP Sales (PLG/self-serve)", "VP Customer Success",
+                     "Head of Partnerships"],
+    },
+    "pre-seed": {
+        "investor": ["Series-B VC", "Growth Equity VC", "Late-Stage VC", "PE Partner (buyout)",
+                      "PE Partner (growth equity)", "Sovereign Wealth Fund Manager",
+                      "Endowment Fund Manager", "Venture Debt Provider",
+                      "Revenue-Based Financing Provider", "LP Evaluating Fund Allocation",
+                      "Investment Banker (tech M&A)", "Hedge Fund Analyst (long/short)",
+                      "Retail Investor (sophisticated)", "Retail Investor (first-time)",
+                      "Family Office (single family)", "Family Office (multi-family)"],
+        "operator": ["CTO (scaling stage)", "CFO (venture-backed)", "Chief Revenue Officer",
+                     "VP Sales (enterprise)", "VP Sales (PLG/self-serve)", "VP Customer Success"],
+    },
+    "seed": {
+        "investor": ["Late-Stage VC", "PE Partner (buyout)", "PE Partner (growth equity)",
+                      "Sovereign Wealth Fund Manager", "Endowment Fund Manager",
+                      "Venture Debt Provider", "Revenue-Based Financing Provider",
+                      "LP Evaluating Fund Allocation", "Investment Banker (tech M&A)",
+                      "Retail Investor (first-time)"],
+    },
+}
+
+CONTEXT_ROLE_HINTS = {
+    "industrial_manufacturing": {
+        "keywords": ["manufacturing", "manufacturer", "industrial", "factory", "plant",
+                     "brownfield", "machine", "equipment", "production", "ops", "operations",
+                     "quality", "maintenance", "supply chain"],
+        "specialization": "industrial and manufacturing workflows, plant-floor operations, brownfield deployments, and operational buyers at small and midsize manufacturers",
+        "investor": ["Deep Tech VC", "Seed VC", "Micro VC ($1-5M fund)",
+                      "Accelerator Partner (YC-style)", "Corporate VC (strategic)"],
+        "customer": ["VP Operations (buyer)", "Supply Chain Director",
+                      "Department Head (budget holder)", "Line Manager (end user)",
+                      "Systems Integrator", "Existing Customer of Incumbent",
+                      "Target Customer (Mid-Market)", "Target Customer (SMB 10-50 employees)"],
+        "operator": ["COO (operations-heavy)", "Supply Chain Operations Lead",
+                      "CTO (early stage)", "Engineering Manager",
+                      "Product Manager (B2B SaaS)", "First-Time Founder (technical)"],
+        "analyst": ["Industry Analyst (Gartner)", "Industry Analyst (Forrester)",
+                     "Market Strategist (McKinsey)", "Academic Researcher (CS/AI)",
+                     "Macro Economist"],
+        "contrarian": ["Competitor Product Manager", "Risk Analyst (operational)",
+                        "Competitor CEO (incumbent)", "Platform Risk Analyst",
+                        "Patent Attorney (IP litigation)"],
+        "wildcard": ["Retired Executive (from this industry)",
+                      "Tech-Savvy Retiree (early adopter)",
+                      "Local News Reporter (community impact)"],
+    },
+    "enterprise_b2b": {
+        "keywords": ["enterprise", "f500", "fortune 500", "procurement", "cio", "it director",
+                     "department", "workflow", "integration", "compliance"],
+        "specialization": "enterprise buying cycles, procurement friction, integration-heavy software, and multi-stakeholder B2B deals",
+        "investor": ["Series-A VC", "Seed VC", "Corporate VC (strategic)",
+                      "Micro VC ($1-5M fund)"],
+        "customer": ["Target Customer (F500 Enterprise)", "Enterprise Procurement Manager",
+                      "Enterprise IT Director", "Department Head (budget holder)",
+                      "Existing Customer of Incumbent"],
+        "operator": ["Chief Product Officer", "VP Engineering (platform)",
+                      "VP Sales (enterprise)", "VP Customer Success"],
+        "analyst": ["Industry Analyst (Gartner)", "Industry Analyst (Forrester)",
+                     "Equity Research Analyst (sell-side)", "UX Researcher"],
+        "contrarian": ["Data Privacy Officer", "Platform Risk Analyst",
+                        "Competitor CEO (incumbent)", "Antitrust Attorney"],
+        "wildcard": ["Retired Executive (from this industry)",
+                      "Tech-Savvy Retiree (early adopter)"],
+    },
+    "smb_b2b": {
+        "keywords": ["smb", "small business", "mid-market", "mid market", "small and midsize",
+                     "small and medium", "owner operator", "shop floor"],
+        "specialization": "small and midsize business buying behavior, lean teams, budget constraints, and pragmatic ROI-driven software adoption",
+        "investor": ["Pre-Seed VC", "Seed VC", "Angel Investor (solo)",
+                      "Micro VC ($1-5M fund)", "Accelerator Partner (YC-style)"],
+        "customer": ["Target Customer (SMB 10-50 employees)",
+                      "Target Customer (Micro <10)", "Target Customer (Mid-Market)",
+                      "Department Head (budget holder)", "Line Manager (end user)",
+                      "IT Consultant (recommender)"],
+        "operator": ["First-Time Founder (technical)", "Head of Growth",
+                      "Product Manager (B2B SaaS)", "VP Customer Success"],
+        "analyst": ["Industry Analyst (CB Insights)", "Behavioral Economist",
+                     "UX Researcher", "Professor of Entrepreneurship"],
+        "contrarian": ["Risk Analyst (operational)", "Competitor Product Manager",
+                        "Platform Risk Analyst"],
+        "wildcard": ["Retired Executive (from this industry)",
+                      "Local News Reporter (community impact)"],
+    },
+    "public_sector": {
+        "keywords": ["municipal", "municipality", "public sector", "government", "district",
+                     "utility", "conservation district", "city", "county", "state agency"],
+        "specialization": "public-sector budgeting, government procurement, compliance-driven adoption, and long approval cycles",
+        "investor": ["Impact Investor (social)", "Impact Investor (climate)",
+                      "Seed VC", "Accelerator Partner (corporate)"],
+        "customer": ["Department Head (budget holder)", "Facilities Manager",
+                      "Enterprise Procurement Manager", "VP Operations (buyer)"],
+        "operator": ["COO (operations-heavy)", "Head of Partnerships",
+                      "VP Customer Success"],
+        "analyst": ["Think Tank Fellow", "ESG Analyst", "Macro Economist"],
+        "contrarian": ["Government Policy Advisor", "Regulatory Expert (federal)",
+                        "Environmental Compliance Officer"],
+        "wildcard": ["Small-Town Mayor (dealing with this problem)",
+                      "Municipal Budget Analyst", "Local News Reporter (community impact)"],
+    },
+}
+
+_CONTEXT_STOPWORDS = {
+    "and", "for", "with", "from", "into", "their", "this", "that", "your", "have",
+    "uses", "using", "used", "over", "under", "into", "than", "very", "more",
+    "product", "products", "service", "services", "market", "markets", "startup",
+    "company", "companies", "customer", "customers", "buyers", "teams", "team",
+    "solution", "solutions", "platform", "platforms", "software", "industry",
+}
+
 # Geographic regions for target market weighting
 GEO_REGIONS = {
     "us": ["Silicon Valley", "San Francisco", "New York", "Boston", "Austin", "Miami"],
@@ -682,6 +835,15 @@ GEO_REGIONS = {
     "middle_east": ["Dubai", "Riyadh", "Tel Aviv"],
     "latam": ["Sao Paulo", "Mexico City"],
     "africa": ["Lagos", "Nairobi"],
+}
+
+GEO_ZONE_WEIGHT = {
+    "investor": 0.45,
+    "customer": 0.85,
+    "operator": 0.75,
+    "analyst": 0.60,
+    "contrarian": 0.55,
+    "wildcard": 0.35,
 }
 
 # "Stay in your lane" directive appended to all generated persona prompts
@@ -866,13 +1028,152 @@ class PersonaEngine:
             candidates = cache.get("wildcard", [])
         if not candidates:
             return ""
-        # Try industry-filtered match first
-        if industry:
-            ind_lower = industry.lower()
-            filtered = [c for c in candidates if ind_lower[:4] in c.lower()]
+        terms = set(cls._context_keywords(industry=industry))
+        if role:
+            terms.update(t for t in re.split(r'[^a-z0-9]+', role.lower()) if len(t) >= 4)
+        if terms:
+            filtered = [c for c in candidates if any(term in c.lower() for term in terms)]
             if filtered:
                 return random.choice(filtered)
         return random.choice(candidates)
+
+    @staticmethod
+    def _normalize_stage(stage: str) -> str:
+        s = (stage or "").lower().strip().replace("_", " ").replace("-", " ")
+        stage_map = {
+            "pre seed": "pre-seed",
+            "preseed": "pre-seed",
+            "pre seed stage": "pre-seed",
+            "seed stage": "seed",
+            "series a": "series a",
+            "series b": "series b",
+            "series c": "series c",
+            "idea stage": "idea",
+            "concept": "idea",
+        }
+        return stage_map.get(s, s)
+
+    @staticmethod
+    def _dedupe_preserve_order(values: List[str]) -> List[str]:
+        seen = set()
+        ordered = []
+        for value in values:
+            if value and value not in seen:
+                seen.add(value)
+                ordered.append(value)
+        return ordered
+
+    @classmethod
+    def _matching_context_keys(cls, industry: str = "", product: str = "",
+                               target_market: str = "") -> List[str]:
+        text = " ".join([industry or "", product or "", target_market or ""]).lower()
+        matches = []
+        for key, spec in CONTEXT_ROLE_HINTS.items():
+            if any(keyword in text for keyword in spec.get("keywords", [])):
+                matches.append(key)
+        return cls._dedupe_preserve_order(matches)
+
+    @classmethod
+    def _context_keywords(cls, industry: str = "", product: str = "",
+                          target_market: str = "", stage: str = "") -> List[str]:
+        terms = []
+        raw_text = " ".join([industry or "", product or "", target_market or ""])
+        for token in re.split(r'[^a-z0-9]+', raw_text.lower()):
+            if len(token) >= 4 and token not in _CONTEXT_STOPWORDS:
+                terms.append(token)
+        industry_key = cls._match_industry_key(industry)
+        if industry_key:
+            terms.append(industry_key)
+            terms.extend([kw for kw in INDUSTRY_KEYWORDS.get(industry_key, []) if len(kw) >= 4])
+        for key in cls._matching_context_keys(industry, product, target_market):
+            terms.extend(re.split(r'[^a-z0-9]+', key.lower()))
+            for keyword in CONTEXT_ROLE_HINTS.get(key, {}).get("keywords", []):
+                terms.extend(re.split(r'[^a-z0-9]+', keyword.lower()))
+        normalized_stage = cls._normalize_stage(stage)
+        if normalized_stage:
+            terms.extend(re.split(r'[^a-z0-9]+', normalized_stage))
+        return cls._dedupe_preserve_order(
+            [term for term in terms if len(term) >= 4 and term not in _CONTEXT_STOPWORDS]
+        )
+
+    @classmethod
+    def _context_specialization(cls, industry: str = "", product: str = "",
+                                target_market: str = "") -> str:
+        specializations = [
+            CONTEXT_ROLE_HINTS[key]["specialization"]
+            for key in cls._matching_context_keys(industry, product, target_market)
+            if CONTEXT_ROLE_HINTS.get(key, {}).get("specialization")
+        ]
+        return "; ".join(cls._dedupe_preserve_order(specializations))
+
+    @classmethod
+    def _compose_priority_roles(cls, zone: str, industry: str = "", product: str = "",
+                                target_market: str = "", stage: str = "") -> List[str]:
+        roles: List[str] = []
+        normalized_stage = cls._normalize_stage(stage)
+        roles.extend(STAGE_ROLE_PRIORITIES.get(normalized_stage, {}).get(zone, []))
+        for key in cls._matching_context_keys(industry, product, target_market):
+            roles.extend(CONTEXT_ROLE_HINTS.get(key, {}).get(zone, []))
+        industry_key = cls._match_industry_key(industry)
+        if industry_key:
+            roles.extend(INDUSTRY_ROLE_PRIORITY.get(industry_key, {}).get(zone, []))
+        zone_roles = set(ZONE_ROLES.get(zone, []))
+        return [role for role in cls._dedupe_preserve_order(roles) if role in zone_roles]
+
+    @classmethod
+    def _filter_roles_for_context(cls, zone: str, roles: List[str], industry: str = "",
+                                  product: str = "", target_market: str = "",
+                                  stage: str = "") -> List[str]:
+        available = list(roles)
+        normalized_stage = cls._normalize_stage(stage)
+        stage_exclusions = STAGE_ROLE_EXCLUSIONS.get(normalized_stage, {}).get(zone, [])
+        if stage_exclusions:
+            available = [r for r in available if r not in stage_exclusions]
+        if industry:
+            ind_key = cls._match_industry_key(industry)
+            exclusions = INDUSTRY_ROLE_EXCLUSIONS.get(ind_key, [])
+            if exclusions:
+                available = [r for r in available if not any(ex.lower() in r.lower() for ex in exclusions)]
+        return available or list(roles)
+
+    @staticmethod
+    def _persona_matches_context(persona_text: str, search_terms: List[str]) -> bool:
+        if not persona_text or not search_terms:
+            return True
+        text = persona_text.lower()
+        strong_terms = [
+            term for term in search_terms
+            if len(term) >= 5 and term not in _CONTEXT_STOPWORDS
+        ]
+        if not strong_terms:
+            return True
+        return any(term in text for term in strong_terms)
+
+    @classmethod
+    def _pick_geography(cls, zone: str, target_market: str = "") -> str:
+        if not target_market:
+            return random.choice(GEOGRAPHIC_LENS)
+        region = cls._match_geo_region(target_market)
+        region_geos = GEO_REGIONS.get(region, []) if region else []
+        if region_geos and random.random() < GEO_ZONE_WEIGHT.get(zone, 0.35):
+            return random.choice(region_geos)
+        return random.choice(GEOGRAPHIC_LENS)
+
+    @classmethod
+    def _tune_distribution_for_context(cls, distribution: Dict[str, int], industry: str = "",
+                                       product: str = "", target_market: str = "") -> Dict[str, int]:
+        tuned = dict(distribution)
+        context_keys = set(cls._matching_context_keys(industry, product, target_market))
+        if tuned.get("wildcard", 0) > 2 and context_keys.intersection({
+            "industrial_manufacturing", "enterprise_b2b", "smb_b2b", "public_sector"
+        }):
+            shift = min(2, tuned["wildcard"] - 2)
+            tuned["wildcard"] -= shift
+            if shift >= 1:
+                tuned["customer"] = tuned.get("customer", 0) + 1
+            if shift >= 2:
+                tuned["operator"] = tuned.get("operator", 0) + 1
+        return tuned
 
     def _count_lines(self, filepath: str = _PERSONAS_FILE) -> int:
         if filepath in PersonaEngine._cached_line_counts:
@@ -928,43 +1229,67 @@ class PersonaEngine:
         return list(matched)
 
     def select_personas(self, count: int, industry: str = "",
-                        product: str = "", keywords: List[str] = None) -> List[Persona]:
+                        product: str = "", target_market: str = "",
+                        stage: str = "", keywords: List[str] = None,
+                        zone: str = "wildcard") -> List[Persona]:
         if keywords is None:
             keywords = []
-        search_terms = list(keywords)
-        if industry:
-            search_terms.extend(industry.lower().split())
-        if product:
-            search_terms.extend([w for w in product.lower().split() if len(w) > 3])
+        search_terms = self._dedupe_preserve_order(
+            list(keywords) + self._context_keywords(
+                industry=industry, product=product, target_market=target_market, stage=stage
+            )
+        )
         search_terms.extend([
             "business", "finance", "investment", "startup", "entrepreneur",
             "marketing", "technology", "management", "strategy", "economics",
             "customer", "consumer", "product", "market", "sales",
         ])
+        search_terms = self._dedupe_preserve_order(search_terms)
+        context_specialization = self._context_specialization(industry, product, target_market)
 
         personas: List[Persona] = []
         total_dataset = self._persona_count + self._personahub_count + self._personahub_elite_count
         if total_dataset > 0:
-            elite_count = int(count * 0.10) if self._personahub_elite_count > 0 else 0
-            hub_count = int(count * 0.30) if self._personahub_count > 0 else 0
-            fine_count = int(count * 0.30) if self._persona_count > 0 else 0
+            if zone == "wildcard":
+                elite_count = int(count * 0.05) if self._personahub_elite_count > 0 else 0
+                hub_count = int(count * 0.15) if self._personahub_count > 0 else 0
+                fine_count = int(count * 0.20) if self._persona_count > 0 else 0
+            else:
+                elite_count = int(count * 0.10) if self._personahub_elite_count > 0 else 0
+                hub_count = int(count * 0.30) if self._personahub_count > 0 else 0
+                fine_count = int(count * 0.30) if self._persona_count > 0 else 0
             generated_count = count - elite_count - hub_count - fine_count
 
             if elite_count > 0 and self._personahub_elite_count > 0:
-                for idx in random.sample(range(self._personahub_elite_count), min(elite_count, self._personahub_elite_count)):
+                sample_size = min(max(elite_count * (8 if search_terms else 2), elite_count), self._personahub_elite_count)
+                elite_added = 0
+                for idx in random.sample(range(self._personahub_elite_count), sample_size):
+                    if elite_added >= elite_count:
+                        break
                     data = self._read_persona_at_line(idx, _PERSONAHUB_ELITE_FILE)
                     if data:
                         desc = data.get('description', data.get('persona', ''))
+                        if search_terms and not self._persona_matches_context(desc, search_terms):
+                            continue
                         elite_domain = data.get('elite_general', '') or data.get('elite_specific', '')
                         full_desc = f"{desc} (Domain expert: {elite_domain})" if elite_domain else desc
-                        personas.append(Persona(name=desc[:80], prompt=self._dataset_persona_to_prompt(full_desc), source="personahub_elite", labels=data.get('labels', [])))
+                        personas.append(Persona(
+                            name=desc[:80],
+                            prompt=self._dataset_persona_to_prompt(
+                                full_desc, zone=zone, domain_specialization=context_specialization
+                            ),
+                            source="personahub_elite",
+                            labels=data.get('labels', []),
+                            zone=zone,
+                        ))
+                        elite_added += 1
 
             if hub_count > 0 and self._personahub_count > 0:
                 # Over-sample then filter: PersonaHub contains many casual
                 # personas (e.g. "a passionate handball fan") that are not
                 # useful for startup evaluation.  Sample extra candidates so
                 # we can drop irrelevant ones and still fill the quota.
-                hub_sample_size = min(hub_count * 3, self._personahub_count)
+                hub_sample_size = min(hub_count * (8 if search_terms else 3), self._personahub_count)
                 hub_added = 0
                 for idx in random.sample(range(self._personahub_count), hub_sample_size):
                     if hub_added >= hub_count:
@@ -974,19 +1299,38 @@ class PersonaEngine:
                         desc = data.get('description', data.get('persona', ''))
                         if not self._is_evaluation_relevant(desc):
                             continue
-                        personas.append(Persona(name=desc[:80], prompt=self._dataset_persona_to_prompt(desc), source="personahub", labels=data.get('labels', [])))
+                        if search_terms and not self._persona_matches_context(desc, search_terms):
+                            continue
+                        personas.append(Persona(
+                            name=desc[:80],
+                            prompt=self._dataset_persona_to_prompt(
+                                desc, zone=zone, domain_specialization=context_specialization
+                            ),
+                            source="personahub",
+                            labels=data.get('labels', []),
+                            zone=zone,
+                        ))
                         hub_added += 1
 
             if fine_count > 0 and self._persona_count > 0:
                 relevant_indices = self._find_relevant_indices(search_terms, fine_count * 2)
-                relevant_take = int(fine_count * 0.6)
+                relevant_take = int(fine_count * (0.8 if search_terms else 0.6))
                 random_take = fine_count - relevant_take
                 if relevant_indices:
                     for idx in random.sample(relevant_indices, min(relevant_take, len(relevant_indices))):
                         data = self._read_persona_at_line(idx)
                         if data:
-                            personas.append(Persona(name=data.get('persona', data.get('description', ''))[:80], prompt=self._dataset_persona_to_prompt(data.get('persona', data.get('description', ''))), source="dataset", labels=data.get('labels', [])))
-                rand_sample_size = min(random_take * 3, self._persona_count)
+                            desc = data.get('persona', data.get('description', ''))
+                            personas.append(Persona(
+                                name=desc[:80],
+                                prompt=self._dataset_persona_to_prompt(
+                                    desc, zone=zone, domain_specialization=context_specialization
+                                ),
+                                source="dataset",
+                                labels=data.get('labels', []),
+                                zone=zone,
+                            ))
+                rand_sample_size = min(random_take * (8 if search_terms else 3), self._persona_count)
                 rand_added = 0
                 for idx in random.sample(range(self._persona_count), rand_sample_size):
                     if rand_added >= random_take:
@@ -996,15 +1340,34 @@ class PersonaEngine:
                         desc = data.get('persona', data.get('description', ''))
                         if not self._is_evaluation_relevant(desc):
                             continue
-                        personas.append(Persona(name=desc[:80], prompt=self._dataset_persona_to_prompt(desc), source="dataset", labels=data.get('labels', [])))
+                        if search_terms and not self._persona_matches_context(desc, search_terms):
+                            continue
+                        personas.append(Persona(
+                            name=desc[:80],
+                            prompt=self._dataset_persona_to_prompt(
+                                desc, zone=zone, domain_specialization=context_specialization
+                            ),
+                            source="dataset",
+                            labels=data.get('labels', []),
+                            zone=zone,
+                        ))
                         rand_added += 1
 
-            personas.extend(self._generate_personas(generated_count))
+            personas.extend(self._generate_personas(
+                generated_count, zone=zone, startup_industry=industry,
+                product=product, target_market=target_market, stage=stage,
+            ))
         else:
-            personas = self._generate_personas(count)
+            personas = self._generate_personas(
+                count, zone=zone, startup_industry=industry,
+                product=product, target_market=target_market, stage=stage,
+            )
 
         while len(personas) < count:
-            personas.extend(self._generate_personas(count - len(personas)))
+            personas.extend(self._generate_personas(
+                count - len(personas), zone=zone, startup_industry=industry,
+                product=product, target_market=target_market, stage=stage,
+            ))
         personas = personas[:count]
         random.shuffle(personas)
         return personas
@@ -1040,9 +1403,14 @@ class PersonaEngine:
         return any(kw in text_lower for kw in PersonaEngine._EVAL_RELEVANCE_KEYWORDS)
 
     @staticmethod
-    def _dataset_persona_to_prompt(persona_text: str, zone: str = "wildcard") -> str:
+    def _dataset_persona_to_prompt(persona_text: str, zone: str = "wildcard",
+                                   domain_specialization: str = "") -> str:
         zone_pressure = PersonaEngine.ZONE_PROMPTS.get(zone, PersonaEngine.ZONE_PROMPTS.get("wildcard", ""))
-        return f"You are: {persona_text}\n\n{zone_pressure}"
+        specialization = (
+            f"\n\nYour domain specialization: {domain_specialization}."
+            if domain_specialization else ""
+        )
+        return f"You are: {persona_text}{specialization}\n\n{zone_pressure}"
 
     # Zone-specific evaluation pressure
     ZONE_PROMPTS = {
@@ -1106,8 +1474,8 @@ class PersonaEngine:
 
     @staticmethod
     def _generate_personas(count: int, zone: str = "wildcard", startup_industry: str = "",
-                           priority_roles: Optional[List[str]] = None,
-                           target_market: str = "",
+                           product: str = "", priority_roles: Optional[List[str]] = None,
+                           target_market: str = "", stage: str = "",
                            exclude_roles: Optional[set] = None) -> List[Persona]:
         """Generate personas with behavioral depth across 11 dimensions.
         priority_roles: if provided, 60% of slots use these roles (industry-curated)."""
@@ -1115,6 +1483,16 @@ class PersonaEngine:
         zone_roles = ZONE_ROLES.get(zone, [])
         zone_pressure = PersonaEngine.ZONE_PROMPTS.get(zone, PersonaEngine.ZONE_PROMPTS["wildcard"])
         focus_industry = startup_industry if startup_industry else random.choice(INDUSTRY_FOCUS)
+        context_priority_roles = PersonaEngine._compose_priority_roles(
+            zone=zone, industry=startup_industry, product=product,
+            target_market=target_market, stage=stage,
+        )
+        merged_priority_roles = PersonaEngine._dedupe_preserve_order(
+            list(priority_roles or []) + context_priority_roles
+        )
+        context_specialization = PersonaEngine._context_specialization(
+            startup_industry, product, target_market
+        )
 
         # Zone-specific pools
         fund_pool = FUND_CONTEXT.get(zone, [])
@@ -1123,32 +1501,49 @@ class PersonaEngine:
 
         # Priority role selection: wildcards use 100% curated roles (industry-relevant only),
         # other zones use 60% curated + 40% random for diversity
-        priority_cutoff = count if (priority_roles and zone == "wildcard") else (int(count * 0.6) if priority_roles else 0)
+        if merged_priority_roles and zone == "wildcard":
+            priority_cutoff = count
+        elif merged_priority_roles:
+            priority_share = 0.8 if (context_priority_roles or target_market or product) else 0.6
+            priority_cutoff = max(1, min(count, int(count * priority_share + 0.999)))
+        else:
+            priority_cutoff = 0
         used_roles = set(exclude_roles) if exclude_roles else set()  # Dedup: avoid repeat roles
 
         for i in range(count):
-            if i < priority_cutoff and priority_roles:
-                valid_priority = [r for r in priority_roles if r in zone_roles] if zone_roles else priority_roles
+            if i < priority_cutoff and merged_priority_roles:
+                valid_priority = [r for r in merged_priority_roles if r in zone_roles] if zone_roles else merged_priority_roles
                 if valid_priority:
                     role = valid_priority[i % len(valid_priority)]
                 else:
                     role = random.choice(zone_roles) if zone_roles else random.choice(ROLES)
             else:
                 # Random slot — filter out extreme industry mismatches
-                available = list(zone_roles) if zone_roles else list(ROLES)
-                if startup_industry:
-                    ind_key = PersonaEngine._match_industry_key(startup_industry)
-                    exclusions = INDUSTRY_ROLE_EXCLUSIONS.get(ind_key, [])
-                    if exclusions:
-                        available = [r for r in available if not any(ex.lower() in r.lower() for ex in exclusions)]
-                    if not available:
-                        available = list(zone_roles) if zone_roles else list(ROLES)
-                role = random.choice(available)
+                available = PersonaEngine._filter_roles_for_context(
+                    zone=zone,
+                    roles=list(zone_roles) if zone_roles else list(ROLES),
+                    industry=startup_industry,
+                    product=product,
+                    target_market=target_market,
+                    stage=stage,
+                )
+                preferred_random = [r for r in context_priority_roles if r in available]
+                if preferred_random and random.random() < 0.85:
+                    role = random.choice(preferred_random)
+                else:
+                    role = random.choice(available)
 
             # Semantic dedup: check role GROUP, not just exact string
             role_group = PersonaEngine._ROLE_GROUPS.get(role, role)
             attempts = 0
-            all_available = list(zone_roles) if zone_roles else list(ROLES)
+            all_available = PersonaEngine._filter_roles_for_context(
+                zone=zone,
+                roles=list(zone_roles) if zone_roles else list(ROLES),
+                industry=startup_industry,
+                product=product,
+                target_market=target_market,
+                stage=stage,
+            )
             while role_group in used_roles and attempts < 5 and len(all_available) > len(used_roles):
                 role = random.choice(all_available)
                 role_group = PersonaEngine._ROLE_GROUPS.get(role, role)
@@ -1156,16 +1551,7 @@ class PersonaEngine:
             used_roles.add(role_group)
             mbti = random.choice(MBTI_TYPES)
             risk = random.choice(RISK_PROFILES)
-            # Geography — weight customer zone toward target market
-            if zone == 'customer' and target_market:
-                region = PersonaEngine._match_geo_region(target_market)
-                region_geos = GEO_REGIONS.get(region, []) if region else []
-                if region_geos and random.random() < 0.7:
-                    geo = random.choice(region_geos)
-                else:
-                    geo = random.choice(GEOGRAPHIC_LENS)
-            else:
-                geo = random.choice(GEOGRAPHIC_LENS)
+            geo = PersonaEngine._pick_geography(zone, target_market)
 
             # Experience with role compatibility
             min_exp_idx = ROLE_MIN_EXPERIENCE.get(role, 0)
@@ -1237,6 +1623,12 @@ class PersonaEngine:
                 parts.append(f'\nYour decision framework: "{framework_text}"')
 
             parts.append(f"\nYour primary industry focus is {focus_industry}.")
+            if context_specialization:
+                parts.append(f"\nYour domain specialization is {context_specialization}.")
+            if target_market and zone in {"customer", "operator", "investor", "analyst", "contrarian"}:
+                parts.append(f"\nYou regularly work with or evaluate buyers in this target market: {target_market}.")
+            if stage:
+                parts.append(f"\nYou calibrate your expectations for a {stage} startup, not a later-stage company.")
 
             # New dimensions (12-16)
             if zone == "investor":
@@ -1303,7 +1695,7 @@ class PersonaEngine:
 
     def select_personas_by_zone(self, count: int, industry: str = "",
                                  product: str = "", target_market: str = "",
-                                 exclude_roles: Optional[set] = None) -> List[Persona]:
+                                 stage: str = "", exclude_roles: Optional[set] = None) -> List[Persona]:
         # Check for industry-adaptive distribution first
         ind_lower = industry.lower() if industry else ""
         adaptive_dist = None
@@ -1335,6 +1727,9 @@ class PersonaEngine:
                     if diff >= 0:
                         break
             distribution = scaled
+        distribution = self._tune_distribution_for_context(
+            distribution, industry=industry, product=product, target_market=target_market
+        )
 
         # Look up industry-specific priority roles
         industry_key = self._match_industry_key(industry)
@@ -1347,16 +1742,46 @@ class PersonaEngine:
 
         for zone, zone_count in distribution.items():
             if zone == "wildcard":
-                wild = self.select_personas(zone_count, industry, product)
+                wildcard_priority = self._compose_priority_roles(
+                    zone="wildcard", industry=industry, product=product,
+                    target_market=target_market, stage=stage,
+                )
+                generated_wild_count = min(zone_count, max(1, zone_count // 2)) if wildcard_priority else 0
+                if generated_wild_count:
+                    generated_wild = self._generate_personas(
+                        generated_wild_count, zone="wildcard", startup_industry=industry,
+                        product=product, priority_roles=wildcard_priority,
+                        target_market=target_market, stage=stage,
+                        exclude_roles=_used,
+                    )
+                    for p in generated_wild:
+                        _used.add(p.name.split('(')[0].strip() if '(' in p.name else p.name)
+                    all_personas.extend(generated_wild)
+                remaining_wildcards = zone_count - generated_wild_count
+                wild = self.select_personas(
+                    remaining_wildcards, industry, product,
+                    target_market=target_market, stage=stage,
+                    keywords=self._context_keywords(
+                        industry=industry, product=product,
+                        target_market=target_market, stage=stage,
+                    ),
+                    zone="wildcard",
+                )
                 for p in wild:
                     p.zone = "wildcard"
                     _used.add(p.name.split('(')[0].strip() if '(' in p.name else p.name)
                 all_personas.extend(wild)
             else:
-                zone_priority = industry_priorities.get(zone, None)
+                zone_priority = self._dedupe_preserve_order(
+                    self._compose_priority_roles(
+                        zone=zone, industry=industry, product=product,
+                        target_market=target_market, stage=stage,
+                    ) + list(industry_priorities.get(zone, []))
+                )
                 zone_personas = self._generate_personas(
                     zone_count, zone=zone, startup_industry=industry,
-                    priority_roles=zone_priority, target_market=target_market,
+                    product=product, priority_roles=zone_priority,
+                    target_market=target_market, stage=stage,
                     exclude_roles=_used,
                 )
                 for p in zone_personas:
