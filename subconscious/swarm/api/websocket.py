@@ -10,6 +10,7 @@ import time
 import traceback
 
 from ..utils.logger import get_logger
+from ..services.final_verdict import finalize_prediction
 from ..services.swarm_predictor import SwarmPredictor
 
 logger = get_logger('mirofish.api.ws')
@@ -490,8 +491,8 @@ def _handle_full_analysis(msg: dict):
             simulate_market = msg.get("simulateMarket", False)
             if simulate_market:
                 try:
-                    broadcast({"type": "oasisStarted", "rounds": 6})
-                    from ..services.oasis_simulator import OasisSimulator
+                    from ..services.oasis_simulator import OasisSimulator, SIMULATION_ROUNDS
+                    broadcast({"type": "oasisStarted", "rounds": SIMULATION_ROUNDS})
                     oasis = OasisSimulator()
 
                     def on_round(result):
@@ -555,8 +556,6 @@ def _handle_full_analysis(msg: dict):
                 pass
 
             swarm_dict = {}
-            final_verdict = p_verdict
-            final_confidence = p_confidence
             if agent_count > 0:
                 try:
                     raw_swarm = swarm_result.to_dict()
@@ -572,45 +571,6 @@ def _handle_full_analysis(msg: dict):
                         "verdict": raw_swarm.get("verdict"),
                         "avg_confidence": raw_swarm.get("avg_confidence"),
                     }
-                    # Confidence-weighted verdict blend (replaces conservative-wins rule)
-                    swarm_verdict = raw_swarm.get("verdict", p_verdict)
-                    swarm_confidence = raw_swarm.get("avg_confidence", p_confidence)
-                    _verdict_score = {"Strong Miss": 1, "Likely Miss": 2, "Mixed Signal": 3,
-                                      "Uncertain": 3, "Likely Hit": 4, "Strong Hit": 5}
-                    _council_s = _verdict_score.get(p_verdict, 3)
-                    _swarm_s = _verdict_score.get(swarm_verdict, 3)
-                    _cw = max(p_confidence, 0.1)
-                    _sw = max(swarm_confidence, 0.1)
-                    _blended = (_council_s * _cw + _swarm_s * _sw) / (_cw + _sw)
-                    if _blended >= 4.5:     final_verdict = "Strong Hit"
-                    elif _blended >= 3.5:   final_verdict = "Likely Hit"
-                    elif _blended >= 2.5:   final_verdict = "Mixed Signal"
-                    elif _blended >= 1.5:   final_verdict = "Likely Miss"
-                    else:                    final_verdict = "Strong Miss"
-                    # Confidence-weighted confidence (matches verdict blend formula)
-                    final_confidence = round((_cw * p_confidence + _sw * swarm_confidence) / (_cw + _sw), 2)
-                    logger.info(f"[WS] Verdict blend: council={p_verdict}({_cw:.2f}), swarm={swarm_verdict}({_sw:.2f}) -> blended={_blended:.2f} -> {final_verdict} (confidence {final_confidence})")
-                    # Surface explicit warning when council and swarm strongly disagree
-                    if abs(_council_s - _swarm_s) >= 3:
-                        _disagree_msg = (
-                            f"Council ({p_verdict}) and Swarm ({swarm_verdict}) strongly disagree. "
-                            f"Final verdict '{final_verdict}' is a confidence-weighted blend — review both perspectives."
-                        )
-                        warnings.append(_disagree_msg)
-                        broadcast({
-                            "type": "verdictDisagreement",
-                            "council_verdict": p_verdict,
-                            "swarm_verdict": swarm_verdict,
-                            "final_verdict": final_verdict,
-                            "message": _disagree_msg,
-                        })
-                        logger.warning(f"[WS] {_disagree_msg}")
-                    audit.log_verdict_blend(
-                        council_verdict=p_verdict, council_confidence=p_confidence,
-                        swarm_verdict=swarm_verdict, swarm_confidence=swarm_confidence,
-                        blended_score=round(_blended, 2), final_verdict=final_verdict,
-                        final_confidence=final_confidence,
-                    )
                 except Exception as e:
                     logger.error(f"[WS] Swarm dict extraction failed — verdict blend unavailable, using council-only: {e}\n{traceback.format_exc()}")
                     warnings.append(f"Swarm result extraction failed: {e}. Final verdict is council-only (not blended).")
@@ -621,60 +581,71 @@ def _handle_full_analysis(msg: dict):
                         "message": "Swarm result extraction failed — final verdict uses council scores only.",
                     })
 
-            # ── OASIS trajectory adjustment (confidence-gated) ──
+            final_prediction = finalize_prediction(
+                {
+                    "verdict": p_verdict,
+                    "confidence": p_confidence,
+                    "overall_score": p_score,
+                },
+                swarm=swarm_dict if swarm_dict else None,
+                oasis=oasis_result if simulate_market and 'oasis_result' in dir() and oasis_result else None,
+            )
+            final_verdict = final_prediction["final_verdict"]
+            final_confidence = final_prediction["final_confidence"]
+            final_score = final_prediction["composite_score"]
+
+            if final_prediction["verdict_blended"]:
+                logger.info(
+                    f"[WS] Verdict blend: council={final_prediction['council_verdict']} "
+                    f"({final_prediction['council_confidence']:.2f}), "
+                    f"swarm={final_prediction['swarm_verdict']} "
+                    f"({final_prediction['swarm_confidence']:.2f}) -> "
+                    f"{final_verdict} (score={final_score}, confidence={final_confidence})"
+                )
+                audit.log_verdict_blend(
+                    council_verdict=final_prediction["council_verdict"],
+                    council_confidence=final_prediction["council_confidence"],
+                    swarm_verdict=final_prediction["swarm_verdict"],
+                    swarm_confidence=final_prediction["swarm_confidence"],
+                    blended_score=final_score,
+                    final_verdict=final_verdict,
+                    final_confidence=final_confidence,
+                )
+
+            if final_prediction["warnings"]:
+                warnings.extend(final_prediction["warnings"])
+
+            disagreement_warning = next(
+                (w for w in final_prediction["warnings"] if "strongly disagree" in w.lower()),
+                None,
+            )
+            if disagreement_warning:
+                broadcast({
+                    "type": "verdictDisagreement",
+                    "council_verdict": final_prediction["council_verdict"],
+                    "swarm_verdict": final_prediction["swarm_verdict"],
+                    "final_verdict": final_verdict,
+                    "message": disagreement_warning,
+                })
+                logger.warning(f"[WS] {disagreement_warning}")
+
+            # ── OASIS trajectory warning / adjustment telemetry ──
             if simulate_market and 'oasis_result' in dir() and oasis_result:
                 try:
                     trajectory = oasis_result.get('trajectory', 'stable')
-                    # OASIS override only applies when council+swarm confidence is LOW (< 0.7)
-                    _oasis_confidence_low = final_confidence < 0.7
-                    # Always surface trajectory data to user (never suppress)
                     if trajectory in ('declining', 'improving') and trajectory != 'stable':
                         broadcast({
                             "type": "oasisTrajectoryWarning",
                             "trajectory": trajectory,
                             "message": f"OASIS projects {trajectory} trajectory — monitor closely.",
                             "confidence": final_confidence,
-                            "verdict_before_oasis": final_verdict,
+                            "verdict_before_oasis": final_prediction["council_verdict"],
                         })
-
-                    if trajectory == 'declining' and final_verdict in ('Likely Hit', 'Strong Hit'):
-                        if _oasis_confidence_low:
-                            # Require at least 2 consecutive declining rounds
-                            timeline = oasis_result.get('timeline', [])
-                            _consecutive_declines = 0
-                            _max_consecutive = 0
-                            for _r in timeline:
-                                if _r.get('sentiment_change', 0) < 0:
-                                    _consecutive_declines += 1
-                                    _max_consecutive = max(_max_consecutive, _consecutive_declines)
-                                else:
-                                    _consecutive_declines = 0
-                            if _max_consecutive >= 2:
-                                final_verdict = 'Mixed Signal'
-                                logger.info(
-                                    f"[WS] OASIS trajectory 'declining' downgraded verdict to Mixed Signal "
-                                    f"(confidence={final_confidence:.2f} < 0.7, {_max_consecutive} consecutive declining rounds)"
-                                )
-                            else:
-                                logger.info(
-                                    f"[WS] OASIS 'declining' — {_max_consecutive} consecutive decline(s) "
-                                    f"(need >= 2 for verdict override); trajectory warning surfaced to user"
-                                )
-                        else:
-                            logger.info(
-                                f"[WS] OASIS 'declining' — confidence={final_confidence:.2f} >= 0.7; "
-                                f"verdict not overridden but trajectory warning surfaced to user"
-                            )
-                    elif trajectory == 'improving' and final_verdict in ('Likely Miss', 'Mixed Signal'):
-                        if _oasis_confidence_low:
-                            _upgrade = {"Likely Miss": "Mixed Signal", "Mixed Signal": "Likely Hit"}
-                            final_verdict = _upgrade.get(final_verdict, final_verdict)
-                            logger.info(f"[WS] OASIS trajectory 'improving' upgraded verdict to {final_verdict}")
-                        else:
-                            logger.info(
-                                f"[WS] OASIS 'improving' — confidence={final_confidence:.2f} >= 0.7; "
-                                f"verdict not overridden but trajectory warning surfaced to user"
-                            )
+                    if final_prediction["oasis_adjusted"]:
+                        logger.info(
+                            f"[WS] OASIS adjusted verdict to {final_verdict} "
+                            f"(score={final_score}, confidence={final_confidence})"
+                        )
                 except Exception as e:
                     logger.warning(f"[WS] OASIS verdict adjustment failed: {e}")
 
@@ -733,7 +704,7 @@ def _handle_full_analysis(msg: dict):
                 report_data = {
                     "prediction": {
                         "verdict": final_verdict,
-                        "composite_score": p_score,
+                        "composite_score": final_score,
                         "confidence": final_confidence,
                         "dimensions": dims,
                         "contested_dimensions": contested,
@@ -773,20 +744,13 @@ def _handle_full_analysis(msg: dict):
                 f"{title}\n{content}" for title, content in report_sections.items()
             ) if report_sections else ""
 
-            # Compute blended score (numeric) for analysisComplete
-            _verdict_to_score = {"Strong Miss": 1, "Likely Miss": 2, "Mixed Signal": 3,
-                                  "Uncertain": 3, "Likely Hit": 4, "Strong Hit": 5}
-            _score_to_numeric = {1: 2.0, 2: 4.0, 3: 5.5, 4: 7.5, 5: 9.5}
-            _final_verdict_ordinal = _verdict_to_score.get(final_verdict, 3)
-            blended_score = _score_to_numeric.get(_final_verdict_ordinal, p_score)
-
             # ── Final: Full result for PDF export ──
             broadcast({
                 "type": "analysisComplete",
                 "fullResult": {
                     "prediction": {
                         "verdict": final_verdict,
-                        "composite_score": blended_score,
+                        "composite_score": final_score,
                         "confidence": final_confidence,
                         "council_verdict": p_verdict,
                         "council_score": p_score,
@@ -820,7 +784,7 @@ def _handle_full_analysis(msg: dict):
                     },
                     "oasis": oasis_result if oasis_result else {},
                     "data_quality": getattr(extraction, 'data_quality', 0),
-                    "data_sources": ["Brave Search", "Council", "Swarm", "LLM", "OASIS"] if oasis_result else ["Brave Search", "Council", "Swarm", "LLM"],
+                    "data_sources": ["OpenClaw Research", "Council", "Swarm", "LLM", "OASIS"] if oasis_result else ["OpenClaw Research", "Council", "Swarm", "LLM"],
                     "narrative": narrative,
                     "report_sections": report_sections,
                     "enhancements": enhancements if enhancements else {},
@@ -830,7 +794,7 @@ def _handle_full_analysis(msg: dict):
 
             if warnings:
                 logger.warning(f"[WS] Analysis completed with {len(warnings)} degradation warning(s): {warnings}")
-            logger.info(f"[WS] Full analysis complete: {p_verdict} ({p_score:.1f}/10)")
+            logger.info(f"[WS] Full analysis complete: {final_verdict} ({final_score:.1f}/10)")
 
             # ── Write audit log ──
             try:
@@ -840,7 +804,7 @@ def _handle_full_analysis(msg: dict):
                     chairman_notes="",
                     model_scores=prediction.model_scores if hasattr(prediction, 'model_scores') else {},
                 )
-                audit_path = audit.end_run(verdict=final_verdict, score=p_score, confidence=final_confidence)
+                audit_path = audit.end_run(verdict=final_verdict, score=final_score, confidence=final_confidence)
                 logger.info(f"[WS] Audit log written: {audit_path}")
             except Exception as ae:
                 logger.warning(f"[WS] Audit log failed (non-fatal): {ae}")
@@ -849,7 +813,7 @@ def _handle_full_analysis(msg: dict):
                 from ..services.analytics import analytics as _analytics
                 _analytics.track_analysis_complete(
                     company=extraction.company if hasattr(extraction, 'company') else '',
-                    score=p_score,
+                    score=final_score,
                     verdict=final_verdict,
                     duration_s=time.time() - _analysis_start_time,
                     agent_count=agent_count,
@@ -866,7 +830,7 @@ def _handle_full_analysis(msg: dict):
                 full_analysis = {
                     "prediction": {
                         "verdict": final_verdict,
-                        "composite_score": p_score,
+                        "composite_score": final_score,
                         "confidence": final_confidence,
                         "dimensions": dims,
                         "contested_dimensions": contested,

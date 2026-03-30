@@ -1,12 +1,11 @@
 """
-Source credibility utilities for search result scoring.
+Source credibility utilities and a compatibility search wrapper.
 
-Used by agentic_researcher.py and brave_search.py.
-SearXNG SearchEngine class removed — all search goes through
-the Agentic Researcher + Gateway Brave API.
+Fresh external facts route through OpenClaw-backed search helpers.
 """
 
 from ..utils.logger import get_logger
+from .gateway_client import web_search as _live_web_search
 
 logger = get_logger('mirofish.search_engine')
 
@@ -66,22 +65,39 @@ def _apply_credibility_weights(results: list) -> list:
     return results
 
 
-# Stub for backward compatibility — any code that tries SearchEngine()
-# will get an object that returns empty results instead of crashing.
 class SearchEngine:
-    """Stub — SearXNG removed. Returns empty results."""
+    """Compatibility wrapper over OpenClaw-backed live search."""
+
     def __init__(self, *a, **kw):
-        logger.warning(
-            "[SearchEngine] SearchEngine is a stub — SearXNG has been removed. "
-            "Use BraveSearchEngine instead. All search calls will return empty results."
-        )
+        logger.info("[SearchEngine] Using OpenClaw-backed live search")
+
     def is_available(self):
-        return False
-    def search(self, *a, **kw):
-        return []
-    def search_news(self, *a, **kw):
-        return []
-    def search_batch(self, *a, **kw):
-        return {}
-    def get_urls_for_query(self, *a, **kw):
-        return []
+        return True
+
+    def search(self, query, max_results=5, time_range="", *a, **kw):
+        results = _live_web_search(query, count=max_results, freshness=time_range or "")
+        normalized = []
+        for result in results:
+            normalized.append({
+                "title": result.get("title", ""),
+                "url": result.get("url", ""),
+                "content": result.get("description", ""),
+                "description": result.get("description", ""),
+            })
+        return _apply_credibility_weights(normalized)
+
+    def search_news(self, query, max_results=5, time_range="", *a, **kw):
+        return self.search(f"{query} news", max_results=max_results, time_range=time_range)
+
+    def search_batch(self, queries, max_results=5, time_range="", *a, **kw):
+        return {
+            query: self.search(query, max_results=max_results, time_range=time_range)
+            for query in queries
+        }
+
+    def get_urls_for_query(self, query, max_results=5, time_range="", *a, **kw):
+        return [
+            result.get("url", "")
+            for result in self.search(query, max_results=max_results, time_range=time_range)
+            if result.get("url")
+        ]

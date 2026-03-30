@@ -84,8 +84,17 @@ async function runAnalysis(submissionId: number, execSummary: string) {
 
     // Extract score and verdict
     const council = analysis.council || {};
-    const score = council.overall ?? analysis.prediction?.score ?? null;
-    const verdict = council.verdict ?? analysis.prediction?.verdict ?? "";
+    const score =
+      analysis.prediction?.composite_score ??
+      analysis.prediction?.overall_score ??
+      council.overall ??
+      analysis.prediction?.score ??
+      null;
+    const verdict =
+      analysis.final_verdict ??
+      analysis.prediction?.verdict ??
+      council.verdict ??
+      "";
 
     // Generate shareable HTML report
     let reportUrl = "";

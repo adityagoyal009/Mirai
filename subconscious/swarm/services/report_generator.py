@@ -673,31 +673,35 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
     moves = moves if isinstance(moves, list) else []
     competitors = research.get('competitors', [])
     competitors = competitors if isinstance(competitors, list) else []
-    # Enrich competitor list with details from agentic research if available
+    # Enrich competitor list from the original research payload only.
+    # Report rendering must never block on fresh web lookups.
     competitor_details = research.get('competitor_details', [])
     if competitor_details and isinstance(competitor_details, list):
         details_map = {}
         for cd in competitor_details:
             if isinstance(cd, dict) and cd.get('name'):
-                details_map[cd['name'].lower()] = cd
+                details_map[cd['name'].strip().lower()] = cd
         enriched = []
         for c in competitors:
             name = c if isinstance(c, str) else (c.get('name', '') if isinstance(c, dict) else str(c))
-            detail = details_map.get(name.lower(), {})
-            if isinstance(c, str) and detail:
-                enriched.append({
-                    'name': name,
-                    'detail': detail.get('detail', ''),
-                    'status': detail.get('funding', detail.get('status', detail.get('detail', ''))),
-                    'type': detail.get('type', detail.get('industry', '')),
-                })
-            elif isinstance(c, dict):
-                if detail:
-                    c.setdefault('status', detail.get('detail', ''))
-                    c.setdefault('detail', detail.get('detail', ''))
-                enriched.append(c)
-            else:
-                enriched.append({'name': name, 'detail': detail.get('detail', '')})
+            detail = details_map.get(name.strip().lower(), {})
+            merged = dict(c) if isinstance(c, dict) else {'name': name}
+            if detail:
+                merged.setdefault('detail', detail.get('description') or detail.get('differentiator', ''))
+                merged.setdefault(
+                    'industry',
+                    detail.get('primary_industry') or detail.get('industry') or detail.get('type', ''),
+                )
+                merged.setdefault(
+                    'status',
+                    detail.get('financing_status') or detail.get('business_status') or detail.get('status', ''),
+                )
+                merged.setdefault(
+                    'funding',
+                    detail.get('total_raised') or detail.get('funding', ''),
+                )
+                merged.setdefault('hq_location', detail.get('hq_location', ''))
+            enriched.append(merged)
         competitors = enriched
     research_summary = str(research.get('summary', '') or '')
     context_facts = research.get('context_facts', []) or []
@@ -1049,147 +1053,28 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
     elif research_summary:
         html += f'<div class="narrative">{_to_paragraphs(research_summary)}</div>\n'
 
-    # Competitors table — enriched from DB + Brave/SearXNG web search
+    # Competitors table — use research payload only so render stays non-blocking
     if competitors:
         html += '<div class="section-bar keep-together">Top Similar Companies</div>\n<table class="keep-together">\n'
         html += '<tr><th>#</th><th>Company</th><th>Industry</th><th>Status</th><th>Funding</th></tr>\n'
 
-        # Company DB skipped (2026-03-24) — stale Crunchbase dump with wrong fuzzy matches
-        # (e.g. "HACH" matched "ChaCha" → showed "Advertising" industry)
-        # Competitor data now comes from OpenClaw research or web search fallback
-        comp_conn = None
-
-        # Web search enrichment via OpenClaw gateway
-        def _web_enrich_competitor(name: str) -> dict:
-            """Search via OpenClaw gateway for competitor info, with retry."""
-            result = {'industry': '', 'status': '', 'funding': ''}
-            try:
-                from .gateway_client import web_search as _gw_search
-                import time as _t
-                clean = name.split('(')[0].split('/')[0].strip()
-                query = f'"{clean}" company funding status industry'
-                search_results = None
-                for attempt in range(3):
-                    search_results = _gw_search(query, count=3)
-                    if search_results:
-                        break
-                    _t.sleep(1)
-                if not search_results:
-                    logger.warning(f"[Report] Competitor enrichment failed for '{clean}' after 3 attempts")
-                    return result
-                snippets = ' '.join(r.get('description', '') for r in search_results).lower()
-                if not snippets:
-                    return result
-                # Extract status
-                if 'acquired' in snippets:
-                    result['status'] = 'Acquired'
-                elif 'shut down' in snippets or 'closed' in snippets or 'defunct' in snippets:
-                    result['status'] = 'Closed'
-                elif 'ipo' in snippets or 'publicly traded' in snippets or 'nyse' in snippets or 'nasdaq' in snippets:
-                    result['status'] = 'Public'
-                else:
-                    result['status'] = 'Operating'
-                # Extract funding
-                import re as _re
-                fund_match = _re.search(r'(?:raised|funding|series\s*\w)\s*\$?([\d,.]+)\s*(million|billion|m|b|k)', snippets)
-                if fund_match:
-                    amount = fund_match.group(1).replace(',', '')
-                    unit = fund_match.group(2).lower()
-                    if unit in ('billion', 'b'):
-                        result['funding'] = f"${amount}B"
-                    elif unit in ('million', 'm'):
-                        result['funding'] = f"${amount}M"
-                    else:
-                        result['funding'] = f"${amount}"
-                # Extract industry
-                # Match industry from snippets — use word boundaries to avoid false positives
-                import re as _re2
-                industry_map = [
-                    ('water quality', 'Water Quality'), ('water monitoring', 'Water Tech'), ('water treatment', 'Water Tech'),
-                    ('cleantech', 'CleanTech'), ('clean tech', 'CleanTech'), ('clean energy', 'CleanTech'),
-                    ('fintech', 'FinTech'), ('healthtech', 'HealthTech'), ('health tech', 'HealthTech'),
-                    ('biotech', 'BioTech'), ('edtech', 'EdTech'), ('legaltech', 'LegalTech'),
-                    ('cybersecurity', 'Cybersecurity'), ('cyber security', 'Cybersecurity'),
-                    ('saas', 'SaaS'), ('software as a service', 'SaaS'),
-                    ('enterprise software', 'Enterprise Software'), ('iot', 'IoT'), ('internet of things', 'IoT'),
-                    ('environmental', 'Environmental'), ('energy', 'Energy'), ('agriculture', 'AgriTech'),
-                    ('logistics', 'Logistics'), ('marketplace', 'Marketplace'), ('hardware', 'Hardware'),
-                    ('artificial intelligence', 'AI/ML'), ('machine learning', 'AI/ML'),
-                ]
-                for pattern, label in industry_map:
-                    if pattern in snippets:
-                        result['industry'] = label
-                        break
-            except Exception as e:
-                logger.debug(f"[Report] Web enrichment failed for {name}: {e}")
-            return result
-
         for i, c in enumerate(competitors[:8]):
-            if isinstance(c, (int, float)):
-                c_name = str(c)
-            elif isinstance(c, str):
-                c_name = c
-            elif isinstance(c, dict):
+            if isinstance(c, dict):
                 c_name = c.get('name', str(c))
+                c_industry = c.get('industry') or c.get('primary_industry') or c.get('type') or industry
+                c_status = c.get('status') or c.get('financing_status') or c.get('business_status') or ''
+                c_funding = c.get('funding') or c.get('total_raised') or ''
             else:
                 c_name = str(c)
-            c_industry = industry
-            c_status = ''
-            c_funding = ''
-            db_found = False
+                c_industry = industry
+                c_status = ''
+                c_funding = ''
 
-            # Step 1: Look up in DB
-            db_industry_suspicious = False
-            if comp_conn:
-                try:
-                    clean_name = c_name.split('(')[0].split('/')[0].strip()
-                    row = comp_conn.execute(
-                        "SELECT name, industry, status, outcome FROM companies WHERE LOWER(name) = LOWER(?) LIMIT 1",
-                        (clean_name,)
-                    ).fetchone()
-                    if not row:
-                        row = comp_conn.execute(
-                            "SELECT name, industry, status, outcome FROM companies WHERE LOWER(name) LIKE LOWER(?) ORDER BY LENGTH(name) LIMIT 1",
-                            (f"{clean_name}%",)
-                        ).fetchone()
-                    if row:
-                        c_industry = row['industry'] or industry
-                        c_status = (row['status'] or '').title()
-                        db_found = True
-                        # Sanity check: if the DB industry is completely
-                        # unrelated to the startup's industry, the LIKE
-                        # prefix match probably hit a wrong company (e.g.
-                        # "Hach%" matching "Hachette" -> "advertising").
-                        if (c_industry and industry
-                                and c_industry.lower() not in industry.lower()
-                                and industry.lower() not in c_industry.lower()):
-                            db_industry_suspicious = True
-                except Exception:
-                    pass
-
-            # Step 2: Web search fallback if DB had no useful data
-            # Also run web enrichment when the DB industry looks suspicious
-            if not db_found or not c_status or c_status == '-' or db_industry_suspicious:
-                try:
-                    web_data = _web_enrich_competitor(c_name)
-                    if web_data.get('status'):
-                        c_status = web_data['status']
-                    if web_data.get('funding'):
-                        c_funding = web_data['funding']
-                    # Accept web industry when: no DB data, DB defaulted to
-                    # the startup's own industry, OR the DB match is suspicious
-                    if web_data.get('industry') and (not c_industry or c_industry == industry or db_industry_suspicious):
-                        c_industry = web_data['industry']
-                except Exception:
-                    pass
-
+            c_industry = c_industry or '—'
             c_status = c_status or '—'
             c_funding = c_funding or '—'
 
             html += f'<tr><td>{i+1}</td><td style="font-weight:bold;">{c_name}</td><td>{c_industry}</td><td>{c_status}</td><td>{c_funding}</td></tr>\n'
-
-        if comp_conn:
-            comp_conn.close()
         html += '</table>\n'
 
     # Competitive position summary (short version, full in appendix)
@@ -1496,7 +1381,9 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
     oasis = analysis.get('oasis', {})
     oasis_timeline = oasis.get('timeline', []) if isinstance(oasis, dict) else []
     if oasis_timeline:
-        html += '<div class="section-bar">Market Trajectory Simulation (6 months)</div>\n'
+        month_count = len(oasis_timeline)
+        month_label = "month" if month_count == 1 else "months"
+        html += f'<div class="section-bar">Market Trajectory Simulation ({month_count} {month_label})</div>\n'
         trajectory = oasis.get('trajectory', 'stable')
         start_s = oasis.get('start_sentiment', oasis.get('startSentiment', 50))
         end_s = oasis.get('end_sentiment', oasis.get('endSentiment', 50))
@@ -1521,7 +1408,7 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
         oasis_trajectory = oasis.get('trajectory', 'stable')
         if oasis_trajectory != 'stable':
             direction = 'upgraded' if oasis_trajectory == 'improving' else 'adjusted downward'
-            html += f'<p style="font-size: 10px; color: #666; margin-top: 8px;"><em>Note: The 6-month market trajectory ({oasis_trajectory}) {direction} the final verdict assessment.</em></p>\n'
+            html += f'<p style="font-size: 10px; color: #666; margin-top: 8px;"><em>Note: The {month_count}-month market trajectory ({oasis_trajectory}) {direction} the final verdict assessment.</em></p>\n'
 
     # ═══ RISKS + PLAN ═══
     html += '<div class="page-break"></div>\n'

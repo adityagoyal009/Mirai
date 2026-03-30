@@ -1,5 +1,5 @@
 """
-OASIS Market Simulator — multi-round simulation of market reaction over 6 months.
+OASIS Market Simulator — multi-round simulation of market reaction over 4 months.
 
 Unlike the swarm (independent one-shot votes), OASIS runs interactive rounds where:
 - Agents see previous round outcomes and remember their own prior stance
@@ -20,7 +20,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from ..utils.llm_client import LLMClient
 from ..utils.logger import get_logger
 from ..config import Config
-# Brave Search + SearXNG removed — OASIS generates events via LLM web search
+# Legacy Brave/SearXNG paths removed — OASIS now sources events via OpenClaw-backed search
 
 logger = get_logger('mirofish.oasis')
 
@@ -35,13 +35,14 @@ class OasisSimulator:
 
     def __init__(self):
         self.llm = LLMClient()
+        self._headline_cache: Dict[Tuple[str, str, int], List[str]] = {}
 
     def simulate(self, exec_summary: str, research_context: str,
                  council_verdict: str, on_round_complete=None,
                  swarm_agents: Optional[List] = None,
                  stage: str = "") -> Dict[str, Any]:
         """
-        Simulate market reaction over 6 months.
+        Simulate market reaction over the configured number of rounds.
 
         Args:
             swarm_agents: Optional list of SwarmAgent objects from the swarm predictor.
@@ -80,7 +81,7 @@ class OasisSimulator:
 
         for round_num in range(1, SIMULATION_ROUNDS + 1):
             month = round_num
-            logger.info(f"[OASIS] Round {round_num}/6 (Month {month})")
+            logger.info(f"[OASIS] Round {round_num}/{SIMULATION_ROUNDS} (Month {month})")
 
             # Source real market event for this month
             event = self._source_real_event(
@@ -410,22 +411,28 @@ class OasisSimulator:
     def _fetch_real_headlines(
         self, company_name: str, industry: str, max_headlines: int = 5,
     ) -> List[str]:
-        """Fetch real news headlines via LLM web search (Claude CLI).
+        """Fetch real news headlines via OpenClaw-backed web search.
 
         Returns a list of headline strings (may be empty if search unavailable).
         """
-        # Use LLM with web search to find recent news
+        cache_key = (company_name.strip().lower(), industry.strip().lower(), max_headlines)
+        cached = self._headline_cache.get(cache_key)
+        if cached is not None:
+            return list(cached)
+
         try:
-            from ..utils.gateway_client import web_search
+            from .gateway_client import web_search
             query = f"{company_name} {industry} news"
             results = web_search(query, count=max_headlines)
             headlines = [r.get("title", "") for r in results if r.get("title")]
             if headlines:
+                self._headline_cache[cache_key] = headlines[:max_headlines]
                 logger.info(f"[OASIS] Web search returned {len(headlines)} headlines for '{query[:60]}'")
                 return headlines[:max_headlines]
         except Exception as e:
             logger.warning(f"[OASIS] Web search for headlines failed (non-fatal): {e}")
 
+        self._headline_cache[cache_key] = []
         return []
 
     # ── grounded event generation (replaces _generate_event) ─────
@@ -443,7 +450,7 @@ class OasisSimulator:
         """Source a market event grounded in REAL news data.
 
         Pipeline:
-        1. Fetch real headlines via Brave Search / SearXNG.
+        1. Fetch real headlines via OpenClaw-backed live search.
         2. Ask the LLM to summarize the most impactful headline into a
            single event sentence.
         3. If no headlines are found, return a "no event" marker — never
@@ -469,7 +476,7 @@ class OasisSimulator:
             f"STARTUP: {exec_summary[:300]}\n"
             f"COMPANY: {company_name}\n"
             f"INDUSTRY: {industry}\n"
-            f"MONTH: {month} of 6\n"
+            f"MONTH: {month} of {SIMULATION_ROUNDS}\n"
             f"CURRENT MARKET SENTIMENT: {current_sentiment}%\n"
             f"PREVIOUS EVENTS:\n"
             + "\n".join(f"  Month {i+1}: {e}" for i, e in enumerate(previous_events))

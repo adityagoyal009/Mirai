@@ -31,6 +31,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from .config import Config
 from .services.analytics import analytics
+from .services.final_verdict import finalize_prediction
 from .services.portal import (
     VALID_SUBMISSION_STATUSES,
     build_google_auth_url,
@@ -1015,6 +1016,58 @@ async def bi_analyze(request: Request):
         if swarm_result:
             result["swarm"] = swarm_result.to_dict()
 
+        # Phase 4: OASIS Market Simulation
+        if simulate_market:
+            try:
+                from .services.oasis_simulator import OasisSimulator
+                oasis_sim = OasisSimulator()
+                pred = result.get("prediction", {})
+                council_v = f"{pred.get('overall_score', 0)}/10 - {pred.get('verdict', 'Unknown')}"
+                res_ctx = json.dumps(result.get("research", {}), default=str)
+                stg = result.get("extraction", {}).get("stage", "")
+                oasis_swarm_agents = None
+                if swarm_result and hasattr(swarm_result, "agent_results"):
+                    oasis_swarm_agents = swarm_result.agent_results
+                oasis_result = oasis_sim.simulate(
+                    exec_summary=exec_summary, research_context=res_ctx,
+                    council_verdict=council_v, stage=stg,
+                    swarm_agents=oasis_swarm_agents,
+                )
+                result["oasis"] = oasis_result
+                logger.info(f"[BI-REST] OASIS: {oasis_result.get('trajectory')}")
+            except Exception as e:
+                logger.warning(f"[BI-REST] OASIS failed (non-fatal): {e}")
+                result["oasis"] = {}
+
+        prediction_view = result.get("prediction", {})
+        if not isinstance(prediction_view, dict):
+            prediction_view = prediction.to_dict() if hasattr(prediction, "to_dict") else {}
+
+        final_prediction = finalize_prediction(
+            prediction_view,
+            swarm=result.get("swarm") if isinstance(result.get("swarm"), dict) else None,
+            oasis=result.get("oasis") if isinstance(result.get("oasis"), dict) else None,
+        )
+        prediction_view.update({
+            "verdict": final_prediction["final_verdict"],
+            "confidence": final_prediction["final_confidence"],
+            "composite_score": final_prediction["composite_score"],
+            "council_verdict": final_prediction["council_verdict"],
+            "council_confidence": final_prediction["council_confidence"],
+            "council_score": final_prediction["council_score"],
+            "swarm_verdict": final_prediction["swarm_verdict"],
+            "swarm_confidence": final_prediction["swarm_confidence"],
+        })
+        result["prediction"] = prediction_view
+        result["final_verdict"] = final_prediction["final_verdict"]
+        result["final_confidence"] = final_prediction["final_confidence"]
+        if final_prediction["warnings"]:
+            result["warnings"] = final_prediction["warnings"]
+        logger.info(
+            f"[BI-REST] Final verdict: {final_prediction['final_verdict']} "
+            f"(score={final_prediction['composite_score']}, confidence={final_prediction['final_confidence']})"
+        )
+
         # Generate narrative sections via ReportAgent (same as dashboard WebSocket path)
         try:
             from .services.report_agent import ReportAgent
@@ -1028,7 +1081,8 @@ async def bi_analyze(request: Request):
         except Exception as e:
             logger.warning(f"[BI-REST] ReportAgent failed (non-fatal): {e}")
 
-        # Generate HTML report (with narrative sections)
+        # Generate HTML report after OASIS/final-verdict enrichment so the shared
+        # report includes the full final state.
         try:
             from .services.report_generator import generate_html_report
             html = generate_html_report(result, narrative=result.get("narrative", ""))
@@ -1036,25 +1090,6 @@ async def bi_analyze(request: Request):
                 result["report_html"] = html
         except Exception as e:
             logger.warning(f"[BI-REST] Report generation failed (non-fatal): {e}")
-
-        # Phase 4: OASIS Market Simulation
-        if simulate_market:
-            try:
-                from .services.oasis_simulator import OasisSimulator
-                oasis_sim = OasisSimulator()
-                pred = result.get("prediction", {})
-                council_v = f"{pred.get('overall_score', 0)}/10 - {pred.get('verdict', 'Unknown')}"
-                res_ctx = json.dumps(result.get("research", {}), default=str)
-                stg = result.get("extraction", {}).get("stage", "")
-                oasis_result = oasis_sim.simulate(
-                    exec_summary=exec_summary, research_context=res_ctx,
-                    council_verdict=council_v, stage=stg,
-                )
-                result["oasis"] = oasis_result
-                logger.info(f"[BI-REST] OASIS: {oasis_result.get('trajectory')}")
-            except Exception as e:
-                logger.warning(f"[BI-REST] OASIS failed (non-fatal): {e}")
-                result["oasis"] = {}
 
         return result
 
