@@ -23,3 +23,9 @@ dashboard/dist/
 # Persona data (large, downloaded separately)
 subconscious/swarm/data/personas.jsonl
 subconscious/swarm/data/label_index.json
+.gstack/
+ecosystem.config.cjs
+
+# Website portal
+website/mirai_portal.db
+website/__pycache__/

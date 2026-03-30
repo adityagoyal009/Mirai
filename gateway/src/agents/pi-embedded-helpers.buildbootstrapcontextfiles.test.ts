@@ -1,12 +1,10 @@
 import { describe, expect, it } from "vitest";
-import type { OpenClawConfig } from "../config/config.js";
+import type { MiraiConfig } from "../config/config.js";
 import {
   buildBootstrapContextFiles,
   DEFAULT_BOOTSTRAP_MAX_CHARS,
-  DEFAULT_BOOTSTRAP_PROMPT_TRUNCATION_WARNING_MODE,
   DEFAULT_BOOTSTRAP_TOTAL_MAX_CHARS,
   resolveBootstrapMaxChars,
-  resolveBootstrapPromptTruncationWarningMode,
   resolveBootstrapTotalMaxChars,
 } from "./pi-embedded-helpers.js";
 import type { WorkspaceBootstrapFile } from "./workspace.js";
@@ -154,7 +152,7 @@ describe("buildBootstrapContextFiles", () => {
 
 type BootstrapLimitResolverCase = {
   name: "bootstrapMaxChars" | "bootstrapTotalMaxChars";
-  resolve: (cfg?: OpenClawConfig) => number;
+  resolve: (cfg?: MiraiConfig) => number;
   defaultValue: number;
 };
 
@@ -182,7 +180,7 @@ describe("bootstrap limit resolvers", () => {
     for (const resolver of BOOTSTRAP_LIMIT_RESOLVERS) {
       const cfg = {
         agents: { defaults: { [resolver.name]: 12345 } },
-      } as OpenClawConfig;
+      } as MiraiConfig;
       expect(resolver.resolve(cfg)).toBe(12345);
     }
   });
@@ -191,37 +189,8 @@ describe("bootstrap limit resolvers", () => {
     for (const resolver of BOOTSTRAP_LIMIT_RESOLVERS) {
       const cfg = {
         agents: { defaults: { [resolver.name]: -1 } },
-      } as OpenClawConfig;
+      } as MiraiConfig;
       expect(resolver.resolve(cfg)).toBe(resolver.defaultValue);
     }
-  });
-});
-
-describe("resolveBootstrapPromptTruncationWarningMode", () => {
-  it("defaults to once", () => {
-    expect(resolveBootstrapPromptTruncationWarningMode()).toBe(
-      DEFAULT_BOOTSTRAP_PROMPT_TRUNCATION_WARNING_MODE,
-    );
-  });
-
-  it("accepts explicit valid modes", () => {
-    expect(
-      resolveBootstrapPromptTruncationWarningMode({
-        agents: { defaults: { bootstrapPromptTruncationWarning: "off" } },
-      } as OpenClawConfig),
-    ).toBe("off");
-    expect(
-      resolveBootstrapPromptTruncationWarningMode({
-        agents: { defaults: { bootstrapPromptTruncationWarning: "always" } },
-      } as OpenClawConfig),
-    ).toBe("always");
-  });
-
-  it("falls back to default for invalid values", () => {
-    expect(
-      resolveBootstrapPromptTruncationWarningMode({
-        agents: { defaults: { bootstrapPromptTruncationWarning: "invalid" } },
-      } as unknown as OpenClawConfig),
-    ).toBe(DEFAULT_BOOTSTRAP_PROMPT_TRUNCATION_WARNING_MODE);
   });
 });

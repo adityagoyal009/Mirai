@@ -4,8 +4,11 @@ API 1: Analyze text content and generate entity and relationship type definition
 """
 
 import json
+import logging
 from typing import Dict, Any, List, Optional
 from ..utils.llm_client import LLMClient
+
+logger = logging.getLogger(__name__)
 
 
 # System prompt for ontology generation
@@ -264,6 +267,20 @@ Based on the above content, design entity types and relationship types suitable 
             result["edge_types"] = []
         if "analysis_summary" not in result:
             result["analysis_summary"] = ""
+
+        # Validate that ontology is non-empty — an empty ontology means the LLM
+        # returned no usable content and the graph build would be meaningless.
+        if not result["entity_types"]:
+            raise ValueError(
+                "[OntologyGenerator] LLM returned an empty entity_types list. "
+                "Cannot build a knowledge graph with no entity types. "
+                "Check the LLM response and prompt configuration."
+            )
+        if not result["edge_types"]:
+            logger.warning(
+                "[OntologyGenerator] LLM returned an empty edge_types list. "
+                "Graph will have entities but no relationships — simulation quality will be degraded."
+            )
         
         # Validate entity types
         for entity in result["entity_types"]:

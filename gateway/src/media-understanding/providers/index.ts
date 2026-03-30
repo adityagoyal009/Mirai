@@ -1,28 +1,26 @@
 import { normalizeProviderId } from "../../agents/model-selection.js";
-import type { OpenClawConfig } from "../../config/config.js";
-import { loadOpenClawPlugins } from "../../plugins/loader.js";
-import { getActivePluginRegistry } from "../../plugins/runtime.js";
 import type { MediaUnderstandingProvider } from "../types.js";
+import { anthropicProvider } from "./anthropic/index.js";
 import { deepgramProvider } from "./deepgram/index.js";
+import { googleProvider } from "./google/index.js";
 import { groqProvider } from "./groq/index.js";
+import { minimaxProvider } from "./minimax/index.js";
+import { mistralProvider } from "./mistral/index.js";
+import { moonshotProvider } from "./moonshot/index.js";
+import { openaiProvider } from "./openai/index.js";
+import { zaiProvider } from "./zai/index.js";
 
-const PROVIDERS: MediaUnderstandingProvider[] = [groqProvider, deepgramProvider];
-
-function mergeProviderIntoRegistry(
-  registry: Map<string, MediaUnderstandingProvider>,
-  provider: MediaUnderstandingProvider,
-) {
-  const normalizedKey = normalizeMediaProviderId(provider.id);
-  const existing = registry.get(normalizedKey);
-  const merged = existing
-    ? {
-        ...existing,
-        ...provider,
-        capabilities: provider.capabilities ?? existing.capabilities,
-      }
-    : provider;
-  registry.set(normalizedKey, merged);
-}
+const PROVIDERS: MediaUnderstandingProvider[] = [
+  groqProvider,
+  openaiProvider,
+  googleProvider,
+  anthropicProvider,
+  minimaxProvider,
+  moonshotProvider,
+  mistralProvider,
+  zaiProvider,
+  deepgramProvider,
+];
 
 export function normalizeMediaProviderId(id: string): string {
   const normalized = normalizeProviderId(id);
@@ -34,19 +32,10 @@ export function normalizeMediaProviderId(id: string): string {
 
 export function buildMediaUnderstandingRegistry(
   overrides?: Record<string, MediaUnderstandingProvider>,
-  cfg?: OpenClawConfig,
 ): Map<string, MediaUnderstandingProvider> {
   const registry = new Map<string, MediaUnderstandingProvider>();
   for (const provider of PROVIDERS) {
-    mergeProviderIntoRegistry(registry, provider);
-  }
-  const active = getActivePluginRegistry();
-  const pluginRegistry =
-    (active?.mediaUnderstandingProviders?.length ?? 0) > 0
-      ? active
-      : loadOpenClawPlugins({ config: cfg });
-  for (const entry of pluginRegistry?.mediaUnderstandingProviders ?? []) {
-    mergeProviderIntoRegistry(registry, entry.provider);
+    registry.set(normalizeMediaProviderId(provider.id), provider);
   }
   if (overrides) {
     for (const [key, provider] of Object.entries(overrides)) {

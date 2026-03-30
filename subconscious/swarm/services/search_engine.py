@@ -1,28 +1,14 @@
 """
-SearXNG Search Engine — self-hosted metasearch via HTTP JSON API.
+Source credibility utilities for search result scoring.
 
-Replaces DuckDuckGo browser navigation with a fast, structured search.
-SearXNG aggregates 70+ search engines (Google, Bing, DuckDuckGo, Brave,
-Wikipedia) and returns JSON results via a simple HTTP call — no API keys,
-no rate limits, no Playwright overhead.
-
-Usage:
-    engine = SearchEngine()
-    results = engine.search("AI legaltech market size 2026")
-    # → [{"title": "...", "url": "...", "content": "...", "engine": "google"}, ...]
+Used by agentic_researcher.py and brave_search.py.
+SearXNG SearchEngine class removed — all search goes through
+the Agentic Researcher + Gateway Brave API.
 """
-
-import os
-from typing import List, Dict, Any, Optional
-from concurrent.futures import ThreadPoolExecutor, as_completed
-
-import requests
 
 from ..utils.logger import get_logger
 
 logger = get_logger('mirofish.search_engine')
-
-_SEARXNG_URL = os.environ.get("SEARXNG_URL", "http://localhost:8888")
 
 # Source credibility weighting — premium sources get boosted scores
 SOURCE_CREDIBILITY = {
@@ -45,188 +31,57 @@ SOURCE_CREDIBILITY = {
 }
 
 
+def _extract_root_domain(url: str) -> str:
+    """Extract root domain from URL using urlparse for exact matching."""
+    try:
+        from urllib.parse import urlparse
+        hostname = urlparse(url).hostname or ''
+        if hostname.startswith('www.'):
+            hostname = hostname[4:]
+        return hostname
+    except Exception:
+        return ''
+
+
 def _apply_credibility_weights(results: list) -> list:
     """Apply domain-based credibility weighting to search results."""
-    for r in results:
-        url = r.get('url', '')
-        try:
-            domain = url.split('//')[1].split('/')[0] if '//' in url else ''
-        except (IndexError, AttributeError):
-            domain = ''
+    total = len(results) or 1
+    for i, r in enumerate(results):
+        domain = _extract_root_domain(r.get('url', ''))
         weight = 1.0
         for known_domain, w in SOURCE_CREDIBILITY.items():
-            if known_domain in domain:
+            if domain == known_domain or domain.endswith('.' + known_domain):
                 weight = w
                 break
         r['credibility_weight'] = weight
-        r['score'] = r.get('score', 0) * weight
+
+        raw_score = r.get('score', 0) or 0
+        if raw_score > 0:
+            r['score'] = raw_score * weight
+        else:
+            base_score = 1.0 - (i / total) * 0.5
+            r['score'] = base_score * weight
+
     results.sort(key=lambda x: x.get('score', 0), reverse=True)
     return results
 
 
+# Stub for backward compatibility — any code that tries SearchEngine()
+# will get an object that returns empty results instead of crashing.
 class SearchEngine:
-    """
-    SearXNG-backed metasearch engine.
-    Falls back to DuckDuckGo HTML scraping if SearXNG is unavailable.
-    """
-
-    def __init__(self, base_url: Optional[str] = None):
-        self.base_url = base_url or _SEARXNG_URL
-        self._available = None  # cached availability check
-
-    def is_available(self) -> bool:
-        """Check if SearXNG instance is reachable."""
-        if self._available is not None:
-            return self._available
-        try:
-            resp = requests.get(f"{self.base_url}/healthz", timeout=5)
-            self._available = resp.status_code == 200
-        except Exception:
-            # Try the search endpoint as a fallback health check
-            try:
-                resp = requests.get(
-                    f"{self.base_url}/search",
-                    params={"q": "test", "format": "json"},
-                    timeout=5,
-                )
-                self._available = resp.status_code == 200
-            except Exception:
-                self._available = False
-        if not self._available:
-            logger.warning(
-                f"SearXNG not available at {self.base_url}. "
-                f"Start with: docker run -p 8888:8888 searxng/searxng"
-            )
-        return self._available
-
-    def search(
-        self,
-        query: str,
-        categories: str = "general",
-        engines: Optional[str] = None,
-        language: str = "en",
-        max_results: int = 10,
-        time_range: Optional[str] = None,
-    ) -> List[Dict[str, Any]]:
-        """
-        Search via SearXNG JSON API.
-
-        Args:
-            query: Search query string.
-            categories: Comma-separated categories (general, news, science, files, images).
-            engines: Comma-separated engine names (google, bing, duckduckgo, brave, wikipedia).
-            language: Language code (en, de, fr, etc.).
-            max_results: Maximum results to return.
-            time_range: Time filter (day, week, month, year).
-
-        Returns:
-            List of result dicts with keys: title, url, content, engine, score.
-        """
-        if not self.is_available():
-            return []
-
-        params = {
-            "q": query,
-            "format": "json",
-            "categories": categories,
-            "language": language,
-        }
-        if engines:
-            params["engines"] = engines
-        if time_range:
-            params["time_range"] = time_range
-
-        try:
-            resp = requests.get(
-                f"{self.base_url}/search",
-                params=params,
-                timeout=30,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-
-            results = []
-            for item in data.get("results", [])[:max_results]:
-                results.append({
-                    "title": item.get("title", ""),
-                    "url": item.get("url", ""),
-                    "content": item.get("content", ""),
-                    "engine": item.get("engine", ""),
-                    "score": item.get("score", 0.0),
-                })
-
-            results = _apply_credibility_weights(results)
-            logger.info(
-                f"[SearXNG] '{query[:50]}' → {len(results)} results "
-                f"(categories={categories}, credibility-weighted)"
-            )
-            return results
-
-        except requests.exceptions.Timeout:
-            logger.warning(f"[SearXNG] Timeout searching: {query[:50]}")
-            return []
-        except Exception as e:
-            logger.warning(f"[SearXNG] Search failed: {e}")
-            return []
-
-    def search_news(
-        self, query: str, max_results: int = 10, time_range: str = "week"
-    ) -> List[Dict[str, Any]]:
-        """Search specifically for news articles."""
-        return self.search(
-            query=query,
-            categories="news",
-            max_results=max_results,
-            time_range=time_range,
+    """Stub — SearXNG removed. Returns empty results."""
+    def __init__(self, *a, **kw):
+        logger.warning(
+            "[SearchEngine] SearchEngine is a stub — SearXNG has been removed. "
+            "Use BraveSearchEngine instead. All search calls will return empty results."
         )
-
-    def search_batch(
-        self,
-        queries: List[str],
-        max_results_per_query: int = 5,
-        categories: str = "general",
-        max_workers: int = 3,
-    ) -> Dict[str, List[Dict[str, Any]]]:
-        """
-        Search multiple queries in parallel.
-
-        Returns:
-            Dict mapping query → list of results.
-        """
-        results: Dict[str, List[Dict[str, Any]]] = {}
-
-        def _search_one(q: str) -> tuple:
-            return q, self.search(
-                query=q,
-                categories=categories,
-                max_results=max_results_per_query,
-            )
-
-        with ThreadPoolExecutor(max_workers=max_workers) as pool:
-            futures = {pool.submit(_search_one, q): q for q in queries}
-            for future in as_completed(futures):
-                try:
-                    query, query_results = future.result()
-                    results[query] = query_results
-                except Exception as e:
-                    query = futures[future]
-                    logger.warning(f"[SearXNG] Batch query failed: {query[:50]} — {e}")
-                    results[query] = []
-
-        total = sum(len(r) for r in results.values())
-        logger.info(
-            f"[SearXNG] Batch search: {len(queries)} queries → {total} total results"
-        )
-        return results
-
-    def get_urls_for_query(
-        self, query: str, max_urls: int = 5, categories: str = "general"
-    ) -> List[str]:
-        """
-        Convenience: return just the URLs from a search.
-        Used by the BI pipeline to find URLs for browser/Crawl4AI extraction.
-        """
-        results = self.search(
-            query=query, categories=categories, max_results=max_urls
-        )
-        return [r["url"] for r in results if r.get("url")]
+    def is_available(self):
+        return False
+    def search(self, *a, **kw):
+        return []
+    def search_news(self, *a, **kw):
+        return []
+    def search_batch(self, *a, **kw):
+        return {}
+    def get_urls_for_query(self, *a, **kw):
+        return []

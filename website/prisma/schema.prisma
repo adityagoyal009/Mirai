@@ -1,0 +1,94 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id        Int      @id @default(autoincrement())
+  email     String   @unique
+  name      String   @default("")
+  picture   String   @default("")
+  isAdmin   Boolean  @default(false) @map("is_admin")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  submissions Submission[]
+  events      Event[]
+
+  @@map("users")
+}
+
+model Submission {
+  id            Int      @id @default(autoincrement())
+  userId        Int      @map("user_id")
+  companyName   String   @map("company_name")
+  websiteUrl    String   @default("") @map("website_url")
+  industry      String   @default("")
+  stage         String   @default("")
+  oneLiner      String   @default("") @map("one_liner")
+  customers     String   @default("")
+  businessModel String   @default("") @map("business_model")
+  traction      String   @default("")
+  deckUrl       String   @default("") @map("deck_url")
+  advantage     String   @default("")
+  risk          String   @default("")
+  location      String   @default("")
+  yearFounded   String   @default("") @map("year_founded")
+  pricing       String   @default("")
+  revenue       String   @default("")
+  funding       String   @default("")
+  team          String   @default("")
+  ask           String   @default("")
+  competitors   String   @default("")
+  extraContext           String   @default("") @map("extra_context")
+  country               String   @default("")
+  industryPriorityAreas String   @default("") @map("industry_priority_areas")
+  keywords              String   @default("")
+  hasCustomers          String   @default("") @map("has_customers")
+  generatingRevenue     String   @default("") @map("generating_revenue")
+  currentlyFundraising  String   @default("") @map("currently_fundraising")
+  referralSource        String   @default("") @map("referral_source")
+  status        String   @default("queued")
+  adminNotes    String   @default("") @map("admin_notes")
+  reportUrl     String   @default("") @map("report_url")
+  score         Float?   @map("score")
+  verdict       String   @default("") @map("verdict")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  user   User    @relation(fields: [userId], references: [id])
+  events Event[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("submissions")
+}
+
+model Event {
+  id           Int      @id @default(autoincrement())
+  event        String
+  submissionId Int?     @map("submission_id")
+  userId       Int?     @map("user_id")
+  meta         String   @default("{}")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  submission Submission? @relation(fields: [submissionId], references: [id])
+  user       User?       @relation(fields: [userId], references: [id])
+
+  @@index([createdAt])
+  @@map("events")
+}
+
+model DailyUsage {
+  id        Int      @id @default(autoincrement())
+  day       String   @unique
+  count     Int      @default(0)
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("daily_usage")
+}

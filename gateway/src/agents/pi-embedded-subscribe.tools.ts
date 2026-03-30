@@ -142,7 +142,6 @@ const TRUSTED_TOOL_RESULT_MEDIA = new Set([
   "exec",
   "gateway",
   "image",
-  "image_generate",
   "memory_get",
   "memory_search",
   "message",
@@ -188,7 +187,7 @@ export function filterToolResultMediaUrls(
  *
  * Strategy (first match wins):
  * 1. Parse `MEDIA:` tokens from text content blocks (all Mirai tools).
- * 2. Fall back to `details.path` when image content exists (OpenClaw imageResult).
+ * 2. Fall back to `details.path` when image content exists (Mirai imageResult).
  *
  * Returns an empty array when no media is found (e.g. Pi SDK `read` tool
  * returns base64 image data but no file path; those need a different delivery

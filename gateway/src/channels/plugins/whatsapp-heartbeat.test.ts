@@ -1,32 +1,38 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { OpenClawConfig } from "../../config/config.js";
 
-const loadSessionStoreMock = vi.hoisted(() => vi.fn());
-const readChannelAllowFromStoreSyncMock = vi.hoisted(() => vi.fn<() => string[]>(() => []));
+vi.mock("../../config/sessions.js", () => ({
+  loadSessionStore: vi.fn(),
+  resolveStorePath: vi.fn(() => "/tmp/test-sessions.json"),
+}));
 
-type WhatsAppHeartbeatModule = typeof import("./whatsapp-heartbeat.js");
+vi.mock("../../pairing/pairing-store.js", () => ({
+  readChannelAllowFromStoreSync: vi.fn(() => []),
+}));
 
-let resolveWhatsAppHeartbeatRecipients: WhatsAppHeartbeatModule["resolveWhatsAppHeartbeatRecipients"];
+import type { MiraiConfig } from "../../config/config.js";
+import { loadSessionStore } from "../../config/sessions.js";
+import { readChannelAllowFromStoreSync } from "../../pairing/pairing-store.js";
+import { resolveWhatsAppHeartbeatRecipients } from "./whatsapp-heartbeat.js";
 
-function makeCfg(overrides?: Partial<OpenClawConfig>): OpenClawConfig {
+function makeCfg(overrides?: Partial<MiraiConfig>): MiraiConfig {
   return {
     bindings: [],
     channels: {},
     ...overrides,
-  } as OpenClawConfig;
+  } as MiraiConfig;
 }
 
 describe("resolveWhatsAppHeartbeatRecipients", () => {
-  function setSessionStore(store: Record<string, unknown>) {
-    loadSessionStoreMock.mockReturnValue(store);
+  function setSessionStore(store: ReturnType<typeof loadSessionStore>) {
+    vi.mocked(loadSessionStore).mockReturnValue(store);
   }
 
   function setAllowFromStore(entries: string[]) {
-    readChannelAllowFromStoreSyncMock.mockReturnValue(entries);
+    vi.mocked(readChannelAllowFromStoreSync).mockReturnValue(entries);
   }
 
   function resolveWith(
-    cfgOverrides: Partial<OpenClawConfig> = {},
+    cfgOverrides: Partial<MiraiConfig> = {},
     opts?: Parameters<typeof resolveWhatsAppHeartbeatRecipients>[1],
   ) {
     return resolveWhatsAppHeartbeatRecipients(makeCfg(cfgOverrides), opts);
@@ -39,18 +45,9 @@ describe("resolveWhatsAppHeartbeatRecipients", () => {
     setAllowFromStore(["+15550000001"]);
   }
 
-  beforeEach(async () => {
-    vi.resetModules();
-    loadSessionStoreMock.mockReset();
-    readChannelAllowFromStoreSyncMock.mockReset();
-    vi.doMock("../../config/sessions.js", () => ({
-      loadSessionStore: loadSessionStoreMock,
-      resolveStorePath: vi.fn(() => "/tmp/test-sessions.json"),
-    }));
-    vi.doMock("../../pairing/pairing-store.js", () => ({
-      readChannelAllowFromStoreSync: readChannelAllowFromStoreSyncMock,
-    }));
-    ({ resolveWhatsAppHeartbeatRecipients } = await import("./whatsapp-heartbeat.js"));
+  beforeEach(() => {
+    vi.mocked(loadSessionStore).mockClear();
+    vi.mocked(readChannelAllowFromStoreSync).mockClear();
     setAllowFromStore([]);
   });
 
@@ -132,7 +129,7 @@ describe("resolveWhatsAppHeartbeatRecipients", () => {
       a: { lastChannel: "whatsapp", lastTo: "+15550000001", updatedAt: 2, sessionId: "a" },
     });
     const result = resolveWith({
-      session: { scope: "global" } as OpenClawConfig["session"],
+      session: { scope: "global" } as MiraiConfig["session"],
       channels: { whatsapp: { allowFrom: ["*", "+15550000009"] } as never },
     });
     expect(result).toEqual({ recipients: ["+15550000009"], source: "allowFrom" });

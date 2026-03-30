@@ -62,8 +62,8 @@ Mirai/
 │   │   │   │                       #   Research-council feedback loop
 │   │   │   │
 │   │   │   ├── swarm_predictor.py  # Swarm engine (800+ lines)
-│   │   │   │                       #   Wave 1: Individual LLM calls (25 workers)
-│   │   │   │                       #   Wave 2: Batch calls (25 per call)
+│   │   │   │                       #   Wave 1: Individual LLM calls (8 workers)
+│   │   │   │                       #   DELIBERATION_WEIGHT=1.0 (equal weight)
 │   │   │   │                       #   Divergence detection (z-score outliers)
 │   │   │   │                       #   Committee deliberation (5-6 members)
 │   │   │   │                       #   Verdict blending (median + consensus)
@@ -193,9 +193,9 @@ Dimensions and default weights:
 - **Role deduplication**: up to 5 retries per zone
 - **Customer geography weighting**: 70% from target market region
 
-**Full-swarm divergence**: Wave 1 (individual LLM calls, 25 workers) + Wave 2 (batch calls, 25 per batch). Both waves contribute to divergence detection, not just Wave 1.
+**Full-swarm divergence**: Wave 1 (individual LLM calls, 8 workers). Workers reduced from 25 to 8 to stay under NVIDIA NIM 40 RPM limit (all 6 swarm models are NVIDIA).
 
-**Verdict blending**: Uses MORE CONSERVATIVE of council vs swarm verdict. 19% swarm HIT can't be "Likely Hit" regardless of council score. New "Mixed Signal" verdict for split decisions. `DELIBERATION_WEIGHT=3.0` configurable weighted aggregation controls how much deliberation adjusts final scores.
+**Verdict blending**: Council verdict stands. Swarm divergence is surfaced as an advisory note (not a hard override). `DELIBERATION_WEIGHT=1.0` (equal weight for all agents, reduced from 1.5). Committee no longer overrides swarm diversity.
 
 **Confidence**: Blended council + swarm agreement-based (1 - std/3). Not static. **Confidence-weighted committee members**: each member's influence on final score is proportional to their confidence level.
 
@@ -205,7 +205,7 @@ Dimensions and default weights:
 - `_select_committee()` picks 5-6 diverse agents: strongest bull, strongest bear, most conflicted, zone dissenter, unique wild card, operator (if all missed)
 - Round 1: Each member writes position statement addressing their biggest disagreement
 - Round 2: Chair synthesizes consensus points, unresolved tensions, recommendation
-- Score adjustments feed into final aggregation (weighted by `DELIBERATION_WEIGHT`)
+- Score adjustments feed into final aggregation (DELIBERATION_WEIGHT=1.0, equal weight)
 
 ### Phase 4: OASIS Market Simulation
 - 6-month multi-round simulation with **swarm-sourced 12-agent panel** (drawn from swarm results, not hardcoded roles)
@@ -345,7 +345,7 @@ The cortex heartbeat loop processes these JSON actions from the LLM:
 | `browser_navigate` | browser-use Agent | Navigate + interact with web pages autonomously |
 | `terminal_command` | E2B sandbox / subprocess | Execute shell commands (code → sandbox, safe → subprocess) |
 | `swarm_predict` | HTTP → Flask `/api/predict/` | Wargame scenarios via MiroFish simulation |
-| `analyze_business` | HTTP → Flask `/api/bi/analyze` | BI engine: research → predict → plan |
+| `analyze_business` | HTTP → FastAPI `/api/bi/analyze` | BI engine: research → council → swarm → plan → OASIS (async job, poll `/api/bi/job/{id}`) |
 | `message_human` | `mirai message send` | Send WhatsApp messages to operator |
 | `standby` | (no-op) | Idle state |
 
@@ -503,7 +503,7 @@ Phase 2: Council Predict
     ↓
 Phase 2b: Swarm Prediction
     ├→ Persona Engine: 88.5B+ combos, contextual curation, 6 zones
-    ├→ Wave 1: individual calls (25 workers) + Wave 2: batch (25 per call)
+    ├→ Wave 1: individual calls (8 workers, NVIDIA 40 RPM safe)
     ├→ Divergence detection (z-score, zone agreement)
     ├→ Committee deliberation (5-6 members, chair synthesis)
     ├→ Verdict blending: MORE CONSERVATIVE of council vs swarm
@@ -559,8 +559,7 @@ Storage: ChromaDB + Action Logs (JSONL)
 
 | Component | Workers | Limit |
 |-----------|---------|-------|
-| Swarm Wave 1 | 25 | Individual persona calls |
-| Swarm Wave 2 | 10 | Batch calls (25 per batch) |
+| Swarm Wave 1 | 8 | Individual persona calls (NVIDIA 40 RPM safe) |
 | OASIS rounds | 6 | Sequential (agents parallel within round) |
 | Deliberation | 6 | Committee position statements parallel |
 | Research | 3 | Parallel model research |

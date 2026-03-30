@@ -4,7 +4,7 @@ import type { AcpInitializeSessionInput } from "../acp/control-plane/manager.typ
 import {
   clearRuntimeConfigSnapshot,
   setRuntimeConfigSnapshot,
-  type OpenClawConfig,
+  type MiraiConfig,
 } from "../config/config.js";
 import * as sessionConfig from "../config/sessions.js";
 import * as sessionTranscript from "../config/sessions/transcript.js";
@@ -19,7 +19,7 @@ import {
 } from "../infra/outbound/session-binding-service.js";
 import * as acpSpawnParentStream from "./acp-spawn-parent-stream.js";
 
-function createDefaultSpawnConfig(): OpenClawConfig {
+function createDefaultSpawnConfig(): MiraiConfig {
   return {
     acp: {
       enabled: true,
@@ -93,7 +93,7 @@ const resolveAcpSpawnStreamLogPathSpy = vi.spyOn(
 
 const { spawnAcpDirect } = await import("./acp-spawn.js");
 
-function replaceSpawnConfig(next: OpenClawConfig): void {
+function replaceSpawnConfig(next: MiraiConfig): void {
   const current = hoisted.state.cfg as Record<string, unknown>;
   for (const key of Object.keys(current)) {
     delete current[key];

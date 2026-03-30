@@ -6,13 +6,12 @@ import {
   buildAllowedModelSet,
   type ModelAliasIndex,
   modelKey,
-  normalizeModelRef,
   normalizeProviderId,
   resolveModelRefFromString,
   resolveReasoningDefault,
   resolveThinkingDefault,
 } from "../../agents/model-selection.js";
-import type { OpenClawConfig } from "../../config/config.js";
+import type { MiraiConfig } from "../../config/config.js";
 import { type SessionEntry, updateSessionStore } from "../../config/sessions.js";
 import { applyModelOverrideToSessionEntry } from "../../sessions/model-overrides.js";
 import { resolveThreadParentSessionKey } from "../../sessions/session-key-utils.js";
@@ -263,9 +262,8 @@ function scoreFuzzyMatch(params: {
 }
 
 export async function createModelSelectionState(params: {
-  cfg: OpenClawConfig;
-  agentId?: string;
-  agentCfg: NonNullable<NonNullable<OpenClawConfig["agents"]>["defaults"]> | undefined;
+  cfg: MiraiConfig;
+  agentCfg: NonNullable<NonNullable<MiraiConfig["agents"]>["defaults"]> | undefined;
   sessionEntry?: SessionEntry;
   sessionStore?: Record<string, SessionEntry>;
   sessionKey?: string;
@@ -317,7 +315,6 @@ export async function createModelSelectionState(params: {
       catalog: modelCatalog,
       defaultProvider,
       defaultModel,
-      agentId: params.agentId,
     });
     allowedModelCatalog = allowed.allowedCatalog;
     allowedModelKeys = allowed.allowedKeys;
@@ -327,8 +324,7 @@ export async function createModelSelectionState(params: {
     const overrideProvider = sessionEntry.providerOverride?.trim() || defaultProvider;
     const overrideModel = sessionEntry.modelOverride?.trim();
     if (overrideModel) {
-      const normalizedOverride = normalizeModelRef(overrideProvider, overrideModel);
-      const key = modelKey(normalizedOverride.provider, normalizedOverride.model);
+      const key = modelKey(overrideProvider, overrideModel);
       if (allowedModelKeys.size > 0 && !allowedModelKeys.has(key)) {
         const { updated } = applyModelOverrideToSessionEntry({
           entry: sessionEntry,
@@ -358,19 +354,16 @@ export async function createModelSelectionState(params: {
   // the regular session/parent model override behavior.
   const skipStoredOverride = params.hasResolvedHeartbeatModelOverride === true;
   if (storedOverride?.model && !skipStoredOverride) {
-    const normalizedStoredOverride = normalizeModelRef(
-      storedOverride.provider || defaultProvider,
-      storedOverride.model,
-    );
-    const key = modelKey(normalizedStoredOverride.provider, normalizedStoredOverride.model);
+    const candidateProvider = storedOverride.provider || defaultProvider;
+    const key = modelKey(candidateProvider, storedOverride.model);
     if (allowedModelKeys.size === 0 || allowedModelKeys.has(key)) {
-      provider = normalizedStoredOverride.provider;
-      model = normalizedStoredOverride.model;
+      provider = candidateProvider;
+      model = storedOverride.model;
     }
   }
 
   if (sessionEntry && sessionStore && sessionKey && sessionEntry.authProfileOverride) {
-    const { ensureAuthProfileStore } = await import("../../agents/auth-profiles.runtime.js");
+    const { ensureAuthProfileStore } = await import("../../agents/auth-profiles.js");
     const store = ensureAuthProfileStore(undefined, {
       allowKeychainPrompt: false,
     });
@@ -606,7 +599,7 @@ export function resolveModelDirectiveSelection(params: {
 }
 
 export function resolveContextTokens(params: {
-  agentCfg: NonNullable<NonNullable<OpenClawConfig["agents"]>["defaults"]> | undefined;
+  agentCfg: NonNullable<NonNullable<MiraiConfig["agents"]>["defaults"]> | undefined;
   model: string;
 }): number {
   return (

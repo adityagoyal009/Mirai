@@ -187,7 +187,7 @@ export class OfficeState {
     investor:   [{col:3,row:4},{col:3,row:8},{col:3,row:12},{col:8,row:4},{col:8,row:8},{col:8,row:12}],
     customer:   [{col:15,row:4},{col:15,row:8},{col:15,row:12},{col:21,row:4},{col:21,row:8},{col:21,row:12}],
     operator:   [{col:29,row:3},{col:29,row:6},{col:29,row:9},{col:29,row:12},{col:34,row:3},{col:34,row:6},{col:34,row:9},{col:34,row:12}],
-    council:    [{col:42,row:7},{col:45,row:7},{col:42,row:9},{col:45,row:9}],
+    council:    [{col:41,row:5},{col:41,row:8},{col:47,row:5},{col:47,row:8},{col:43,row:3},{col:45,row:3},{col:43,row:11},{col:45,row:11}],
     analyst:    [{col:3,row:20},{col:3,row:24},{col:3,row:28},{col:8,row:20},{col:8,row:24},{col:8,row:28}],
     contrarian: [{col:17,row:22},{col:20,row:22},{col:16,row:26},{col:16,row:29},{col:16,row:32},{col:22,row:26},{col:22,row:29}],
     wildcard:   [{col:28,row:20},{col:28,row:24},{col:28,row:28},{col:35,row:20},{col:35,row:24},{col:35,row:28},{col:41,row:19},{col:41,row:24},{col:44,row:25},{col:44,row:28}],

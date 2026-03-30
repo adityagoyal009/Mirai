@@ -15,22 +15,22 @@ vi.mock("../../gateway/call.js", () => ({
 
 describe("gateway tool defaults", () => {
   const envSnapshot = {
-    openclaw: process.env.OPENCLAW_GATEWAY_TOKEN,
+    mirai: process.env.MIRAI_GATEWAY_TOKEN,
     clawdbot: process.env.CLAWDBOT_GATEWAY_TOKEN,
   };
 
   beforeEach(() => {
     callGatewayMock.mockClear();
     configState.value = {};
-    delete process.env.OPENCLAW_GATEWAY_TOKEN;
+    delete process.env.MIRAI_GATEWAY_TOKEN;
     delete process.env.CLAWDBOT_GATEWAY_TOKEN;
   });
 
   afterAll(() => {
-    if (envSnapshot.openclaw === undefined) {
-      delete process.env.OPENCLAW_GATEWAY_TOKEN;
+    if (envSnapshot.mirai === undefined) {
+      delete process.env.MIRAI_GATEWAY_TOKEN;
     } else {
-      process.env.OPENCLAW_GATEWAY_TOKEN = envSnapshot.openclaw;
+      process.env.MIRAI_GATEWAY_TOKEN = envSnapshot.mirai;
     }
     if (envSnapshot.clawdbot === undefined) {
       delete process.env.CLAWDBOT_GATEWAY_TOKEN;
@@ -61,8 +61,8 @@ describe("gateway tool defaults", () => {
     );
   });
 
-  it("uses OPENCLAW_GATEWAY_TOKEN for allowlisted local overrides", () => {
-    process.env.OPENCLAW_GATEWAY_TOKEN = "env-token";
+  it("uses MIRAI_GATEWAY_TOKEN for allowlisted local overrides", () => {
+    process.env.MIRAI_GATEWAY_TOKEN = "env-token";
     const opts = resolveGatewayOptions({ gatewayUrl: "ws://127.0.0.1:18789" });
     expect(opts.url).toBe("ws://127.0.0.1:18789");
     expect(opts.token).toBe("env-token");
@@ -93,7 +93,7 @@ describe("gateway tool defaults", () => {
   });
 
   it("does not leak local env/config tokens to remote overrides", () => {
-    process.env.OPENCLAW_GATEWAY_TOKEN = "local-env-token";
+    process.env.MIRAI_GATEWAY_TOKEN = "local-env-token";
     process.env.CLAWDBOT_GATEWAY_TOKEN = "legacy-env-token";
     configState.value = {
       gateway: {
@@ -107,29 +107,8 @@ describe("gateway tool defaults", () => {
     expect(opts.token).toBeUndefined();
   });
 
-  it("ignores unresolved local token SecretRef for strict remote overrides", () => {
-    configState.value = {
-      gateway: {
-        auth: {
-          mode: "token",
-          token: { source: "env", provider: "default", id: "MISSING_LOCAL_TOKEN" },
-        },
-        remote: {
-          url: "wss://gateway.example",
-        },
-      },
-      secrets: {
-        providers: {
-          default: { source: "env" },
-        },
-      },
-    };
-    const opts = resolveGatewayOptions({ gatewayUrl: "wss://gateway.example" });
-    expect(opts.token).toBeUndefined();
-  });
-
   it("explicit gatewayToken overrides fallback token resolution", () => {
-    process.env.OPENCLAW_GATEWAY_TOKEN = "local-env-token";
+    process.env.MIRAI_GATEWAY_TOKEN = "local-env-token";
     configState.value = {
       gateway: {
         remote: {

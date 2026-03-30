@@ -1,19 +1,18 @@
 import { resolveChannelDefaultAccountId } from "../channels/plugins/helpers.js";
 import { getChannelPlugin, normalizeChannelId } from "../channels/plugins/index.js";
 import type { ChannelId } from "../channels/plugins/types.js";
-import { isRouteBinding, listRouteBindings } from "../config/bindings.js";
-import type { OpenClawConfig } from "../config/config.js";
-import type { AgentRouteBinding } from "../config/types.js";
+import type { MiraiConfig } from "../config/config.js";
+import type { AgentBinding } from "../config/types.js";
 import { DEFAULT_ACCOUNT_ID, normalizeAgentId } from "../routing/session-key.js";
 import type { ChannelChoice } from "./onboard-types.js";
 
-function bindingMatchKey(match: AgentRouteBinding["match"]) {
+function bindingMatchKey(match: AgentBinding["match"]) {
   const accountId = match.accountId?.trim() || DEFAULT_ACCOUNT_ID;
   const identityKey = bindingMatchIdentityKey(match);
   return [identityKey, accountId].join("|");
 }
 
-function bindingMatchIdentityKey(match: AgentRouteBinding["match"]) {
+function bindingMatchIdentityKey(match: AgentBinding["match"]) {
   const roles = Array.isArray(match.roles)
     ? Array.from(
         new Set(
@@ -35,8 +34,8 @@ function bindingMatchIdentityKey(match: AgentRouteBinding["match"]) {
 }
 
 function canUpgradeBindingAccountScope(params: {
-  existing: AgentRouteBinding;
-  incoming: AgentRouteBinding;
+  existing: AgentBinding;
+  incoming: AgentBinding;
   normalizedIncomingAgentId: string;
 }): boolean {
   if (!params.incoming.match.accountId?.trim()) {
@@ -54,7 +53,7 @@ function canUpgradeBindingAccountScope(params: {
   );
 }
 
-export function describeBinding(binding: AgentRouteBinding) {
+export function describeBinding(binding: AgentBinding) {
   const match = binding.match;
   const parts = [match.channel];
   if (match.accountId) {
@@ -73,29 +72,28 @@ export function describeBinding(binding: AgentRouteBinding) {
 }
 
 export function applyAgentBindings(
-  cfg: OpenClawConfig,
-  bindings: AgentRouteBinding[],
+  cfg: MiraiConfig,
+  bindings: AgentBinding[],
 ): {
-  config: OpenClawConfig;
-  added: AgentRouteBinding[];
-  updated: AgentRouteBinding[];
-  skipped: AgentRouteBinding[];
-  conflicts: Array<{ binding: AgentRouteBinding; existingAgentId: string }>;
+  config: MiraiConfig;
+  added: AgentBinding[];
+  updated: AgentBinding[];
+  skipped: AgentBinding[];
+  conflicts: Array<{ binding: AgentBinding; existingAgentId: string }>;
 } {
-  const existingRoutes = [...listRouteBindings(cfg)];
-  const nonRouteBindings = (cfg.bindings ?? []).filter((binding) => !isRouteBinding(binding));
+  const existing = [...(cfg.bindings ?? [])];
   const existingMatchMap = new Map<string, string>();
-  for (const binding of existingRoutes) {
+  for (const binding of existing) {
     const key = bindingMatchKey(binding.match);
     if (!existingMatchMap.has(key)) {
       existingMatchMap.set(key, normalizeAgentId(binding.agentId));
     }
   }
 
-  const added: AgentRouteBinding[] = [];
-  const updated: AgentRouteBinding[] = [];
-  const skipped: AgentRouteBinding[] = [];
-  const conflicts: Array<{ binding: AgentRouteBinding; existingAgentId: string }> = [];
+  const added: AgentBinding[] = [];
+  const updated: AgentBinding[] = [];
+  const skipped: AgentBinding[] = [];
+  const conflicts: Array<{ binding: AgentBinding; existingAgentId: string }> = [];
 
   for (const binding of bindings) {
     const agentId = normalizeAgentId(binding.agentId);
@@ -110,7 +108,7 @@ export function applyAgentBindings(
       continue;
     }
 
-    const upgradeIndex = existingRoutes.findIndex((candidate) =>
+    const upgradeIndex = existing.findIndex((candidate) =>
       canUpgradeBindingAccountScope({
         existing: candidate,
         incoming: binding,
@@ -118,12 +116,12 @@ export function applyAgentBindings(
       }),
     );
     if (upgradeIndex >= 0) {
-      const current = existingRoutes[upgradeIndex];
+      const current = existing[upgradeIndex];
       if (!current) {
         continue;
       }
       const previousKey = bindingMatchKey(current.match);
-      const upgradedBinding: AgentRouteBinding = {
+      const upgradedBinding: AgentBinding = {
         ...current,
         agentId,
         match: {
@@ -131,7 +129,7 @@ export function applyAgentBindings(
           accountId: binding.match.accountId?.trim(),
         },
       };
-      existingRoutes[upgradeIndex] = upgradedBinding;
+      existing[upgradeIndex] = upgradedBinding;
       existingMatchMap.delete(previousKey);
       existingMatchMap.set(bindingMatchKey(upgradedBinding.match), agentId);
       updated.push(upgradedBinding);
@@ -149,7 +147,7 @@ export function applyAgentBindings(
   return {
     config: {
       ...cfg,
-      bindings: [...existingRoutes, ...added, ...nonRouteBindings],
+      bindings: [...existing, ...added],
     },
     added,
     updated,
@@ -159,31 +157,30 @@ export function applyAgentBindings(
 }
 
 export function removeAgentBindings(
-  cfg: OpenClawConfig,
-  bindings: AgentRouteBinding[],
+  cfg: MiraiConfig,
+  bindings: AgentBinding[],
 ): {
-  config: OpenClawConfig;
-  removed: AgentRouteBinding[];
-  missing: AgentRouteBinding[];
-  conflicts: Array<{ binding: AgentRouteBinding; existingAgentId: string }>;
+  config: MiraiConfig;
+  removed: AgentBinding[];
+  missing: AgentBinding[];
+  conflicts: Array<{ binding: AgentBinding; existingAgentId: string }>;
 } {
-  const existingRoutes = listRouteBindings(cfg);
-  const nonRouteBindings = (cfg.bindings ?? []).filter((binding) => !isRouteBinding(binding));
+  const existing = cfg.bindings ?? [];
   const removeIndexes = new Set<number>();
-  const removed: AgentRouteBinding[] = [];
-  const missing: AgentRouteBinding[] = [];
-  const conflicts: Array<{ binding: AgentRouteBinding; existingAgentId: string }> = [];
+  const removed: AgentBinding[] = [];
+  const missing: AgentBinding[] = [];
+  const conflicts: Array<{ binding: AgentBinding; existingAgentId: string }> = [];
 
   for (const binding of bindings) {
     const desiredAgentId = normalizeAgentId(binding.agentId);
     const key = bindingMatchKey(binding.match);
     let matchedIndex = -1;
     let conflictingAgentId: string | null = null;
-    for (let i = 0; i < existingRoutes.length; i += 1) {
+    for (let i = 0; i < existing.length; i += 1) {
       if (removeIndexes.has(i)) {
         continue;
       }
-      const current = existingRoutes[i];
+      const current = existing[i];
       if (!current || bindingMatchKey(current.match) !== key) {
         continue;
       }
@@ -195,7 +192,7 @@ export function removeAgentBindings(
       conflictingAgentId = currentAgentId;
     }
     if (matchedIndex >= 0) {
-      const matched = existingRoutes[matchedIndex];
+      const matched = existing[matchedIndex];
       if (matched) {
         removeIndexes.add(matchedIndex);
         removed.push(matched);
@@ -213,8 +210,7 @@ export function removeAgentBindings(
     return { config: cfg, removed, missing, conflicts };
   }
 
-  const nextRouteBindings = existingRoutes.filter((_, index) => !removeIndexes.has(index));
-  const nextBindings = [...nextRouteBindings, ...nonRouteBindings];
+  const nextBindings = existing.filter((_, index) => !removeIndexes.has(index));
   return {
     config: {
       ...cfg,
@@ -226,7 +222,7 @@ export function removeAgentBindings(
   };
 }
 
-function resolveDefaultAccountId(cfg: OpenClawConfig, provider: ChannelId): string {
+function resolveDefaultAccountId(cfg: MiraiConfig, provider: ChannelId): string {
   const plugin = getChannelPlugin(provider);
   if (!plugin) {
     return DEFAULT_ACCOUNT_ID;
@@ -236,7 +232,7 @@ function resolveDefaultAccountId(cfg: OpenClawConfig, provider: ChannelId): stri
 
 function resolveBindingAccountId(params: {
   channel: ChannelId;
-  config: OpenClawConfig;
+  config: MiraiConfig;
   agentId: string;
   explicitAccountId?: string;
 }): string | undefined {
@@ -264,13 +260,13 @@ function resolveBindingAccountId(params: {
 export function buildChannelBindings(params: {
   agentId: string;
   selection: ChannelChoice[];
-  config: OpenClawConfig;
+  config: MiraiConfig;
   accountIds?: Partial<Record<ChannelChoice, string>>;
-}): AgentRouteBinding[] {
-  const bindings: AgentRouteBinding[] = [];
+}): AgentBinding[] {
+  const bindings: AgentBinding[] = [];
   const agentId = normalizeAgentId(params.agentId);
   for (const channel of params.selection) {
-    const match: AgentRouteBinding["match"] = { channel };
+    const match: AgentBinding["match"] = { channel };
     const accountId = resolveBindingAccountId({
       channel,
       config: params.config,
@@ -280,7 +276,7 @@ export function buildChannelBindings(params: {
     if (accountId) {
       match.accountId = accountId;
     }
-    bindings.push({ type: "route", agentId, match });
+    bindings.push({ agentId, match });
   }
   return bindings;
 }
@@ -288,9 +284,9 @@ export function buildChannelBindings(params: {
 export function parseBindingSpecs(params: {
   agentId: string;
   specs?: string[];
-  config: OpenClawConfig;
-}): { bindings: AgentRouteBinding[]; errors: string[] } {
-  const bindings: AgentRouteBinding[] = [];
+  config: MiraiConfig;
+}): { bindings: AgentBinding[]; errors: string[] } {
+  const bindings: AgentBinding[] = [];
   const errors: string[] = [];
   const specs = params.specs ?? [];
   const agentId = normalizeAgentId(params.agentId);
@@ -316,11 +312,11 @@ export function parseBindingSpecs(params: {
       agentId,
       explicitAccountId: accountId,
     });
-    const match: AgentRouteBinding["match"] = { channel };
+    const match: AgentBinding["match"] = { channel };
     if (accountId) {
       match.accountId = accountId;
     }
-    bindings.push({ type: "route", agentId, match });
+    bindings.push({ agentId, match });
   }
   return { bindings, errors };
 }

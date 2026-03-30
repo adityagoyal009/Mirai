@@ -1,14 +1,12 @@
 import crypto from "node:crypto";
 import path from "node:path";
 import type { AgentMessage, StreamFn } from "@mariozechner/pi-agent-core";
-import type { OpenClawConfig } from "../config/config.js";
+import type { MiraiConfig } from "../config/config.js";
 import { resolveStateDir } from "../config/paths.js";
 import { resolveUserPath } from "../utils.js";
 import { parseBooleanValue } from "../utils/boolean.js";
 import { safeJsonStringify } from "../utils/safe-json.js";
-import { redactImageDataForDiagnostics } from "./payload-redaction.js";
 import { getQueuedFileWriter, type QueuedFileWriter } from "./queued-file-writer.js";
-import { buildAgentTraceBase } from "./trace-base.js";
 
 export type CacheTraceStage =
   | "session:loaded"
@@ -52,7 +50,7 @@ export type CacheTrace = {
 };
 
 type CacheTraceInit = {
-  cfg?: OpenClawConfig;
+  cfg?: MiraiConfig;
   env?: NodeJS.ProcessEnv;
   runId?: string;
   sessionId?: string;
@@ -79,17 +77,17 @@ const writers = new Map<string, CacheTraceWriter>();
 function resolveCacheTraceConfig(params: CacheTraceInit): CacheTraceConfig {
   const env = params.env ?? process.env;
   const config = params.cfg?.diagnostics?.cacheTrace;
-  const envEnabled = parseBooleanValue(env.OPENCLAW_CACHE_TRACE);
+  const envEnabled = parseBooleanValue(env.MIRAI_CACHE_TRACE);
   const enabled = envEnabled ?? config?.enabled ?? false;
-  const fileOverride = config?.filePath?.trim() || env.OPENCLAW_CACHE_TRACE_FILE?.trim();
+  const fileOverride = config?.filePath?.trim() || env.MIRAI_CACHE_TRACE_FILE?.trim();
   const filePath = fileOverride
     ? resolveUserPath(fileOverride)
     : path.join(resolveStateDir(env), "logs", "cache-trace.jsonl");
 
   const includeMessages =
-    parseBooleanValue(env.OPENCLAW_CACHE_TRACE_MESSAGES) ?? config?.includeMessages;
-  const includePrompt = parseBooleanValue(env.OPENCLAW_CACHE_TRACE_PROMPT) ?? config?.includePrompt;
-  const includeSystem = parseBooleanValue(env.OPENCLAW_CACHE_TRACE_SYSTEM) ?? config?.includeSystem;
+    parseBooleanValue(env.MIRAI_CACHE_TRACE_MESSAGES) ?? config?.includeMessages;
+  const includePrompt = parseBooleanValue(env.MIRAI_CACHE_TRACE_PROMPT) ?? config?.includePrompt;
+  const includeSystem = parseBooleanValue(env.MIRAI_CACHE_TRACE_SYSTEM) ?? config?.includeSystem;
 
   return {
     enabled,
@@ -104,7 +102,7 @@ function getWriter(filePath: string): CacheTraceWriter {
   return getQueuedFileWriter(writers, filePath);
 }
 
-function stableStringify(value: unknown, seen: WeakSet<object> = new WeakSet()): string {
+function stableStringify(value: unknown): string {
   if (value === null || value === undefined) {
     return String(value);
   }
@@ -117,40 +115,30 @@ function stableStringify(value: unknown, seen: WeakSet<object> = new WeakSet()):
   if (typeof value !== "object") {
     return JSON.stringify(value) ?? "null";
   }
-  if (seen.has(value)) {
-    return JSON.stringify("[Circular]");
-  }
-  seen.add(value);
   if (value instanceof Error) {
-    return stableStringify(
-      {
-        name: value.name,
-        message: value.message,
-        stack: value.stack,
-      },
-      seen,
-    );
+    return stableStringify({
+      name: value.name,
+      message: value.message,
+      stack: value.stack,
+    });
   }
   if (value instanceof Uint8Array) {
-    return stableStringify(
-      {
-        type: "Uint8Array",
-        data: Buffer.from(value).toString("base64"),
-      },
-      seen,
-    );
+    return stableStringify({
+      type: "Uint8Array",
+      data: Buffer.from(value).toString("base64"),
+    });
   }
   if (Array.isArray(value)) {
     const serializedEntries: string[] = [];
     for (const entry of value) {
-      serializedEntries.push(stableStringify(entry, seen));
+      serializedEntries.push(stableStringify(entry));
     }
     return `[${serializedEntries.join(",")}]`;
   }
   const record = value as Record<string, unknown>;
   const serializedFields: string[] = [];
   for (const key of Object.keys(record).toSorted()) {
-    serializedFields.push(`${JSON.stringify(key)}:${stableStringify(record[key], seen)}`);
+    serializedFields.push(`${JSON.stringify(key)}:${stableStringify(record[key])}`);
   }
   return `{${serializedFields.join(",")}}`;
 }
@@ -184,7 +172,15 @@ export function createCacheTrace(params: CacheTraceInit): CacheTrace | null {
   const writer = params.writer ?? getWriter(cfg.filePath);
   let seq = 0;
 
-  const base: Omit<CacheTraceEvent, "ts" | "seq" | "stage"> = buildAgentTraceBase(params);
+  const base: Omit<CacheTraceEvent, "ts" | "seq" | "stage"> = {
+    runId: params.runId,
+    sessionId: params.sessionId,
+    sessionKey: params.sessionKey,
+    provider: params.provider,
+    modelId: params.modelId,
+    modelApi: params.modelApi,
+    workspaceDir: params.workspaceDir,
+  };
 
   const recordStage: CacheTrace["recordStage"] = (stage, payload = {}) => {
     const event: CacheTraceEvent = {
@@ -202,7 +198,7 @@ export function createCacheTrace(params: CacheTraceInit): CacheTrace | null {
       event.systemDigest = digest(payload.system);
     }
     if (payload.options) {
-      event.options = redactImageDataForDiagnostics(payload.options) as Record<string, unknown>;
+      event.options = payload.options;
     }
     if (payload.model) {
       event.model = payload.model;
@@ -216,7 +212,7 @@ export function createCacheTrace(params: CacheTraceInit): CacheTrace | null {
       event.messageFingerprints = summary.messageFingerprints;
       event.messagesDigest = summary.messagesDigest;
       if (cfg.includeMessages) {
-        event.messages = redactImageDataForDiagnostics(messages) as AgentMessage[];
+        event.messages = messages;
       }
     }
 

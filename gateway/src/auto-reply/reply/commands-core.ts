@@ -1,17 +1,12 @@
 import fs from "node:fs/promises";
-import { resetConfiguredBindingTargetInPlace } from "../../channels/plugins/binding-targets.js";
 import { logVerbose } from "../../globals.js";
 import { createInternalHookEvent, triggerInternalHook } from "../../hooks/internal-hooks.js";
 import { getGlobalHookRunner } from "../../plugins/hook-runner-global.js";
-import { isAcpSessionKey, resolveAgentIdFromSessionKey } from "../../routing/session-key.js";
 import { resolveSendPolicy } from "../../sessions/send-policy.js";
 import { shouldHandleTextCommands } from "../commands-registry.js";
-import { handleAcpCommand } from "./commands-acp.js";
-import { resolveBoundAcpThreadSessionKey } from "./commands-acp/targets.js";
 import { handleAllowlistCommand } from "./commands-allowlist.js";
 import { handleApproveCommand } from "./commands-approve.js";
 import { handleBashCommand } from "./commands-bash.js";
-import { handleBtwCommand } from "./commands-btw.js";
 import { handleCompactCommand } from "./commands-compact.js";
 import { handleConfigCommand, handleDebugCommand } from "./commands-config.js";
 import {
@@ -22,14 +17,11 @@ import {
   handleStatusCommand,
   handleWhoamiCommand,
 } from "./commands-info.js";
-import { handleMcpCommand } from "./commands-mcp.js";
 import { handleModelsCommand } from "./commands-models.js";
 import { handlePluginCommand } from "./commands-plugin.js";
-import { handlePluginsCommand } from "./commands-plugins.js";
 import {
   handleAbortTrigger,
   handleActivationCommand,
-  handleFastCommand,
   handleRestartCommand,
   handleSessionCommand,
   handleSendPolicyCommand,
@@ -67,7 +59,6 @@ export async function emitResetCommandHooks(params: {
     previousSessionEntry: params.previousSessionEntry,
     commandSource: params.command.surface,
     senderId: params.command.senderId,
-    workspaceDir: params.workspaceDir,
     cfg: params.cfg, // Pass config for LLM slug generation
   });
   await triggerInternalHook(hookEvent);
@@ -125,7 +116,7 @@ export async function emitResetCommandHooks(params: {
         await hookRunner.runBeforeReset(
           { sessionFile, messages, reason: params.action },
           {
-            agentId: resolveAgentIdFromSessionKey(params.sessionKey),
+            agentId: params.sessionKey?.split(":")[0] ?? "main",
             sessionKey: params.sessionKey,
             sessionId: prevEntry?.sessionId,
             workspaceDir: params.workspaceDir,
@@ -138,50 +129,14 @@ export async function emitResetCommandHooks(params: {
   }
 }
 
-function applyAcpResetTailContext(ctx: HandleCommandsParams["ctx"], resetTail: string): void {
-  const mutableCtx = ctx as Record<string, unknown>;
-  mutableCtx.Body = resetTail;
-  mutableCtx.RawBody = resetTail;
-  mutableCtx.CommandBody = resetTail;
-  mutableCtx.BodyForCommands = resetTail;
-  mutableCtx.BodyForAgent = resetTail;
-  mutableCtx.BodyStripped = resetTail;
-  mutableCtx.AcpDispatchTailAfterReset = true;
-}
-
-function resolveSessionEntryForHookSessionKey(
-  sessionStore: HandleCommandsParams["sessionStore"] | undefined,
-  sessionKey: string,
-): HandleCommandsParams["sessionEntry"] | undefined {
-  if (!sessionStore) {
-    return undefined;
-  }
-  const directEntry = sessionStore[sessionKey];
-  if (directEntry) {
-    return directEntry;
-  }
-  const normalizedTarget = sessionKey.trim().toLowerCase();
-  if (!normalizedTarget) {
-    return undefined;
-  }
-  for (const [candidateKey, candidateEntry] of Object.entries(sessionStore)) {
-    if (candidateKey.trim().toLowerCase() === normalizedTarget) {
-      return candidateEntry;
-    }
-  }
-  return undefined;
-}
-
 export async function handleCommands(params: HandleCommandsParams): Promise<CommandHandlerResult> {
   if (HANDLERS === null) {
     HANDLERS = [
       // Plugin commands are processed first, before built-in commands
       handlePluginCommand,
-      handleBtwCommand,
       handleBashCommand,
       handleActivationCommand,
       handleSendPolicyCommand,
-      handleFastCommand,
       handleUsageCommand,
       handleSessionCommand,
       handleRestartCommand,
@@ -195,9 +150,6 @@ export async function handleCommands(params: HandleCommandsParams): Promise<Comm
       handleExportSessionCommand,
       handleWhoamiCommand,
       handleSubagentsCommand,
-      handleAcpCommand,
-      handleMcpCommand,
-      handlePluginsCommand,
       handleConfigCommand,
       handleDebugCommand,
       handleModelsCommand,
@@ -218,74 +170,6 @@ export async function handleCommands(params: HandleCommandsParams): Promise<Comm
   // Trigger internal hook for reset/new commands
   if (resetRequested && params.command.isAuthorizedSender) {
     const commandAction: ResetCommandAction = resetMatch?.[1] === "reset" ? "reset" : "new";
-    const resetTail =
-      resetMatch != null
-        ? params.command.commandBodyNormalized.slice(resetMatch[0].length).trimStart()
-        : "";
-    const boundAcpSessionKey = resolveBoundAcpThreadSessionKey(params);
-    const boundAcpKey =
-      boundAcpSessionKey && isAcpSessionKey(boundAcpSessionKey)
-        ? boundAcpSessionKey.trim()
-        : undefined;
-    if (boundAcpKey) {
-      const resetResult = await resetConfiguredBindingTargetInPlace({
-        cfg: params.cfg,
-        sessionKey: boundAcpKey,
-        reason: commandAction,
-      });
-      if (!resetResult.ok && !resetResult.skipped) {
-        logVerbose(
-          `acp reset-in-place failed for ${boundAcpKey}: ${resetResult.error ?? "unknown error"}`,
-        );
-      }
-      if (resetResult.ok) {
-        const hookSessionEntry =
-          boundAcpKey === params.sessionKey
-            ? params.sessionEntry
-            : resolveSessionEntryForHookSessionKey(params.sessionStore, boundAcpKey);
-        const hookPreviousSessionEntry =
-          boundAcpKey === params.sessionKey
-            ? params.previousSessionEntry
-            : resolveSessionEntryForHookSessionKey(params.sessionStore, boundAcpKey);
-        await emitResetCommandHooks({
-          action: commandAction,
-          ctx: params.ctx,
-          cfg: params.cfg,
-          command: params.command,
-          sessionKey: boundAcpKey,
-          sessionEntry: hookSessionEntry,
-          previousSessionEntry: hookPreviousSessionEntry,
-          workspaceDir: params.workspaceDir,
-        });
-        if (resetTail) {
-          applyAcpResetTailContext(params.ctx, resetTail);
-          if (params.rootCtx && params.rootCtx !== params.ctx) {
-            applyAcpResetTailContext(params.rootCtx, resetTail);
-          }
-          return {
-            shouldContinue: false,
-          };
-        }
-        return {
-          shouldContinue: false,
-          reply: { text: "✅ ACP session reset in place." },
-        };
-      }
-      if (resetResult.skipped) {
-        return {
-          shouldContinue: false,
-          reply: {
-            text: "⚠️ ACP session reset unavailable for this bound conversation. Rebind with /acp bind or /acp spawn.",
-          },
-        };
-      }
-      return {
-        shouldContinue: false,
-        reply: {
-          text: "⚠️ ACP session reset failed. Check /acp status and try again.",
-        },
-      };
-    }
     await emitResetCommandHooks({
       action: commandAction,
       ctx: params.ctx,

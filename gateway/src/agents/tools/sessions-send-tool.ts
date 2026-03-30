@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { Type } from "@sinclair/typebox";
-import type { OpenClawConfig } from "../../config/config.js";
+import { loadConfig } from "../../config/config.js";
 import { callGateway } from "../../gateway/call.js";
 import { normalizeAgentId, resolveAgentIdFromSessionKey } from "../../routing/session-key.js";
 import { SESSION_LABEL_MAX_LENGTH } from "../../sessions/session-label.js";
@@ -15,10 +15,10 @@ import {
   createSessionVisibilityGuard,
   createAgentToAgentPolicy,
   extractAssistantText,
+  isResolvedSessionVisibleToRequester,
   resolveEffectiveSessionToolsVisibility,
   resolveSessionReference,
-  resolveSessionToolContext,
-  resolveVisibleSessionReference,
+  resolveSandboxedSessionToolContext,
   stripToolMessages,
 } from "./sessions-helpers.js";
 import { buildAgentToAgentMessageContext, resolvePingPongTurns } from "./sessions-send-helpers.js";
@@ -32,41 +32,10 @@ const SessionsSendToolSchema = Type.Object({
   timeoutSeconds: Type.Optional(Type.Number({ minimum: 0 })),
 });
 
-async function startAgentRun(params: {
-  runId: string;
-  sendParams: Record<string, unknown>;
-  sessionKey: string;
-}): Promise<{ ok: true; runId: string } | { ok: false; result: ReturnType<typeof jsonResult> }> {
-  try {
-    const response = await callGateway<{ runId: string }>({
-      method: "agent",
-      params: params.sendParams,
-      timeoutMs: 10_000,
-    });
-    return {
-      ok: true,
-      runId: typeof response?.runId === "string" && response.runId ? response.runId : params.runId,
-    };
-  } catch (err) {
-    const messageText =
-      err instanceof Error ? err.message : typeof err === "string" ? err : "error";
-    return {
-      ok: false,
-      result: jsonResult({
-        runId: params.runId,
-        status: "error",
-        error: messageText,
-        sessionKey: params.sessionKey,
-      }),
-    };
-  }
-}
-
 export function createSessionsSendTool(opts?: {
   agentSessionKey?: string;
   agentChannel?: GatewayMessageChannel;
   sandboxed?: boolean;
-  config?: OpenClawConfig;
 }): AnyAgentTool {
   return {
     label: "Session Send",
@@ -77,8 +46,13 @@ export function createSessionsSendTool(opts?: {
     execute: async (_toolCallId, args) => {
       const params = args as Record<string, unknown>;
       const message = readStringParam(params, "message", { required: true });
-      const { cfg, mainKey, alias, effectiveRequesterKey, restrictToSpawned } =
-        resolveSessionToolContext(opts);
+      const cfg = loadConfig();
+      const { mainKey, alias, effectiveRequesterKey, restrictToSpawned } =
+        resolveSandboxedSessionToolContext({
+          cfg,
+          agentSessionKey: opts?.agentSessionKey,
+          sandboxed: opts?.sandboxed,
+        });
 
       const a2aPolicy = createAgentToAgentPolicy(cfg);
       const sessionVisibility = resolveEffectiveSessionToolsVisibility({
@@ -197,23 +171,25 @@ export function createSessionsSendTool(opts?: {
           error: resolvedSession.error,
         });
       }
-      const visibleSession = await resolveVisibleSessionReference({
-        resolvedSession,
+      // Normalize sessionKey/sessionId input into a canonical session key.
+      const resolvedKey = resolvedSession.key;
+      const displayKey = resolvedSession.displayKey;
+      const resolvedViaSessionId = resolvedSession.resolvedViaSessionId;
+
+      const visible = await isResolvedSessionVisibleToRequester({
         requesterSessionKey: effectiveRequesterKey,
+        targetSessionKey: resolvedKey,
         restrictToSpawned,
-        visibilitySessionKey: sessionKey,
+        resolvedViaSessionId,
       });
-      if (!visibleSession.ok) {
+      if (!visible) {
         return jsonResult({
           runId: crypto.randomUUID(),
-          status: visibleSession.status,
-          error: visibleSession.error,
-          sessionKey: visibleSession.displayKey,
+          status: "forbidden",
+          error: `Session not visible from this sandboxed agent session: ${sessionKey}`,
+          sessionKey: displayKey,
         });
       }
-      // Normalize sessionKey/sessionId input into a canonical session key.
-      const resolvedKey = visibleSession.key;
-      const displayKey = visibleSession.displayKey;
       const timeoutSeconds =
         typeof params.timeoutSeconds === "number" && Number.isFinite(params.timeoutSeconds)
           ? Math.max(0, Math.floor(params.timeoutSeconds))
@@ -277,33 +253,53 @@ export function createSessionsSendTool(opts?: {
       };
 
       if (timeoutSeconds === 0) {
-        const start = await startAgentRun({
-          runId,
-          sendParams,
-          sessionKey: displayKey,
-        });
-        if (!start.ok) {
-          return start.result;
+        try {
+          const response = await callGateway<{ runId: string }>({
+            method: "agent",
+            params: sendParams,
+            timeoutMs: 10_000,
+          });
+          if (typeof response?.runId === "string" && response.runId) {
+            runId = response.runId;
+          }
+          startA2AFlow(undefined, runId);
+          return jsonResult({
+            runId,
+            status: "accepted",
+            sessionKey: displayKey,
+            delivery,
+          });
+        } catch (err) {
+          const messageText =
+            err instanceof Error ? err.message : typeof err === "string" ? err : "error";
+          return jsonResult({
+            runId,
+            status: "error",
+            error: messageText,
+            sessionKey: displayKey,
+          });
         }
-        runId = start.runId;
-        startA2AFlow(undefined, runId);
-        return jsonResult({
-          runId,
-          status: "accepted",
-          sessionKey: displayKey,
-          delivery,
-        });
       }
 
-      const start = await startAgentRun({
-        runId,
-        sendParams,
-        sessionKey: displayKey,
-      });
-      if (!start.ok) {
-        return start.result;
+      try {
+        const response = await callGateway<{ runId: string }>({
+          method: "agent",
+          params: sendParams,
+          timeoutMs: 10_000,
+        });
+        if (typeof response?.runId === "string" && response.runId) {
+          runId = response.runId;
+        }
+      } catch (err) {
+        const messageText =
+          err instanceof Error ? err.message : typeof err === "string" ? err : "error";
+        return jsonResult({
+          runId,
+          status: "error",
+          error: messageText,
+          sessionKey: displayKey,
+        });
       }
-      runId = start.runId;
 
       let waitStatus: string | undefined;
       let waitError: string | undefined;

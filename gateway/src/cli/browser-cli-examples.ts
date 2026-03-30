@@ -24,7 +24,7 @@ export const browserActionExamples = [
   "mirai browser hover 44",
   "mirai browser drag 10 11",
   "mirai browser select 9 OptionA OptionB",
-  "mirai browser upload /tmp/openclaw/uploads/file.pdf",
+  "mirai browser upload /tmp/mirai/uploads/file.pdf",
   'mirai browser fill --fields \'[{"ref":"1","value":"Ada"}]\'',
   "mirai browser dialog --accept",
   'mirai browser wait --text "Done"',

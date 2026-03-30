@@ -1,13 +1,11 @@
-import type { OpenClawConfig } from "../config/config.js";
-import { normalizeStringEntries } from "../shared/string-normalization.js";
-import { projectSafeChannelAccountSnapshotFields } from "./account-snapshot-fields.js";
+import type { MiraiConfig } from "../config/config.js";
 import type { ChannelAccountSnapshot } from "./plugins/types.core.js";
 import type { ChannelPlugin } from "./plugins/types.plugin.js";
 
 export function buildChannelAccountSnapshot(params: {
   plugin: ChannelPlugin;
   account: unknown;
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   accountId: string;
   enabled: boolean;
   configured: boolean;
@@ -16,7 +14,6 @@ export function buildChannelAccountSnapshot(params: {
   return {
     enabled: params.enabled,
     configured: params.configured,
-    ...projectSafeChannelAccountSnapshotFields(params.account),
     ...described,
     accountId: params.accountId,
   };
@@ -24,7 +21,7 @@ export function buildChannelAccountSnapshot(params: {
 
 export function formatChannelAllowFrom(params: {
   plugin: ChannelPlugin;
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   accountId?: string | null;
   allowFrom: Array<string | number>;
 }): string[] {
@@ -35,40 +32,5 @@ export function formatChannelAllowFrom(params: {
       allowFrom: params.allowFrom,
     });
   }
-  return normalizeStringEntries(params.allowFrom);
-}
-
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-  if (!value || typeof value !== "object") {
-    return undefined;
-  }
-  return value as Record<string, unknown>;
-}
-
-export function resolveChannelAccountEnabled(params: {
-  plugin: ChannelPlugin;
-  account: unknown;
-  cfg: OpenClawConfig;
-}): boolean {
-  if (params.plugin.config.isEnabled) {
-    return params.plugin.config.isEnabled(params.account, params.cfg);
-  }
-  const enabled = asRecord(params.account)?.enabled;
-  return enabled !== false;
-}
-
-export async function resolveChannelAccountConfigured(params: {
-  plugin: ChannelPlugin;
-  account: unknown;
-  cfg: OpenClawConfig;
-  readAccountConfiguredField?: boolean;
-}): Promise<boolean> {
-  if (params.plugin.config.isConfigured) {
-    return await params.plugin.config.isConfigured(params.account, params.cfg);
-  }
-  if (params.readAccountConfiguredField) {
-    const configured = asRecord(params.account)?.configured;
-    return configured !== false;
-  }
-  return true;
+  return params.allowFrom.map((entry) => String(entry).trim()).filter(Boolean);
 }

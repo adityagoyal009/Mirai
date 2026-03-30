@@ -3,8 +3,8 @@
 
 export { definePluginEntry } from "./core.js";
 export type {
-  OpenClawPluginApi,
-  OpenClawPluginCommandDefinition,
-  OpenClawPluginService,
+  MiraiPluginApi,
+  MiraiPluginCommandDefinition,
+  MiraiPluginService,
   PluginCommandContext,
 } from "../plugins/types.js";

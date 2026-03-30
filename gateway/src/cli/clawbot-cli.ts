@@ -10,7 +10,7 @@ export function registerClawbotCli(program: Command) {
     .addHelpText(
       "after",
       () =>
-        `\n${theme.muted("Docs:")} ${formatDocsLink("/cli/clawbot", "github.com/adityagoyal009/Mirai/tree/main/gateway/docs/cli/clawbot")}\n`,
+        `\n${theme.muted("Docs:")} ${formatDocsLink("/cli/clawbot", "docs.mirai.ai/cli/clawbot")}\n`,
     );
   registerQrCli(clawbot);
 }

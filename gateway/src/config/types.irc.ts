@@ -12,7 +12,7 @@ export type IrcAccountConfig = CommonChannelMessagingConfig & {
   nick?: string;
   /** IRC USER field username (defaults to nick). */
   username?: string;
-  /** IRC USER field realname (default: OpenClaw). */
+  /** IRC USER field realname (default: Mirai). */
   realname?: string;
   /** Optional IRC server password (sensitive). */
   password?: string;
@@ -33,7 +33,7 @@ export type IrcAccountConfig = CommonChannelMessagingConfig & {
     /** Email used with NickServ REGISTER. */
     registerEmail?: string;
   };
-  /** Auto-join channel list at connect (example: ["#openclaw"]). */
+  /** Auto-join channel list at connect (example: ["#mirai"]). */
   channels?: string[];
   /** Outbound text chunk size (chars). Default: 350. */
   textChunkLimit?: number;
@@ -56,6 +56,4 @@ export type IrcAccountConfig = CommonChannelMessagingConfig & {
 export type IrcConfig = {
   /** Optional per-account IRC configuration (multi-account). */
   accounts?: Record<string, IrcAccountConfig>;
-  /** Optional default account id when multiple accounts are configured. */
-  defaultAccount?: string;
 } & IrcAccountConfig;

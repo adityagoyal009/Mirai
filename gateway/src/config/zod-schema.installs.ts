@@ -6,8 +6,6 @@ export const InstallSourceSchema = z.union([
   z.literal("path"),
 ]);
 
-export const PluginInstallSourceSchema = z.union([InstallSourceSchema, z.literal("marketplace")]);
-
 export const InstallRecordShape = {
   source: InstallSourceSchema,
   spec: z.string().optional(),
@@ -21,12 +19,4 @@ export const InstallRecordShape = {
   shasum: z.string().optional(),
   resolvedAt: z.string().optional(),
   installedAt: z.string().optional(),
-} as const;
-
-export const PluginInstallRecordShape = {
-  ...InstallRecordShape,
-  source: PluginInstallSourceSchema,
-  marketplaceName: z.string().optional(),
-  marketplaceSource: z.string().optional(),
-  marketplacePlugin: z.string().optional(),
 } as const;

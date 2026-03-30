@@ -4,7 +4,7 @@ import {
   isEmbeddedPiRunActive,
   waitForEmbeddedPiRunEnd,
 } from "../../agents/pi-embedded.js";
-import type { OpenClawConfig } from "../../config/config.js";
+import type { MiraiConfig } from "../../config/config.js";
 import {
   resolveFreshSessionTotalTokens,
   resolveSessionFilePath,
@@ -20,7 +20,7 @@ import { incrementCompactionCount } from "./session-updates.js";
 function extractCompactInstructions(params: {
   rawBody?: string;
   ctx: import("../templating.js").MsgContext;
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   agentId?: string;
   isGroup: boolean;
 }): string | undefined {
@@ -78,7 +78,6 @@ export const handleCompactCommand: CommandHandler = async (params) => {
   const result = await compactEmbeddedPiSession({
     sessionId,
     sessionKey: params.sessionKey,
-    allowGatewaySubagentBinding: true,
     messageChannel: params.command.channel,
     groupId: params.sessionEntry.groupId,
     groupChannel: params.sessionEntry.groupChannel,

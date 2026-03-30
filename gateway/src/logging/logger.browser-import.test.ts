@@ -7,25 +7,25 @@ const originalGetBuiltinModule = (
 ).getBuiltinModule;
 
 async function importBrowserSafeLogger(params?: {
-  resolvePreferredOpenClawTmpDir?: ReturnType<typeof vi.fn>;
+  resolvePreferredMiraiTmpDir?: ReturnType<typeof vi.fn>;
 }): Promise<{
   module: LoggerModule;
-  resolvePreferredOpenClawTmpDir: ReturnType<typeof vi.fn>;
+  resolvePreferredMiraiTmpDir: ReturnType<typeof vi.fn>;
 }> {
   vi.resetModules();
-  const resolvePreferredOpenClawTmpDir =
-    params?.resolvePreferredOpenClawTmpDir ??
+  const resolvePreferredMiraiTmpDir =
+    params?.resolvePreferredMiraiTmpDir ??
     vi.fn(() => {
-      throw new Error("resolvePreferredOpenClawTmpDir should not run during browser-safe import");
+      throw new Error("resolvePreferredMiraiTmpDir should not run during browser-safe import");
     });
 
-  vi.doMock("../infra/tmp-openclaw-dir.js", async () => {
-    const actual = await vi.importActual<typeof import("../infra/tmp-openclaw-dir.js")>(
-      "../infra/tmp-openclaw-dir.js",
+  vi.doMock("../infra/tmp-mirai-dir.js", async () => {
+    const actual = await vi.importActual<typeof import("../infra/tmp-mirai-dir.js")>(
+      "../infra/tmp-mirai-dir.js",
     );
     return {
       ...actual,
-      resolvePreferredOpenClawTmpDir,
+      resolvePreferredMiraiTmpDir,
     };
   });
 
@@ -35,13 +35,13 @@ async function importBrowserSafeLogger(params?: {
   });
 
   const module = await import("./logger.js");
-  return { module, resolvePreferredOpenClawTmpDir };
+  return { module, resolvePreferredMiraiTmpDir };
 }
 
 describe("logging/logger browser-safe import", () => {
   afterEach(() => {
     vi.resetModules();
-    vi.doUnmock("../infra/tmp-openclaw-dir.js");
+    vi.doUnmock("../infra/tmp-mirai-dir.js");
     Object.defineProperty(process, "getBuiltinModule", {
       configurable: true,
       value: originalGetBuiltinModule,
@@ -49,22 +49,22 @@ describe("logging/logger browser-safe import", () => {
   });
 
   it("does not resolve the preferred temp dir at import time when node fs is unavailable", async () => {
-    const { module, resolvePreferredOpenClawTmpDir } = await importBrowserSafeLogger();
+    const { module, resolvePreferredMiraiTmpDir } = await importBrowserSafeLogger();
 
-    expect(resolvePreferredOpenClawTmpDir).not.toHaveBeenCalled();
-    expect(module.DEFAULT_LOG_DIR).toBe("/tmp/openclaw");
-    expect(module.DEFAULT_LOG_FILE).toBe("/tmp/openclaw/openclaw.log");
+    expect(resolvePreferredMiraiTmpDir).not.toHaveBeenCalled();
+    expect(module.DEFAULT_LOG_DIR).toBe("/tmp/mirai");
+    expect(module.DEFAULT_LOG_FILE).toBe("/tmp/mirai/mirai.log");
   });
 
   it("disables file logging when imported in a browser-like environment", async () => {
-    const { module, resolvePreferredOpenClawTmpDir } = await importBrowserSafeLogger();
+    const { module, resolvePreferredMiraiTmpDir } = await importBrowserSafeLogger();
 
     expect(module.getResolvedLoggerSettings()).toMatchObject({
       level: "silent",
-      file: "/tmp/openclaw/openclaw.log",
+      file: "/tmp/mirai/mirai.log",
     });
     expect(module.isFileLogLevelEnabled("info")).toBe(false);
     expect(() => module.getLogger().info("browser-safe")).not.toThrow();
-    expect(resolvePreferredOpenClawTmpDir).not.toHaveBeenCalled();
+    expect(resolvePreferredMiraiTmpDir).not.toHaveBeenCalled();
   });
 });

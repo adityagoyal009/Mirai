@@ -1,5 +1,4 @@
-import type { OpenClawConfig } from "../config/config.js";
-import type { ContextEngineInfo } from "../context-engine/types.js";
+import type { MiraiConfig } from "../config/config.js";
 
 export const DEFAULT_PI_COMPACTION_RESERVE_TOKENS_FLOOR = 20_000;
 
@@ -12,7 +11,6 @@ type PiSettingsManagerLike = {
       keepRecentTokens?: number;
     };
   }) => void;
-  setCompactionEnabled?: (enabled: boolean) => void;
 };
 
 export function ensurePiCompactionReserveTokens(params: {
@@ -33,7 +31,7 @@ export function ensurePiCompactionReserveTokens(params: {
   return { didOverride: true, reserveTokens: minReserveTokens };
 }
 
-export function resolveCompactionReserveTokensFloor(cfg?: OpenClawConfig): number {
+export function resolveCompactionReserveTokensFloor(cfg?: MiraiConfig): number {
   const raw = cfg?.agents?.defaults?.compaction?.reserveTokensFloor;
   if (typeof raw === "number" && Number.isFinite(raw) && raw >= 0) {
     return Math.floor(raw);
@@ -57,7 +55,7 @@ function toPositiveInt(value: unknown): number | undefined {
 
 export function applyPiCompactionSettingsFromConfig(params: {
   settingsManager: PiSettingsManagerLike;
-  cfg?: OpenClawConfig;
+  cfg?: MiraiConfig;
 }): {
   didOverride: boolean;
   compaction: { reserveTokens: number; keepRecentTokens: number };
@@ -96,27 +94,4 @@ export function applyPiCompactionSettingsFromConfig(params: {
       keepRecentTokens: targetKeepRecentTokens,
     },
   };
-}
-
-/** Decide whether Pi's internal auto-compaction should be disabled for this run. */
-export function shouldDisablePiAutoCompaction(params: {
-  contextEngineInfo?: ContextEngineInfo;
-}): boolean {
-  return params.contextEngineInfo?.ownsCompaction === true;
-}
-
-/** Disable Pi auto-compaction via settings when a context engine owns compaction. */
-export function applyPiAutoCompactionGuard(params: {
-  settingsManager: PiSettingsManagerLike;
-  contextEngineInfo?: ContextEngineInfo;
-}): { supported: boolean; disabled: boolean } {
-  const disable = shouldDisablePiAutoCompaction({
-    contextEngineInfo: params.contextEngineInfo,
-  });
-  const hasMethod = typeof params.settingsManager.setCompactionEnabled === "function";
-  if (!disable || !hasMethod) {
-    return { supported: hasMethod, disabled: false };
-  }
-  params.settingsManager.setCompactionEnabled!(false);
-  return { supported: true, disabled: true };
 }

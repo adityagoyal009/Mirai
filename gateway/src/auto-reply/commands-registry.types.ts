@@ -1,4 +1,4 @@
-import type { OpenClawConfig } from "../config/types.js";
+import type { MiraiConfig } from "../config/types.js";
 
 export type CommandScope = "text" | "native" | "both";
 
@@ -14,7 +14,7 @@ export type CommandCategory =
 export type CommandArgType = "string" | "number" | "boolean";
 
 export type CommandArgChoiceContext = {
-  cfg?: OpenClawConfig;
+  cfg?: MiraiConfig;
   provider?: string;
   model?: string;
   command: ChatCommandDefinition;
@@ -31,7 +31,6 @@ export type CommandArgDefinition = {
   type: CommandArgType;
   required?: boolean;
   choices?: CommandArgChoice[] | CommandArgChoicesProvider;
-  preferAutocomplete?: boolean;
   captureRemaining?: boolean;
 };
 
@@ -81,7 +80,7 @@ export type CommandDetection = {
 };
 
 export type ShouldHandleTextCommandsParams = {
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   surface: string;
   commandSource?: "text" | "native";
 };

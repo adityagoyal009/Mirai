@@ -7,7 +7,6 @@ import { createSubsystemLogger } from "../logging/subsystem.js";
 import { resolveUserPath } from "../utils.js";
 import { parseBooleanValue } from "../utils/boolean.js";
 import { safeJsonStringify } from "../utils/safe-json.js";
-import { redactImageDataForDiagnostics } from "./payload-redaction.js";
 import { getQueuedFileWriter, type QueuedFileWriter } from "./queued-file-writer.js";
 
 type PayloadLogStage = "request" | "usage";
@@ -39,8 +38,8 @@ const writers = new Map<string, PayloadLogWriter>();
 const log = createSubsystemLogger("agent/anthropic-payload");
 
 function resolvePayloadLogConfig(env: NodeJS.ProcessEnv): PayloadLogConfig {
-  const enabled = parseBooleanValue(env.OPENCLAW_ANTHROPIC_PAYLOAD_LOG) ?? false;
-  const fileOverride = env.OPENCLAW_ANTHROPIC_PAYLOAD_LOG_FILE?.trim();
+  const enabled = parseBooleanValue(env.MIRAI_ANTHROPIC_PAYLOAD_LOG) ?? false;
+  const fileOverride = env.MIRAI_ANTHROPIC_PAYLOAD_LOG_FILE?.trim();
   const filePath = fileOverride
     ? resolveUserPath(fileOverride)
     : path.join(resolveStateDir(env), "logs", "anthropic-payload.jsonl");
@@ -104,7 +103,6 @@ export function createAnthropicPayloadLogger(params: {
   modelId?: string;
   modelApi?: string | null;
   workspaceDir?: string;
-  writer?: PayloadLogWriter;
 }): AnthropicPayloadLogger | null {
   const env = params.env ?? process.env;
   const cfg = resolvePayloadLogConfig(env);
@@ -112,7 +110,7 @@ export function createAnthropicPayloadLogger(params: {
     return null;
   }
 
-  const writer = params.writer ?? getWriter(cfg.filePath);
+  const writer = getWriter(cfg.filePath);
   const base: Omit<PayloadLogEvent, "ts" | "stage"> = {
     runId: params.runId,
     sessionId: params.sessionId,
@@ -137,15 +135,14 @@ export function createAnthropicPayloadLogger(params: {
         return streamFn(model, context, options);
       }
       const nextOnPayload = (payload: unknown) => {
-        const redactedPayload = redactImageDataForDiagnostics(payload);
         record({
           ...base,
           ts: new Date().toISOString(),
           stage: "request",
-          payload: redactedPayload,
-          payloadDigest: digest(redactedPayload),
+          payload,
+          payloadDigest: digest(payload),
         });
-        return options?.onPayload?.(payload, model);
+        options?.onPayload?.(payload);
       };
       return streamFn(model, context, {
         ...options,

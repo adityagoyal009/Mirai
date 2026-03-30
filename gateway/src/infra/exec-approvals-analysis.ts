@@ -59,17 +59,6 @@ function isEscapedLineContinuation(next: string | undefined): next is string {
   return next === "\n" || next === "\r";
 }
 
-function isShellCommentStart(source: string, index: number): boolean {
-  if (source[index] !== "#") {
-    return false;
-  }
-  if (index === 0) {
-    return true;
-  }
-  const prev = source[index - 1];
-  return Boolean(prev && /\s/.test(prev));
-}
-
 function splitShellPipeline(command: string): { ok: boolean; reason?: string; segments: string[] } {
   type HeredocSpec = {
     delimiter: string;
@@ -256,9 +245,6 @@ function splitShellPipeline(command: string): { ok: boolean; reason?: string; se
       buf += ch;
       emptySegment = false;
       continue;
-    }
-    if (isShellCommentStart(command, i)) {
-      break;
     }
 
     if ((ch === "\n" || ch === "\r") && pendingHeredocs.length > 0) {
@@ -515,9 +501,6 @@ export function splitCommandChainWithOperators(command: string): ShellChainPart[
       buf += ch;
       continue;
     }
-    if (isShellCommentStart(command, i)) {
-      break;
-    }
 
     if (ch === "&" && next === "&") {
       if (!pushPart("&&")) {
@@ -633,27 +616,17 @@ export function buildSafeShellCommand(params: { command: string; platform?: stri
       return { ok: true, rendered: argv.map((token) => shellEscapeSingleArg(token)).join(" ") };
     },
   });
-  return finalizeRebuiltShellCommand(rebuilt);
+  if (!rebuilt.ok) {
+    return { ok: false, reason: rebuilt.reason };
+  }
+  return { ok: true, command: rebuilt.command };
 }
 
 function renderQuotedArgv(argv: string[]): string {
   return argv.map((token) => shellEscapeSingleArg(token)).join(" ");
 }
 
-function finalizeRebuiltShellCommand(
-  rebuilt: ReturnType<typeof rebuildShellCommandFromSource>,
-  expectedSegmentCount?: number,
-): { ok: boolean; command?: string; reason?: string } {
-  if (!rebuilt.ok) {
-    return { ok: false, reason: rebuilt.reason };
-  }
-  if (typeof expectedSegmentCount === "number" && rebuilt.segmentCount !== expectedSegmentCount) {
-    return { ok: false, reason: "segment count mismatch" };
-  }
-  return { ok: true, command: rebuilt.command };
-}
-
-export function resolvePlannedSegmentArgv(segment: ExecCommandSegment): string[] | null {
+function resolvePlannedSegmentArgv(segment: ExecCommandSegment): string[] | null {
   if (segment.resolution?.policyBlocked === true) {
     return null;
   }
@@ -665,8 +638,7 @@ export function resolvePlannedSegmentArgv(segment: ExecCommandSegment): string[]
     return null;
   }
   const argv = [...baseArgv];
-  const resolvedExecutable =
-    segment.resolution?.resolvedRealPath?.trim() ?? segment.resolution?.resolvedPath?.trim() ?? "";
+  const resolvedExecutable = segment.resolution?.resolvedPath?.trim() ?? "";
   if (resolvedExecutable) {
     argv[0] = resolvedExecutable;
   }
@@ -715,7 +687,13 @@ export function buildSafeBinsShellCommand(params: {
       return { ok: true, rendered };
     },
   });
-  return finalizeRebuiltShellCommand(rebuilt, params.segments.length);
+  if (!rebuilt.ok) {
+    return { ok: false, reason: rebuilt.reason };
+  }
+  if (rebuilt.segmentCount !== params.segments.length) {
+    return { ok: false, reason: "segment count mismatch" };
+  }
+  return { ok: true, command: rebuilt.command };
 }
 
 export function buildEnforcedShellCommand(params: {
@@ -738,7 +716,13 @@ export function buildEnforcedShellCommand(params: {
       return { ok: true, rendered: renderQuotedArgv(argv) };
     },
   });
-  return finalizeRebuiltShellCommand(rebuilt, params.segments.length);
+  if (!rebuilt.ok) {
+    return { ok: false, reason: rebuilt.reason };
+  }
+  if (rebuilt.segmentCount !== params.segments.length) {
+    return { ok: false, reason: "segment count mismatch" };
+  }
+  return { ok: true, command: rebuilt.command };
 }
 
 /**

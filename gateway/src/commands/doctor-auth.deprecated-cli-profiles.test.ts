@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { OpenClawConfig } from "../config/config.js";
+import type { MiraiConfig } from "../config/config.js";
 import { captureEnv } from "../test-utils/env.js";
 import { maybeRemoveDeprecatedCliAuthProfiles } from "./doctor-auth.js";
 import type { DoctorPrompter } from "./doctor-prompter.js";
@@ -23,9 +23,9 @@ function makePrompter(confirmValue: boolean): DoctorPrompter {
 }
 
 beforeEach(() => {
-  envSnapshot = captureEnv(["OPENCLAW_AGENT_DIR", "PI_CODING_AGENT_DIR"]);
-  tempAgentDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-auth-"));
-  process.env.OPENCLAW_AGENT_DIR = tempAgentDir;
+  envSnapshot = captureEnv(["MIRAI_AGENT_DIR", "PI_CODING_AGENT_DIR"]);
+  tempAgentDir = fs.mkdtempSync(path.join(os.tmpdir(), "mirai-auth-"));
+  process.env.MIRAI_AGENT_DIR = tempAgentDir;
   process.env.PI_CODING_AGENT_DIR = tempAgentDir;
 });
 
@@ -63,13 +63,6 @@ describe("maybeRemoveDeprecatedCliAuthProfiles", () => {
               refresh: "token-r2",
               expires: Date.now() + 60_000,
             },
-            "openai-codex:default": {
-              type: "oauth",
-              provider: "openai-codex",
-              access: "token-c",
-              refresh: "token-r3",
-              expires: Date.now() + 60_000,
-            },
           },
         },
         null,
@@ -83,17 +76,16 @@ describe("maybeRemoveDeprecatedCliAuthProfiles", () => {
         profiles: {
           "anthropic:claude-cli": { provider: "anthropic", mode: "oauth" },
           "openai-codex:codex-cli": { provider: "openai-codex", mode: "oauth" },
-          "openai-codex:default": { provider: "openai-codex", mode: "oauth" },
         },
         order: {
           anthropic: ["anthropic:claude-cli"],
-          "openai-codex": ["openai-codex:codex-cli", "openai-codex:default"],
+          "openai-codex": ["openai-codex:codex-cli"],
         },
       },
     } as const;
 
     const next = await maybeRemoveDeprecatedCliAuthProfiles(
-      cfg as unknown as OpenClawConfig,
+      cfg as unknown as MiraiConfig,
       makePrompter(true),
     );
 
@@ -102,12 +94,10 @@ describe("maybeRemoveDeprecatedCliAuthProfiles", () => {
     };
     expect(raw.profiles?.["anthropic:claude-cli"]).toBeUndefined();
     expect(raw.profiles?.["openai-codex:codex-cli"]).toBeUndefined();
-    expect(raw.profiles?.["openai-codex:default"]).toBeDefined();
 
     expect(next.auth?.profiles?.["anthropic:claude-cli"]).toBeUndefined();
     expect(next.auth?.profiles?.["openai-codex:codex-cli"]).toBeUndefined();
-    expect(next.auth?.profiles?.["openai-codex:default"]).toBeDefined();
     expect(next.auth?.order?.anthropic).toBeUndefined();
-    expect(next.auth?.order?.["openai-codex"]).toEqual(["openai-codex:default"]);
+    expect(next.auth?.order?.["openai-codex"]).toBeUndefined();
   });
 });

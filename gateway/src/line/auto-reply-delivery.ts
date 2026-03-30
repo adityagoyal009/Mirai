@@ -1,5 +1,4 @@
 import type { messagingApi } from "@line/bot-sdk";
-import { resolveSendableOutboundReplyParts } from "openclaw/plugin-sdk/reply-payload";
 import type { ReplyPayload } from "../auto-reply/types.js";
 import type { FlexContainer } from "./flex-templates.js";
 import type { ProcessedLineMessage } from "./markdown-to-line.js";
@@ -124,7 +123,7 @@ export async function deliverLineAutoReply(params: {
 
   const chunks = processed.text ? deps.chunkMarkdownText(processed.text, textLimit) : [];
 
-  const mediaUrls = resolveSendableOutboundReplyParts(payload).mediaUrls;
+  const mediaUrls = payload.mediaUrls ?? (payload.mediaUrl ? [payload.mediaUrl] : []);
   const mediaMessages = mediaUrls
     .map((url) => url?.trim())
     .filter((url): url is string => Boolean(url))

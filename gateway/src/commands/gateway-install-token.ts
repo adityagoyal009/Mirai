@@ -1,5 +1,5 @@
 import { formatCliCommand } from "../cli/command-format.js";
-import { readConfigFileSnapshot, writeConfigFile, type OpenClawConfig } from "../config/config.js";
+import { readConfigFileSnapshot, writeConfigFile, type MiraiConfig } from "../config/config.js";
 import { resolveSecretInputRef } from "../config/types.secrets.js";
 import { shouldRequireGatewayTokenForInstall } from "../gateway/auth-install-policy.js";
 import { hasAmbiguousGatewayAuthModeConfig } from "../gateway/auth-mode-policy.js";
@@ -10,7 +10,7 @@ import { resolveSecretRefValues } from "../secrets/resolve.js";
 import { randomToken } from "./onboard-helpers.js";
 
 type GatewayInstallTokenOptions = {
-  config: OpenClawConfig;
+  config: MiraiConfig;
   env: NodeJS.ProcessEnv;
   explicitToken?: string;
   autoGenerateWhenMissing?: boolean;

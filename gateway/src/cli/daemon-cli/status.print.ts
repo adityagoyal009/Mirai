@@ -1,5 +1,4 @@
 import { resolveControlUiLinks } from "../../commands/onboard-helpers.js";
-import { formatConfigIssueLine } from "../../config/issue-format.js";
 import {
   resolveGatewayLaunchAgentLabel,
   resolveGatewaySystemdServiceName,
@@ -111,7 +110,7 @@ export function printDaemonStatus(status: DaemonStatus, opts: { json: boolean })
     if (!status.config.cli.valid && status.config.cli.issues?.length) {
       for (const issue of status.config.cli.issues.slice(0, 5)) {
         defaultRuntime.error(
-          `${errorText("Config issue:")} ${formatConfigIssueLine(issue, "", { normalizeRoot: true })}`,
+          `${errorText("Config issue:")} ${issue.path || "<root>"}: ${issue.message}`,
         );
       }
     }
@@ -121,7 +120,7 @@ export function printDaemonStatus(status: DaemonStatus, opts: { json: boolean })
       if (!status.config.daemon.valid && status.config.daemon.issues?.length) {
         for (const issue of status.config.daemon.issues.slice(0, 5)) {
           defaultRuntime.error(
-            `${errorText("Service config issue:")} ${formatConfigIssueLine(issue, "", { normalizeRoot: true })}`,
+            `${errorText("Service config issue:")} ${issue.path || "<root>"}: ${issue.message}`,
           );
         }
       }
@@ -134,7 +133,7 @@ export function printDaemonStatus(status: DaemonStatus, opts: { json: boolean })
       );
       defaultRuntime.error(
         errorText(
-          `Fix: rerun \`${formatCliCommand("mirai gateway install --force")}\` from the same --profile / OPENCLAW_STATE_DIR you expect.`,
+          `Fix: rerun \`${formatCliCommand("mirai gateway install --force")}\` from the same --profile / MIRAI_STATE_DIR you expect.`,
         ),
       );
     }
@@ -181,9 +180,6 @@ export function printDaemonStatus(status: DaemonStatus, opts: { json: boolean })
       defaultRuntime.log(`${label("RPC probe:")} ${okText("ok")}`);
     } else {
       defaultRuntime.error(`${label("RPC probe:")} ${errorText("failed")}`);
-      if (rpc.authWarning) {
-        defaultRuntime.error(`${label("RPC auth:")} ${warnText(rpc.authWarning)}`);
-      }
       if (rpc.url) {
         defaultRuntime.error(`${label("RPC target:")} ${rpc.url}`);
       }
@@ -194,25 +190,6 @@ export function printDaemonStatus(status: DaemonStatus, opts: { json: boolean })
         defaultRuntime.error(`  ${errorText(line)}`);
       }
     }
-    spacer();
-  }
-
-  if (
-    status.health &&
-    status.health.staleGatewayPids.length > 0 &&
-    service.runtime?.status === "running" &&
-    typeof service.runtime.pid === "number"
-  ) {
-    defaultRuntime.error(
-      errorText(
-        `Gateway runtime PID does not own the listening port. Other gateway process(es) are listening: ${status.health.staleGatewayPids.join(", ")}`,
-      ),
-    );
-    defaultRuntime.error(
-      errorText(
-        `Fix: run ${formatCliCommand("mirai gateway restart")} and re-check with ${formatCliCommand("mirai gateway status --deep")}.`,
-      ),
-    );
     spacer();
   }
 
@@ -237,7 +214,7 @@ export function printDaemonStatus(status: DaemonStatus, opts: { json: boolean })
     );
     for (const hint of renderRuntimeHints(
       service.runtime,
-      service.command?.environment ?? process.env,
+      (service.command?.environment ?? process.env) as NodeJS.ProcessEnv,
     )) {
       defaultRuntime.error(errorText(hint));
     }
@@ -245,8 +222,8 @@ export function printDaemonStatus(status: DaemonStatus, opts: { json: boolean })
   }
 
   if (service.runtime?.cachedLabel) {
-    const env = service.command?.environment ?? process.env;
-    const labelValue = resolveGatewayLaunchAgentLabel(env.OPENCLAW_PROFILE);
+    const env = (service.command?.environment ?? process.env) as NodeJS.ProcessEnv;
+    const labelValue = resolveGatewayLaunchAgentLabel(env.MIRAI_PROFILE);
     defaultRuntime.error(
       errorText(
         `LaunchAgent label cached but plist missing. Clear with: launchctl bootout gui/$UID/${labelValue}`,
@@ -288,13 +265,15 @@ export function printDaemonStatus(status: DaemonStatus, opts: { json: boolean })
       defaultRuntime.error(`${errorText("Last gateway error:")} ${status.lastError}`);
     }
     if (process.platform === "linux") {
-      const env = service.command?.environment ?? process.env;
-      const unit = resolveGatewaySystemdServiceName(env.OPENCLAW_PROFILE);
+      const env = (service.command?.environment ?? process.env) as NodeJS.ProcessEnv;
+      const unit = resolveGatewaySystemdServiceName(env.MIRAI_PROFILE);
       defaultRuntime.error(
         errorText(`Logs: journalctl --user -u ${unit}.service -n 200 --no-pager`),
       );
     } else if (process.platform === "darwin") {
-      const logs = resolveGatewayLogPaths(service.command?.environment ?? process.env);
+      const logs = resolveGatewayLogPaths(
+        (service.command?.environment ?? process.env) as NodeJS.ProcessEnv,
+      );
       defaultRuntime.error(`${errorText("Logs:")} ${shortenHomePath(logs.stdoutPath)}`);
       defaultRuntime.error(`${errorText("Errors:")} ${shortenHomePath(logs.stderrPath)}`);
     }
@@ -327,5 +306,5 @@ export function printDaemonStatus(status: DaemonStatus, opts: { json: boolean })
   }
 
   defaultRuntime.log(`${label("Troubles:")} run ${formatCliCommand("mirai status")}`);
-  defaultRuntime.log(`${label("Troubleshooting:")} https://github.com/adityagoyal009/Mirai/tree/main/gateway/docs/troubleshooting`);
+  defaultRuntime.log(`${label("Troubleshooting:")} https://docs.mirai.ai/troubleshooting`);
 }

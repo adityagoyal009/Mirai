@@ -1,5 +1,5 @@
 import { formatCliCommand } from "../cli/command-format.js";
-import type { OpenClawConfig } from "../config/config.js";
+import type { MiraiConfig } from "../config/config.js";
 import { resolveGatewayPort } from "../config/config.js";
 import {
   resolveGatewayLaunchAgentLabel,
@@ -12,7 +12,7 @@ import {
   launchAgentPlistExists,
   repairLaunchAgentBootstrap,
 } from "../daemon/launchd.js";
-import { describeGatewayServiceRestart, resolveGatewayService } from "../daemon/service.js";
+import { resolveGatewayService } from "../daemon/service.js";
 import { renderSystemdUnavailableHints } from "../daemon/systemd-hints.js";
 import { isSystemdUserServiceAvailable } from "../daemon/systemd.js";
 import { formatPortDiagnostics, inspectPortUsage } from "../infra/ports.js";
@@ -28,7 +28,6 @@ import {
 } from "./daemon-runtime.js";
 import { buildGatewayRuntimeHints, formatGatewayRuntimeSummary } from "./doctor-format.js";
 import type { DoctorOptions, DoctorPrompter } from "./doctor-prompter.js";
-import { resolveGatewayInstallToken } from "./gateway-install-token.js";
 import { formatHealthCheckFailure } from "./health-format.js";
 import { healthCommand } from "./health.js";
 
@@ -87,7 +86,7 @@ async function maybeRepairLaunchAgentBootstrap(params: {
 }
 
 export async function maybeRepairGatewayDaemon(params: {
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   runtime: RuntimeEnv;
   prompter: DoctorPrompter;
   options: DoctorOptions;
@@ -121,7 +120,7 @@ export async function maybeRepairGatewayDaemon(params: {
     await maybeRepairLaunchAgentBootstrap({
       env: {
         ...process.env,
-        OPENCLAW_LAUNCHD_LABEL: resolveNodeLaunchAgentLabel(),
+        MIRAI_LAUNCHD_LABEL: resolveNodeLaunchAgentLabel(),
       },
       title: "Node",
       runtime: params.runtime,
@@ -172,28 +171,11 @@ export async function maybeRepairGatewayDaemon(params: {
           },
           DEFAULT_GATEWAY_DAEMON_RUNTIME,
         );
-        const tokenResolution = await resolveGatewayInstallToken({
-          config: params.cfg,
-          env: process.env,
-        });
-        for (const warning of tokenResolution.warnings) {
-          note(warning, "Gateway");
-        }
-        if (tokenResolution.unavailableReason) {
-          note(
-            [
-              "Gateway service install aborted.",
-              tokenResolution.unavailableReason,
-              "Fix gateway auth config/token input and rerun doctor.",
-            ].join("\n"),
-            "Gateway",
-          );
-          return;
-        }
         const port = resolveGatewayPort(params.cfg, process.env);
         const { programArguments, workingDirectory, environment } = await buildGatewayInstallPlan({
           env: process.env,
           port,
+          token: params.cfg.gateway?.auth?.token ?? process.env.MIRAI_GATEWAY_TOKEN,
           runtime: daemonRuntime,
           warn: (message, title) => note(message, title),
           config: params.cfg,
@@ -235,21 +217,16 @@ export async function maybeRepairGatewayDaemon(params: {
       initialValue: true,
     });
     if (start) {
-      const restartResult = await service.restart({
+      await service.restart({
         env: process.env,
         stdout: process.stdout,
       });
-      const restartStatus = describeGatewayServiceRestart("Gateway", restartResult);
-      if (!restartStatus.scheduled) {
-        await sleep(1500);
-      } else {
-        note(restartStatus.message, "Gateway");
-      }
+      await sleep(1500);
     }
   }
 
   if (process.platform === "darwin") {
-    const label = resolveGatewayLaunchAgentLabel(process.env.OPENCLAW_PROFILE);
+    const label = resolveGatewayLaunchAgentLabel(process.env.MIRAI_PROFILE);
     note(
       `LaunchAgent loaded; stopping requires "${formatCliCommand("mirai gateway stop")}" or launchctl bootout gui/$UID/${label}.`,
       "Gateway",
@@ -262,15 +239,10 @@ export async function maybeRepairGatewayDaemon(params: {
       initialValue: true,
     });
     if (restart) {
-      const restartResult = await service.restart({
+      await service.restart({
         env: process.env,
         stdout: process.stdout,
       });
-      const restartStatus = describeGatewayServiceRestart("Gateway", restartResult);
-      if (restartStatus.scheduled) {
-        note(restartStatus.message, "Gateway");
-        return;
-      }
       await sleep(1500);
       try {
         await healthCommand({ json: false, timeoutMs: 10_000 }, params.runtime);

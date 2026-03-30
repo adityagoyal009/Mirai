@@ -7,21 +7,19 @@ import {
 import { requireApiKey, resolveApiKeyForProvider } from "../agents/model-auth.js";
 import type { MsgContext } from "../auto-reply/templating.js";
 import { applyTemplate } from "../auto-reply/templating.js";
-import type { OpenClawConfig } from "../config/config.js";
+import type { MiraiConfig } from "../config/config.js";
 import type {
   MediaUnderstandingConfig,
   MediaUnderstandingModelConfig,
 } from "../config/types.tools.js";
 import { logVerbose, shouldLogVerbose } from "../globals.js";
-import { resolveProxyFetchFromEnv } from "../infra/net/proxy-fetch.js";
-import { resolvePreferredOpenClawTmpDir } from "../infra/tmp-openclaw-dir.js";
+import { resolvePreferredMiraiTmpDir } from "../infra/tmp-mirai-dir.js";
 import { runExec } from "../process/exec.js";
 import { MediaAttachmentCache } from "./attachments.js";
 import {
   CLI_OUTPUT_MAX_BUFFER,
   DEFAULT_AUDIO_MODELS,
   DEFAULT_TIMEOUT_SECONDS,
-  MIN_AUDIO_FILE_BYTES,
 } from "./defaults.js";
 import { MediaUnderstandingSkipError } from "./errors.js";
 import { fileExists } from "./fs.js";
@@ -39,26 +37,6 @@ import type {
 import { estimateBase64Size, resolveVideoMaxBase64Bytes } from "./video.js";
 
 export type ProviderRegistry = Map<string, MediaUnderstandingProvider>;
-
-function sanitizeProviderHeaders(
-  headers: Record<string, unknown> | undefined,
-): Record<string, string> | undefined {
-  if (!headers) {
-    return undefined;
-  }
-  const next: Record<string, string> = {};
-  for (const [key, value] of Object.entries(headers)) {
-    if (typeof value !== "string") {
-      continue;
-    }
-    // Intentionally preserve marker-shaped values here. This path handles
-    // explicit config/runtime provider headers, where literal values may
-    // legitimately match marker patterns; discovered models.json entries are
-    // sanitized separately in the model registry path.
-    next[key] = value;
-  }
-  return Object.keys(next).length > 0 ? next : undefined;
-}
 
 function trimOutput(text: string, maxChars?: number): string {
   const trimmed = text.trim();
@@ -156,19 +134,6 @@ function resolveWhisperCppOutputPath(args: string[]): string | null {
   return `${outputBase}.txt`;
 }
 
-function resolveParakeetOutputPath(args: string[], mediaPath: string): string | null {
-  const outputDir = findArgValue(args, ["--output-dir"]);
-  const outputFormat = findArgValue(args, ["--output-format"]);
-  if (!outputDir) {
-    return null;
-  }
-  if (outputFormat && outputFormat !== "txt") {
-    return null;
-  }
-  const base = path.parse(mediaPath).name;
-  return path.join(outputDir, `${base}.txt`);
-}
-
 async function resolveCliOutput(params: {
   command: string;
   args: string[];
@@ -181,9 +146,7 @@ async function resolveCliOutput(params: {
       ? resolveWhisperCppOutputPath(params.args)
       : commandId === "whisper"
         ? resolveWhisperOutputPath(params.args, params.mediaPath)
-        : commandId === "parakeet-mlx"
-          ? resolveParakeetOutputPath(params.args, params.mediaPath)
-          : null;
+        : null;
   if (fileOutput && (await fileExists(fileOutput))) {
     try {
       const content = await fs.readFile(fileOutput, "utf8");
@@ -315,7 +278,7 @@ export function buildModelDecision(params: {
 function resolveEntryRunOptions(params: {
   capability: MediaUnderstandingCapability;
   entry: MediaUnderstandingModelConfig;
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   config?: MediaUnderstandingConfig;
 }): { maxBytes: number; maxChars?: number; timeoutMs: number; prompt: string } {
   const { capability, entry, cfg } = params;
@@ -337,7 +300,7 @@ function resolveEntryRunOptions(params: {
 
 async function resolveProviderExecutionAuth(params: {
   providerId: string;
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   entry: MediaUnderstandingModelConfig;
   agentDir?: string;
 }) {
@@ -359,7 +322,7 @@ async function resolveProviderExecutionAuth(params: {
 
 async function resolveProviderExecutionContext(params: {
   providerId: string;
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   entry: MediaUnderstandingModelConfig;
   config?: MediaUnderstandingConfig;
   agentDir?: string;
@@ -372,30 +335,26 @@ async function resolveProviderExecutionContext(params: {
   });
   const baseUrl = params.entry.baseUrl ?? params.config?.baseUrl ?? providerConfig?.baseUrl;
   const mergedHeaders = {
-    ...sanitizeProviderHeaders(providerConfig?.headers as Record<string, unknown> | undefined),
-    ...sanitizeProviderHeaders(params.config?.headers as Record<string, unknown> | undefined),
-    ...sanitizeProviderHeaders(params.entry.headers as Record<string, unknown> | undefined),
+    ...providerConfig?.headers,
+    ...params.config?.headers,
+    ...params.entry.headers,
   };
   const headers = Object.keys(mergedHeaders).length > 0 ? mergedHeaders : undefined;
   return { apiKeys, baseUrl, headers };
 }
 
 export function formatDecisionSummary(decision: MediaUnderstandingDecision): string {
-  const attachments = Array.isArray(decision.attachments) ? decision.attachments : [];
-  const total = attachments.length;
-  const success = attachments.filter((entry) => entry?.chosen?.outcome === "success").length;
-  const chosen = attachments.find((entry) => entry?.chosen)?.chosen;
-  const provider = typeof chosen?.provider === "string" ? chosen.provider.trim() : undefined;
-  const model = typeof chosen?.model === "string" ? chosen.model.trim() : undefined;
+  const total = decision.attachments.length;
+  const success = decision.attachments.filter(
+    (entry) => entry.chosen?.outcome === "success",
+  ).length;
+  const chosen = decision.attachments.find((entry) => entry.chosen)?.chosen;
+  const provider = chosen?.provider?.trim();
+  const model = chosen?.model?.trim();
   const modelLabel = provider ? (model ? `${provider}/${model}` : provider) : undefined;
-  const reason = attachments
-    .flatMap((entry) => {
-      const attempts = Array.isArray(entry?.attempts) ? entry.attempts : [];
-      return attempts
-        .map((attempt) => (typeof attempt?.reason === "string" ? attempt.reason : undefined))
-        .filter((value): value is string => Boolean(value));
-    })
-    .find((value) => value.trim().length > 0);
+  const reason = decision.attachments
+    .flatMap((entry) => entry.attempts.map((attempt) => attempt.reason).filter(Boolean))
+    .find(Boolean);
   const shortReason = reason ? reason.split(":")[0]?.trim() : undefined;
   const countLabel = total > 0 ? ` (${success}/${total})` : "";
   const viaLabel = modelLabel ? ` via ${modelLabel}` : "";
@@ -403,20 +362,10 @@ export function formatDecisionSummary(decision: MediaUnderstandingDecision): str
   return `${decision.capability}: ${decision.outcome}${countLabel}${viaLabel}${reasonLabel}`;
 }
 
-function assertMinAudioSize(params: { size: number; attachmentIndex: number }): void {
-  if (params.size >= MIN_AUDIO_FILE_BYTES) {
-    return;
-  }
-  throw new MediaUnderstandingSkipError(
-    "tooSmall",
-    `Audio attachment ${params.attachmentIndex + 1} is too small (${params.size} bytes, minimum ${MIN_AUDIO_FILE_BYTES})`,
-  );
-}
-
 export async function runProviderEntry(params: {
   capability: MediaUnderstandingCapability;
   entry: MediaUnderstandingModelConfig;
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   ctx: MsgContext;
   attachmentIndex: number;
   cache: MediaAttachmentCache;
@@ -451,21 +400,33 @@ export async function runProviderEntry(params: {
       timeoutMs,
     });
     const provider = getMediaUnderstandingProvider(providerId, params.providerRegistry);
-    const imageInput = {
-      buffer: media.buffer,
-      fileName: media.fileName,
-      mime: media.mime,
-      model: modelId,
-      provider: providerId,
-      prompt,
-      timeoutMs,
-      profile: entry.profile,
-      preferredProfile: entry.preferredProfile,
-      agentDir: params.agentDir,
-      cfg: params.cfg,
-    };
-    const describeImage = provider?.describeImage ?? describeImageWithModel;
-    const result = await describeImage(imageInput);
+    const result = provider?.describeImage
+      ? await provider.describeImage({
+          buffer: media.buffer,
+          fileName: media.fileName,
+          mime: media.mime,
+          model: modelId,
+          provider: providerId,
+          prompt,
+          timeoutMs,
+          profile: entry.profile,
+          preferredProfile: entry.preferredProfile,
+          agentDir: params.agentDir,
+          cfg: params.cfg,
+        })
+      : await describeImageWithModel({
+          buffer: media.buffer,
+          fileName: media.fileName,
+          mime: media.mime,
+          model: modelId,
+          provider: providerId,
+          prompt,
+          timeoutMs,
+          profile: entry.profile,
+          preferredProfile: entry.preferredProfile,
+          agentDir: params.agentDir,
+          cfg: params.cfg,
+        });
     return {
       kind: "image.description",
       attachmentIndex: params.attachmentIndex,
@@ -480,10 +441,6 @@ export async function runProviderEntry(params: {
     throw new Error(`Media provider not available: ${providerId}`);
   }
 
-  // Resolve proxy-aware fetch from env vars (HTTPS_PROXY, HTTP_PROXY, etc.)
-  // so provider HTTP calls are routed through the proxy when configured.
-  const fetchFn = resolveProxyFetchFromEnv();
-
   if (capability === "audio") {
     if (!provider.transcribeAudio) {
       throw new Error(`Audio transcription provider "${providerId}" not available.`);
@@ -494,7 +451,6 @@ export async function runProviderEntry(params: {
       maxBytes,
       timeoutMs,
     });
-    assertMinAudioSize({ size: media.size, attachmentIndex: params.attachmentIndex });
     const { apiKeys, baseUrl, headers } = await resolveProviderExecutionContext({
       providerId,
       cfg,
@@ -524,7 +480,6 @@ export async function runProviderEntry(params: {
           prompt,
           query: providerQuery,
           timeoutMs,
-          fetchFn,
         }),
     });
     return {
@@ -574,7 +529,6 @@ export async function runProviderEntry(params: {
         model: entry.model,
         prompt,
         timeoutMs,
-        fetchFn,
       }),
   });
   return {
@@ -589,7 +543,7 @@ export async function runProviderEntry(params: {
 export async function runCliEntry(params: {
   capability: MediaUnderstandingCapability;
   entry: MediaUnderstandingModelConfig;
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   ctx: MsgContext;
   attachmentIndex: number;
   cache: MediaAttachmentCache;
@@ -612,12 +566,8 @@ export async function runCliEntry(params: {
     maxBytes,
     timeoutMs,
   });
-  if (capability === "audio") {
-    const stat = await fs.stat(pathResult.path);
-    assertMinAudioSize({ size: stat.size, attachmentIndex: params.attachmentIndex });
-  }
   const outputDir = await fs.mkdtemp(
-    path.join(resolvePreferredOpenClawTmpDir(), "openclaw-media-cli-"),
+    path.join(resolvePreferredMiraiTmpDir(), "mirai-media-cli-"),
   );
   const mediaPath = pathResult.path;
   const outputBase = path.join(outputDir, path.parse(mediaPath).name);

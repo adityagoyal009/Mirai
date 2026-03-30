@@ -129,12 +129,53 @@ class SwarmResult:
 
 # ── Constants ─────────────────────────────────────────────────────
 
-DELIBERATION_WEIGHT = 1.5  # Committee-adjusted agents count this many times in aggregation
-VALID_COUNTS = [50, 100]  # 50 or 100 agents across free models
+DELIBERATION_WEIGHT = 1.0  # Equal weight for all agents
+VALID_COUNTS = [50]  # 50 agents — optimal balance of diversity and speed
+
+
+def normalize_stage(raw_stage: str) -> str:
+    """Map any stage vocabulary to canonical form for calibration."""
+    s = (raw_stage or "").lower().strip()
+    STAGE_MAP = {
+        "pre-seed": "pre-seed", "preseed": "pre-seed", "pre seed": "pre-seed",
+        "idea": "pre-seed", "mvp": "pre-seed",
+        "not sure / not applicable": "",
+        "seed": "seed", "seed ii": "seed", "seed iii": "seed",
+        "series a": "series a", "series-a": "series a", "revenue": "series a",
+        "series b": "series b", "series-b": "series b",
+        "series c": "series c", "series-c": "series c",
+        "series d or higher": "series c", "growth": "series c",
+        "late stage": "series c", "pre-ipo": "series c", "scaling": "series c",
+        "bootstrapped": "seed",
+    }
+    return STAGE_MAP.get(s, s)
+
 WAVE1_MAX = 100  # All 100 agents run as individual calls (no batch mode)
 BATCH_SIZE = 5  # Retained for backward compat but Wave 2 won't trigger at 100 agents
-# Max concurrent LLM calls — 100 agents across 5 models = 20 per model
-WAVE1_WORKERS = 15  # 15 parallel workers (Groq handles 30 req/min per model)
+# All 6 swarm models are NVIDIA (40 RPM limit). Each call takes ~30-60s.
+# 8 workers = max 8 concurrent NVIDIA calls. With ~30s per call that's ~16 RPM. Safe.
+WAVE1_WORKERS = 8
+
+# ── Zone-specific research slicing ────────────────────────────────
+# Each zone gets a curated subset of research data relevant to their evaluation angle.
+# Deterministic, zero LLM calls, zero added latency.
+ZONE_RESEARCH_KEYS = {
+    "investor": ["market_data", "pricing_analysis", "risks", "competitor_details"],
+    "customer": ["pricing_analysis", "customer_evidence", "competitor_details", "risks"],
+    "operator": ["risks", "trends", "patent_landscape", "competitor_details"],
+    "analyst": ["market_data", "competitor_details", "trends", "pricing_analysis"],
+    "contrarian": ["risks", "regulatory", "patent_landscape", "competitor_details", "customer_evidence"],
+    "wildcard": ["trends", "customer_evidence", "market_data"],
+}
+
+ZONE_FOCUS_PREAMBLE = {
+    "investor": "Focus on return potential, unit economics, and comparable deal terms.",
+    "customer": "Focus on purchase decision, switching costs, and implementation risk.",
+    "operator": "Focus on execution capacity, scaling bottlenecks, and operational risk.",
+    "analyst": "Focus on market sizing, competitive positioning, and growth trajectory.",
+    "contrarian": "Focus on fatal flaws, regulatory exposure, and competitive threats.",
+    "wildcard": "React from your unique perspective. Focus on what others might miss.",
+}
 WAVE2_WORKERS = 10
 
 
@@ -163,6 +204,36 @@ class SwarmPredictor:
             self._tiered_models = Config.get_tiered_models()
         return self._tiered_models
 
+    @staticmethod
+    def _slice_research_for_zone(research_dict: dict, zone: str) -> str:
+        """Slice research data to sections relevant for this zone.
+        Deterministic — no LLM calls, just JSON subsetting."""
+        keys = ZONE_RESEARCH_KEYS.get(zone, [])
+        sliced = {}
+        # Always include core context
+        for core_key in ("summary", "facts", "context_facts"):
+            if research_dict.get(core_key):
+                sliced[core_key] = research_dict[core_key]
+        # Add company_profile subsections relevant to zone
+        profile = research_dict.get("company_profile", {})
+        if isinstance(profile, dict) and profile:
+            if zone == "investor":
+                sliced["company_profile"] = {k: profile[k] for k in ("deal_history", "financials", "revenue", "total_raised") if k in profile}
+            elif zone in ("operator", "customer"):
+                sliced["company_profile"] = {k: profile[k] for k in ("team", "employees", "hq") if k in profile}
+            elif zone == "analyst":
+                sliced["company_profile"] = {k: profile[k] for k in ("financials", "revenue", "employees") if k in profile}
+        # Add zone-specific keys
+        for key in keys:
+            if research_dict.get(key):
+                sliced[key] = research_dict[key]
+        preamble = ZONE_FOCUS_PREAMBLE.get(zone, "")
+        return (
+            f"RESEARCH FINDINGS ({zone.upper()} perspective — {preamble}):\n"
+            f"{json.dumps(sliced, indent=2, default=str)}\n\n"
+            f"Given this research, evaluate this startup independently from your unique perspective."
+        )
+
     def predict(self, exec_summary: str, research_context: str,
                 agent_count: int = 100,
                 on_agent_complete=None,
@@ -170,7 +241,8 @@ class SwarmPredictor:
                 on_deliberation_start=None,
                 industry: str = "",
                 product: str = "",
-                stage: str = "") -> SwarmResult:
+                stage: str = "",
+                research_data: dict = None) -> SwarmResult:
         """Run swarm prediction with hybrid wave execution.
         on_agent_complete: optional callback(SwarmAgent) fired for each completed agent.
         on_agent_start: optional callback(agent_id, persona_name) fired before each agent's LLM call.
@@ -237,7 +309,7 @@ class SwarmPredictor:
                     on_agent_start(persona['agent_id'], persona['name'], model_cfg['label'], persona.get('zone', 'wildcard'))
                 futures.append(pool.submit(
                     self._run_individual, persona, exec_summary,
-                    research_context, model_cfg, stage
+                    research_context, model_cfg, stage, research_data
                 ))
             for future in as_completed(futures):
                 result = future.result()
@@ -396,7 +468,7 @@ class SwarmPredictor:
 
         Mirrors the council_scoring.py rubric tiers so swarm agents
         evaluate pre-seed startups by pre-seed standards, not Series B."""
-        s = (stage or "").lower().strip()
+        s = normalize_stage(stage)
         if s in ("idea", "pre-seed", "pre seed", "preseed", "seed", "mvp"):
             return (
                 "CALIBRATION FOR EARLY STAGE (pre-seed/seed):\n"
@@ -515,11 +587,17 @@ class SwarmPredictor:
 
     def _run_individual(self, persona: dict, exec_summary: str,
                         research_context: str, model_cfg: dict,
-                        stage: str = "") -> Optional[SwarmAgent]:
+                        stage: str = "",
+                        research_data: dict = None) -> Optional[SwarmAgent]:
         try:
             llm = LLMClient(model=model_cfg['model'])
             zone = persona.get('zone', 'wildcard')
             zone_angle = ZONE_EVAL_ANGLES.get(zone, ZONE_EVAL_ANGLES.get('wildcard', ''))
+            # Use zone-sliced research if raw data available, else fallback to full context
+            if research_data:
+                context = self._slice_research_for_zone(research_data, zone)
+            else:
+                context = research_context
             messages = [
                 {"role": "system", "content": (
                     f"{persona['prompt']}\n\n"
@@ -527,6 +605,13 @@ class SwarmPredictor:
                     "Do NOT use generic investor phrases or startup cliches. "
                     "Your reasoning must sound distinctly like someone in YOUR role - "
                     "if another agent could have written the same sentence, it's too generic.\n\n"
+                    "Maintain a professional, analytical tone. No sarcasm, ridicule, or dismissive language. "
+                    "Critique the business model and strategy, not the founders personally. "
+                    "Your analysis should read like a professional memo, not a roast.\n\n"
+                    "Your reasoning MUST surface at least one specific concern or strength that is UNIQUE "
+                    "to your professional perspective. Do not repeat generic observations about pricing, "
+                    "team size, or IP that any evaluator would make. "
+                    "What would YOUR specific role notice that others would miss?\n\n"
                     f"{zone_angle}\n\n"
                     f"Score this startup on each of the 10 dimensions from 0.0 to 10.0 (use decimals like 3.5, 6.2, 7.8). "
                     f"{'This is a ' + stage + ' startup. ' if stage else ''}"
@@ -548,7 +633,7 @@ class SwarmPredictor:
                 )},
                 {"role": "user", "content": (
                     f"Executive Summary:\n<user_input>\n{exec_summary}\n</user_input>\n\n"
-                    f"Research Context:\n{research_context}"
+                    f"{context}"
                 )},
             ]
             _agent_t0 = time.time()
@@ -635,7 +720,9 @@ class SwarmPredictor:
                     "Each agent MUST match their assigned persona below.\n\n"
                     f"ASSIGNED PERSONAS:\n{batch_persona_briefs}\n\n"
                     "Each agent must use terminology specific to their role. "
-                    "If two agents could swap reasoning, they are too similar.\n\n"
+                    "If two agents could swap reasoning, they are too similar. "
+                    "Maintain professional tone — no sarcasm or ridicule. "
+                    "Each agent must surface at least one UNIQUE concern from their specific role.\n\n"
                     f"{'This is a ' + stage + ' startup. ' if stage else ''}"
                     f"Judge RELATIVE to what is expected at the {stage or 'current'} stage.\n"
                     f"{self._get_stage_calibration(stage)} "

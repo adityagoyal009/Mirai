@@ -38,10 +38,10 @@ const RUNTIME_API_EXPORT_GUARDS: Record<string, readonly string[]> = {
   "extensions/matrix/runtime-api.ts": [
     'export * from "./src/auth-precedence.js";',
     'export * from "./helper-api.js";',
-    'export { assertHttpUrlTargetsPrivateNetwork, closeDispatcher, createPinnedDispatcher, resolvePinnedHostnameWithPolicy, ssrfPolicyFromAllowPrivateNetwork, type LookupFn, type SsrFPolicy } from "openclaw/plugin-sdk/ssrf-runtime";',
+    'export { assertHttpUrlTargetsPrivateNetwork, closeDispatcher, createPinnedDispatcher, resolvePinnedHostnameWithPolicy, ssrfPolicyFromAllowPrivateNetwork, type LookupFn, type SsrFPolicy } from "mirai-gateway/plugin-sdk/ssrf-runtime";',
     'export { setMatrixThreadBindingIdleTimeoutBySessionKey, setMatrixThreadBindingMaxAgeBySessionKey } from "./thread-bindings-runtime.js";',
     'export { writeJsonFileAtomically } from "../../src/plugin-sdk/json-store.js";',
-    'export type { ChannelDirectoryEntry, ChannelMessageActionContext, OpenClawConfig, PluginRuntime, RuntimeLogger, RuntimeEnv, WizardPrompter } from "../../src/plugin-sdk/matrix.js";',
+    'export type { ChannelDirectoryEntry, ChannelMessageActionContext, MiraiConfig, PluginRuntime, RuntimeLogger, RuntimeEnv, WizardPrompter } from "../../src/plugin-sdk/matrix.js";',
     'export { formatZonedTimestamp } from "../../src/plugin-sdk/matrix.js";',
   ],
   "extensions/nextcloud-talk/runtime-api.ts": [
@@ -56,10 +56,10 @@ const RUNTIME_API_EXPORT_GUARDS: Record<string, readonly string[]> = {
     'export * from "./src/resolve-users.js";',
   ],
   "extensions/telegram/runtime-api.ts": [
-    'export type { ChannelMessageActionAdapter, ChannelPlugin, OpenClawConfig, OpenClawPluginApi, PluginRuntime, TelegramAccountConfig, TelegramActionConfig, TelegramNetworkConfig } from "../../src/plugin-sdk/telegram.js";',
-    'export type { OpenClawPluginService, OpenClawPluginServiceContext, PluginLogger } from "openclaw/plugin-sdk/core";',
-    'export type { AcpRuntime, AcpRuntimeCapabilities, AcpRuntimeDoctorReport, AcpRuntimeEnsureInput, AcpRuntimeEvent, AcpRuntimeHandle, AcpRuntimeStatus, AcpRuntimeTurnInput, AcpRuntimeErrorCode, AcpSessionUpdateTag } from "openclaw/plugin-sdk/acp-runtime";',
-    'export { AcpRuntimeError } from "openclaw/plugin-sdk/acp-runtime";',
+    'export type { ChannelMessageActionAdapter, ChannelPlugin, MiraiConfig, MiraiPluginApi, PluginRuntime, TelegramAccountConfig, TelegramActionConfig, TelegramNetworkConfig } from "../../src/plugin-sdk/telegram.js";',
+    'export type { MiraiPluginService, MiraiPluginServiceContext, PluginLogger } from "mirai-gateway/plugin-sdk/core";',
+    'export type { AcpRuntime, AcpRuntimeCapabilities, AcpRuntimeDoctorReport, AcpRuntimeEnsureInput, AcpRuntimeEvent, AcpRuntimeHandle, AcpRuntimeStatus, AcpRuntimeTurnInput, AcpRuntimeErrorCode, AcpSessionUpdateTag } from "mirai-gateway/plugin-sdk/acp-runtime";',
+    'export { AcpRuntimeError } from "mirai-gateway/plugin-sdk/acp-runtime";',
     'export { buildTokenChannelStatusSummary, clearAccountEntryFields, DEFAULT_ACCOUNT_ID, normalizeAccountId, PAIRING_APPROVED_MESSAGE, parseTelegramTopicConversation, projectCredentialSnapshotFields, resolveConfiguredFromCredentialStatuses, resolveTelegramPollVisibility } from "../../src/plugin-sdk/telegram.js";',
     'export { buildChannelConfigSchema, getChatChannelMeta, jsonResult, readNumberParam, readReactionParams, readStringArrayParam, readStringOrNumberParam, readStringParam, resolvePollMaxSelections, TelegramConfigSchema } from "../../src/plugin-sdk/telegram-core.js";',
     'export type { TelegramProbe } from "./src/probe.js";',

@@ -12,10 +12,6 @@ const EXT_BY_MIME: Record<string, string> = {
   "image/gif": ".gif",
   "audio/ogg": ".ogg",
   "audio/mpeg": ".mp3",
-  "audio/wav": ".wav",
-  "audio/flac": ".flac",
-  "audio/aac": ".aac",
-  "audio/opus": ".opus",
   "audio/x-m4a": ".m4a",
   "audio/mp4": ".m4a",
   "video/mp4": ".mp4",
@@ -42,7 +38,6 @@ const MIME_BY_EXT: Record<string, string> = {
   ...Object.fromEntries(Object.entries(EXT_BY_MIME).map(([mime, ext]) => [ext, mime])),
   // Additional extension aliases
   ".jpeg": "image/jpeg",
-  ".js": "text/javascript",
 };
 
 const AUDIO_FILE_EXTENSIONS = new Set([
@@ -191,6 +186,6 @@ export function imageMimeFromFormat(format?: string | null): string | undefined 
   }
 }
 
-export function kindFromMime(mime?: string | null): MediaKind | undefined {
-  return mediaKindFromMime(normalizeMimeType(mime));
+export function kindFromMime(mime?: string | null): MediaKind {
+  return mediaKindFromMime(mime);
 }

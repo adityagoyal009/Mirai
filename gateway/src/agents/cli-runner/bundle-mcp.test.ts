@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import { afterEach, describe, expect, it } from "vitest";
-import type { OpenClawConfig } from "../../config/config.js";
+import type { MiraiConfig } from "../../config/config.js";
 import {
   createBundleMcpTempHarness,
   createBundleProbePlugin,
@@ -18,13 +18,13 @@ describe("prepareCliBundleMcpConfig", () => {
   it("injects a merged --mcp-config overlay for claude-cli", async () => {
     const env = captureEnv(["HOME"]);
     try {
-      const homeDir = await tempHarness.createTempDir("openclaw-cli-bundle-mcp-home-");
-      const workspaceDir = await tempHarness.createTempDir("openclaw-cli-bundle-mcp-workspace-");
+      const homeDir = await tempHarness.createTempDir("mirai-cli-bundle-mcp-home-");
+      const workspaceDir = await tempHarness.createTempDir("mirai-cli-bundle-mcp-workspace-");
       process.env.HOME = homeDir;
 
       const { serverPath } = await createBundleProbePlugin(homeDir);
 
-      const config: OpenClawConfig = {
+      const config: MiraiConfig = {
         plugins: {
           entries: {
             "bundle-probe": { enabled: true },

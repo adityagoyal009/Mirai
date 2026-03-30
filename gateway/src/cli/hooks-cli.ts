@@ -3,7 +3,7 @@ import fsp from "node:fs/promises";
 import path from "node:path";
 import type { Command } from "commander";
 import { resolveAgentWorkspaceDir, resolveDefaultAgentId } from "../agents/agent-scope.js";
-import type { OpenClawConfig } from "../config/config.js";
+import type { MiraiConfig } from "../config/config.js";
 import { loadConfig, writeConfigFile } from "../config/io.js";
 import {
   buildWorkspaceHookStatus,
@@ -22,11 +22,10 @@ import { resolveArchiveKind } from "../infra/archive.js";
 import { buildPluginStatusReport } from "../plugins/status.js";
 import { defaultRuntime } from "../runtime.js";
 import { formatDocsLink } from "../terminal/links.js";
-import { getTerminalTableWidth, renderTable } from "../terminal/table.js";
+import { renderTable } from "../terminal/table.js";
 import { theme } from "../terminal/theme.js";
 import { resolveUserPath, shortenHomePath } from "../utils.js";
 import { formatCliCommand } from "./command-format.js";
-import { looksLikeLocalInstallSpec } from "./install-spec.js";
 import {
   buildNpmInstallRecordFields,
   resolvePinnedNpmInstallRecordForCli,
@@ -63,7 +62,7 @@ function mergeHookEntries(pluginEntries: HookEntry[], workspaceEntries: HookEntr
   return Array.from(merged.values());
 }
 
-function buildHooksReport(config: OpenClawConfig): HookStatusReport {
+function buildHooksReport(config: MiraiConfig): HookStatusReport {
   const workspaceDir = resolveAgentWorkspaceDir(config, resolveDefaultAgentId(config));
   const workspaceEntries = loadWorkspaceHookEntries(workspaceDir, { config });
   const pluginReport = buildPluginStatusReport({ config, workspaceDir });
@@ -93,11 +92,11 @@ function resolveHookForToggle(
 }
 
 function buildConfigWithHookEnabled(params: {
-  config: OpenClawConfig;
+  config: MiraiConfig;
   hookName: string;
   enabled: boolean;
   ensureHooksEnabled?: boolean;
-}): OpenClawConfig {
+}): MiraiConfig {
   const entries = { ...params.config.hooks?.internal?.entries };
   entries[params.hookName] = { ...entries[params.hookName], enabled: params.enabled };
 
@@ -215,7 +214,7 @@ async function readInstalledPackageVersion(dir: string): Promise<string | undefi
 
 type HookInternalEntryLike = Record<string, unknown> & { enabled?: boolean };
 
-function enableInternalHookEntries(config: OpenClawConfig, hookNames: string[]): OpenClawConfig {
+function enableInternalHookEntries(config: MiraiConfig, hookNames: string[]): MiraiConfig {
   const entries = { ...config.hooks?.internal?.entries } as Record<string, HookInternalEntryLike>;
 
   for (const hookName of hookNames) {
@@ -273,7 +272,7 @@ export function formatHooksList(report: HookStatusReport, opts: HooksListOptions
   }
 
   const eligible = hooks.filter((h) => h.eligible);
-  const tableWidth = getTerminalTableWidth();
+  const tableWidth = Math.max(60, (process.stdout.columns ?? 120) - 1);
   const rows = hooks.map((hook) => {
     const missing = formatHookMissingSummary(hook);
     return {
@@ -511,7 +510,7 @@ export function registerHooksCli(program: Command): void {
     .addHelpText(
       "after",
       () =>
-        `\n${theme.muted("Docs:")} ${formatDocsLink("/cli/hooks", "github.com/adityagoyal009/Mirai/tree/main/gateway/docs/cli/hooks")}\n`,
+        `\n${theme.muted("Docs:")} ${formatDocsLink("/cli/hooks", "docs.mirai.ai/cli/hooks")}\n`,
     );
 
   hooks
@@ -596,7 +595,7 @@ export function registerHooksCli(program: Command): void {
             process.exit(1);
           }
 
-          let next: OpenClawConfig = {
+          let next: MiraiConfig = {
             ...cfg,
             hooks: {
               ...cfg.hooks,
@@ -661,7 +660,15 @@ export function registerHooksCli(program: Command): void {
         process.exit(1);
       }
 
-      if (looksLikeLocalInstallSpec(raw, [".zip", ".tgz", ".tar.gz", ".tar"])) {
+      const looksLikePath =
+        raw.startsWith(".") ||
+        raw.startsWith("~") ||
+        path.isAbsolute(raw) ||
+        raw.endsWith(".zip") ||
+        raw.endsWith(".tgz") ||
+        raw.endsWith(".tar.gz") ||
+        raw.endsWith(".tar");
+      if (looksLikePath) {
         defaultRuntime.error(`Path not found: ${resolved}`);
         process.exit(1);
       }

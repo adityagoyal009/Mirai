@@ -71,7 +71,14 @@ def _extract_key_figures(text: str) -> List[Dict[str, str]]:
     # TAM / market size
     tam_match = re.search(r'(?:TAM|market|addressable).*?[\$]?([\d,.]+)\s*(billion|million|B|M|trillion|T)', text, re.IGNORECASE)
     if tam_match:
-        figures.append({'label': 'Market Size', 'value': f'${tam_match.group(1)}{tam_match.group(2)[0].upper()}'})
+        market_size = f'${tam_match.group(1)}{tam_match.group(2)[0].upper()}'
+        market_size = str(market_size).strip()
+        # Fix common LLM formatting issues
+        if market_size in ('$.T', '$T', '$', '.T', 'T', ''):
+            market_size = 'Not available'
+        # Remove trailing periods, dots before letters
+        market_size = re.sub(r'\.\s*([A-Z])', r' \1', market_size)
+        figures.append({'label': 'Market Size', 'value': market_size})
     # Growth rate / CAGR
     growth_match = re.search(r'(\d+(?:\.\d+)?)\s*%\s*(?:CAGR|growth|annually|year.over.year)', text, re.IGNORECASE)
     if growth_match:
@@ -89,6 +96,46 @@ def _extract_key_figures(text: str) -> List[Dict[str, str]]:
     if price_match:
         figures.append({'label': 'Price Range', 'value': f'${price_match.group(1)}-${price_match.group(2)}K'})
     return figures[:5]
+
+
+# ── Secret Sanitization (hide LLM names and methodology details) ──
+
+_SECRET_TERMS = ['Claude', 'Opus', 'Sonnet', 'GPT-5', 'GPT-4', 'GPT-3', 'Gemini',
+                 'Anthropic', 'OpenAI', 'Google DeepMind', 'Mistral']
+
+def _sanitize_reasoning(text: str) -> str:
+    """Remove LLM model names and provider names from reasoning text."""
+    for secret in _SECRET_TERMS:
+        text = re.sub(re.escape(secret), 'AI Model', text, flags=re.IGNORECASE)
+    return text
+
+
+def _truncate(text: str, max_len: int) -> str:
+    """Truncate text at word boundary, never mid-word."""
+    if not text or len(text) <= max_len:
+        return text
+    truncated = text[:max_len]
+    last_space = truncated.rfind(' ')
+    if last_space > max_len * 0.6:
+        truncated = truncated[:last_space]
+    return truncated.rstrip('.,;:- ') + '...'
+
+
+def _sanitize_persona_name(name: str) -> str:
+    """Clean persona name for display:
+    - Remove MBTI: 'Series-B VC (INTJ, Berlin)' → 'Series-B VC (Berlin)'
+    - Truncate dataset descriptions: 'A textile engineer who helps develop innovative...' → 'Textile Engineer'
+    """
+    # Remove MBTI
+    name = re.sub(r'\([A-Z]{4},\s*', '(', name)
+    # If name starts with "A " or "An " (dataset persona), extract the role
+    if re.match(r'^An?\s+', name) and len(name) > 60:
+        # Try to get first meaningful noun phrase
+        short = re.sub(r'^An?\s+', '', name)
+        # Cut at first "who", "with", "that", "specializing", "focused"
+        short = re.split(r'\s+(?:who|with|that|specializing|focused|familiar|interested|looking)', short)[0]
+        name = short.strip().title()[:60]
+    return name
 
 
 # ── SVG Chart Generators (inline, no dependencies) ──────────────
@@ -236,7 +283,84 @@ def svg_zone_sentiment_donut(zone_agreement: Dict, total_hit_pct: float, size: i
     return '\n'.join(lines)
 
 
-def svg_agent_heatmap(agents: List[Dict], width: int = 520) -> str:
+def svg_zone_dimension_bars(agents: List[Dict], width: int = 640) -> str:
+    """Grouped bar chart: per-dimension average scores by zone. Much more readable than heatmap."""
+    if not agents:
+        return ''
+
+    dimensions = ['market', 'team', 'product', 'timing', 'overall']
+    dim_labels = {'market': 'Market', 'team': 'Team', 'product': 'Product', 'timing': 'Timing', 'overall': 'Overall'}
+    zone_colors = {
+        'investor': '#2ecc71', 'customer': '#3498db', 'operator': '#9b59b6',
+        'analyst': '#f39c12', 'contrarian': '#e74c3c', 'wildcard': '#1abc9c',
+    }
+
+    # Group agents by zone, compute average per dimension
+    zone_scores = {}  # zone -> {dim: [scores]}
+    for a in agents:
+        zone = (a.get('zone') or a.get('Zone') or 'wildcard').lower()
+        if zone not in zone_scores:
+            zone_scores[zone] = {d: [] for d in dimensions}
+        scores = a.get('scores', {})
+        for d in dimensions:
+            val = scores.get(d, a.get(d, a.get('overall', 5)))
+            try:
+                zone_scores[zone][d].append(float(val))
+            except (ValueError, TypeError):
+                pass
+
+    # Compute averages
+    zone_avgs = {}
+    for zone, dims in zone_scores.items():
+        zone_avgs[zone] = {}
+        for d, scores in dims.items():
+            zone_avgs[zone][d] = sum(scores) / len(scores) if scores else 0
+
+    zones_present = [z for z in ['investor', 'analyst', 'contrarian', 'customer', 'operator', 'wildcard'] if z in zone_avgs]
+    if not zones_present:
+        return ''
+
+    row_height = 50
+    bar_height = max(6, 28 // len(zones_present))
+    left_margin = 120
+    right_margin = 40
+    bar_area = width - left_margin - right_margin
+    height = len(dimensions) * row_height + 60  # +60 for legend
+
+    svg = f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" style="font-family:sans-serif;">\n'
+
+    # Draw bars per dimension
+    for di, dim in enumerate(dimensions):
+        y_base = di * row_height + 10
+        # Dimension label
+        svg += f'<text x="{left_margin - 8}" y="{y_base + row_height // 2 + 4}" text-anchor="end" font-size="12" fill="#333">{dim_labels.get(dim, dim)}</text>\n'
+        # Background
+        svg += f'<rect x="{left_margin}" y="{y_base + 2}" width="{bar_area}" height="{row_height - 4}" fill="#f8f8f8" rx="2"/>\n'
+
+        for zi, zone in enumerate(zones_present):
+            avg = zone_avgs[zone].get(dim, 0)
+            bar_w = max(1, (avg / 10.0) * bar_area)
+            bar_y = y_base + 4 + zi * (bar_height + 1)
+            color = zone_colors.get(zone, '#999')
+            svg += f'<rect x="{left_margin}" y="{bar_y}" width="{bar_w}" height="{bar_height}" fill="{color}" rx="1" opacity="0.85"/>\n'
+            # Score label
+            if avg > 0:
+                svg += f'<text x="{left_margin + bar_w + 3}" y="{bar_y + bar_height - 1}" font-size="9" fill="#666">{avg:.1f}</text>\n'
+
+    # Legend
+    legend_y = len(dimensions) * row_height + 20
+    legend_x = left_margin
+    for zi, zone in enumerate(zones_present):
+        color = zone_colors.get(zone, '#999')
+        svg += f'<rect x="{legend_x}" y="{legend_y}" width="8" height="8" fill="{color}" rx="1"/>\n'
+        svg += f'<text x="{legend_x + 12}" y="{legend_y + 8}" font-size="10" fill="#666">{zone.title()}</text>\n'
+        legend_x += 80
+
+    svg += '</svg>'
+    return svg
+
+
+def _legacy_svg_agent_heatmap(agents: List[Dict], width: int = 520) -> str:
     """Agent-by-dimension heatmap. Rows=agents sorted by score, cols=dimensions."""
     dims = ['market', 'team', 'product', 'timing', 'overall']
     sorted_agents = sorted(agents, key=lambda a: float(a.get('overall', 0)), reverse=True)
@@ -325,7 +449,62 @@ def svg_divergence_radar(agents: List[Dict], size: int = 280) -> str:
     return '\n'.join(lines)
 
 
-def svg_competitive_scatter(competitors: List, startup_name: str, width: int = 450, height: int = 280) -> str:
+def html_competitive_comparison(competitors: List, startup_name: str) -> str:
+    """Feature comparison table with checkmarks -- instantly readable by anyone."""
+    if not competitors:
+        return ''
+
+    # Extract competitor names
+    comp_names = []
+    for c in competitors[:6]:
+        if isinstance(c, str):
+            comp_names.append(c)
+        elif isinstance(c, dict):
+            comp_names.append(c.get('name', c.get('company', str(c))))
+        else:
+            comp_names.append(str(c))
+
+    if not comp_names:
+        return ''
+
+    # Feature columns -- generic features that apply to most startups
+    features = ['AI/ML', 'SaaS', 'Hardware', 'Mobile App', 'Enterprise', 'API']
+
+    html = '<table style="width:100%;border-collapse:collapse;font-size:9pt;margin:8px 0;">\n'
+    # Header
+    html += '<tr style="background:#1a365d;color:#fff;">\n'
+    html += '<th style="padding:6px 8px;text-align:left;">Company</th>\n'
+    html += '<th style="padding:6px 8px;text-align:left;">Details</th>\n'
+    html += '</tr>\n'
+
+    # Startup row (highlighted)
+    html += f'<tr style="background:#e8f5e9;font-weight:bold;">\n'
+    html += f'<td style="padding:5px 8px;color:#2e7d32;">{startup_name}</td>\n'
+    html += f'<td style="padding:5px 8px;color:#2e7d32;font-style:italic;">Subject of analysis</td>\n'
+    html += '</tr>\n'
+
+    # Competitor rows
+    for i, name in enumerate(comp_names):
+        bg = '#f8f9fa' if i % 2 == 0 else '#fff'
+        detail = ''
+        if i < len(competitors) and isinstance(competitors[i], dict):
+            # Prefer 'detail' field (from agentic research), fall back to status/funding
+            detail = (competitors[i].get('detail', '')
+                      or competitors[i].get('status', '')
+                      or competitors[i].get('funding', ''))
+        # Truncate long details for table readability
+        if len(detail) > 120:
+            detail = detail[:117] + '...'
+        html += f'<tr style="background:{bg};">\n'
+        html += f'<td style="padding:5px 8px;font-weight:600;white-space:nowrap;">{name}</td>\n'
+        html += f'<td style="padding:5px 8px;color:#444;">{detail or "—"}</td>\n'
+        html += '</tr>\n'
+
+    html += '</table>\n'
+    return html
+
+
+def _legacy_svg_competitive_scatter(competitors: List, startup_name: str, width: int = 450, height: int = 280) -> str:
     """Competitive positioning scatter plot. Price vs capability scope."""
     # Filter out non-competitors (research firms, accelerators, media)
     NON_COMPETITORS = {'marketsandmarkets', 'imagine h2o', 'grand view research', 'frost & sullivan',
@@ -469,6 +648,14 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
     company = extraction.get('company', 'Unknown Company')
     industry = extraction.get('industry', '')
     verdict = prediction.get('verdict', 'Unknown')
+    # Signal divergence note (advisory, does NOT override verdict)
+    _swarm_pos_raw = swarm.get('positive_pct', swarm.get('positivePct', None))
+    swarm_pos = float(_swarm_pos_raw) if _swarm_pos_raw is not None else 50.0
+    signal_divergence = ""
+    if swarm_pos < 30 and verdict in ('Strong Hit', 'Likely Hit'):
+        signal_divergence = f"Swarm sentiment ({swarm_pos:.0f}% positive) diverges significantly from the council verdict. Consider the swarm's concerns carefully."
+    elif swarm_pos < 45 and verdict in ('Strong Hit', 'Likely Hit'):
+        signal_divergence = f"Swarm sentiment ({swarm_pos:.0f}% positive) is mixed despite a positive council verdict."
     score = float(prediction.get('composite_score', prediction.get('overall_score', 0)) or 0)
     confidence = float(prediction.get('confidence', 0) or 0)
     data_quality = float(analysis.get('data_quality', 0) or 0)
@@ -486,12 +673,41 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
     moves = moves if isinstance(moves, list) else []
     competitors = research.get('competitors', [])
     competitors = competitors if isinstance(competitors, list) else []
+    # Enrich competitor list with details from agentic research if available
+    competitor_details = research.get('competitor_details', [])
+    if competitor_details and isinstance(competitor_details, list):
+        details_map = {}
+        for cd in competitor_details:
+            if isinstance(cd, dict) and cd.get('name'):
+                details_map[cd['name'].lower()] = cd
+        enriched = []
+        for c in competitors:
+            name = c if isinstance(c, str) else (c.get('name', '') if isinstance(c, dict) else str(c))
+            detail = details_map.get(name.lower(), {})
+            if isinstance(c, str) and detail:
+                enriched.append({
+                    'name': name,
+                    'detail': detail.get('detail', ''),
+                    'status': detail.get('funding', detail.get('status', detail.get('detail', ''))),
+                    'type': detail.get('type', detail.get('industry', '')),
+                })
+            elif isinstance(c, dict):
+                if detail:
+                    c.setdefault('status', detail.get('detail', ''))
+                    c.setdefault('detail', detail.get('detail', ''))
+                enriched.append(c)
+            else:
+                enriched.append({'name': name, 'detail': detail.get('detail', '')})
+        competitors = enriched
     research_summary = str(research.get('summary', '') or '')
     context_facts = research.get('context_facts', []) or []
     context_facts = context_facts if isinstance(context_facts, list) else []
+    cited_facts = research.get('cited_facts', []) or []
+    cited_facts = cited_facts if isinstance(cited_facts, list) else []
     sample_agents = swarm.get('sample_agents', []) or []
     sample_agents = sample_agents if isinstance(sample_agents, list) else []
-    pos_pct = float(swarm.get('positive_pct', swarm.get('positivePct', 50)) or 50)
+    _pos_raw = swarm.get('positive_pct', swarm.get('positivePct', None))
+    pos_pct = float(_pos_raw) if _pos_raw is not None else 50.0
     neg_pct = 100 - pos_pct
     total_agents = swarm.get('total_agents', swarm.get('totalAgents', len(sample_agents)))
     suggestions = _generate_suggestions(prediction)
@@ -550,7 +766,7 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
         from collections import defaultdict
         _za = defaultdict(lambda: {'total': 0, 'hits': 0})
         for a in sample_agents:
-            z = a.get('zone', 'wildcard')
+            z = (a.get('zone') or a.get('Zone') or 'wildcard').lower()
             _za[z]['total'] += 1
             if float(a.get('overall', 0)) >= 5.5:
                 _za[z]['hits'] += 1
@@ -568,8 +784,10 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
 <style>
   @page {{ size: letter; margin: 0.6in 0.75in; }}
   * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-  body {{ font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; color: #1a1a2e; line-height: 1.5; font-size: 12px; }}
-  .header {{ background: #001f3f; color: white; padding: 20px 30px; margin: -0.6in -0.75in 20px; width: calc(100% + 1.5in); }}
+  body {{ font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; color: #1a1a2e; line-height: 1.5; font-size: 12px; max-width: 850px; margin: 0 auto; padding: 0 20px; }}
+  @media print {{ body {{ max-width: none; padding: 0; }} }}
+  .header {{ background: #001f3f; color: white; padding: 20px 30px; margin: 0 -20px 20px; width: calc(100% + 40px); border-radius: 0 0 8px 8px; }}
+  @media print {{ .header {{ margin: -0.6in -0.75in 20px; width: calc(100% + 1.5in); border-radius: 0; }} }}
   .header h1 {{ font-size: 11px; letter-spacing: 3px; opacity: 0.7; margin-bottom: 4px; }}
   .header h2 {{ font-size: 22px; font-weight: bold; }}
   .header .subtitle {{ font-size: 11px; opacity: 0.6; margin-top: 4px; }}
@@ -611,6 +829,45 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
   .footer {{ text-align: center; color: #999; font-size: 9px; margin-top: 30px; padding-top: 12px; border-top: 1px solid #e0e0e0; }}
   .page-break {{ page-break-before: always; }}
   .keep-together {{ page-break-inside: avoid; }}
+
+  /* Prevent orphaned section headers — always keep heading with next content */
+  .section-bar {{
+    page-break-after: avoid;
+    break-after: avoid;
+  }}
+
+  /* Keep charts, cards, and small tables together */
+  .charts, .figure-cards, .grid-2, .grid-3, table {{
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }}
+  /* Large agent tables MUST be allowed to split across pages */
+  table.agents-table {{
+    page-break-inside: auto !important;
+    break-inside: auto !important;
+  }}
+  table.agents-table tr {{
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }}
+
+  /* Keep verdict badges and score gauges with their context */
+  .verdict-badge, svg {{
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }}
+
+  /* Prevent widows/orphans in narrative text */
+  .narrative p {{
+    orphans: 3;
+    widows: 3;
+  }}
+
+  /* Each risk/move/theme item should not split */
+  .fact-item {{
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }}
   .appendix-ref {{ font-size: 10px; color: #1565c0; font-style: italic; margin-top: 4px; }}
 </style>
 </head>
@@ -642,12 +899,61 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
 <div class="metrics">
   <div class="metric"><div class="value">{confidence:.0%}</div><div class="label">Council Confidence</div></div>
   <div class="metric"><div class="value">{data_quality:.0%}</div><div class="label">Data Quality</div></div>
-  <div class="metric"><div class="value">{len(council_models) or 4}</div><div class="label">Council Models</div></div>
+  <div class="metric"><div class="value">{len(council_models) or 4}</div><div class="label">Evaluators</div></div>
   <div class="metric"><div class="value">{total_agents}</div><div class="label">Swarm Agents</div></div>
 </div>
+'''
 
-<div class="section-bar">7-Dimension Scoring</div>
+    # ── Confidence band: expected score range based on agent divergence ──
+    std_overall = float(swarm.get('std_overall', 0) or 0)
+    swarm_median = float(swarm.get('median_overall', score) or score)
+    if std_overall > 0 and total_agents > 1:
+        score_low = max(1.0, round(score - std_overall * 1.2, 1))
+        score_high = min(10.0, round(score + std_overall * 1.2, 1))
+        band_width = score_high - score_low
+        band_color = '#27ae60' if band_width < 1.5 else ('#f39c12' if band_width < 3.0 else '#e74c3c')
+        band_label = 'High consensus' if band_width < 1.5 else ('Moderate agreement' if band_width < 3.0 else 'High divergence')
+
+        # What verdict range means
+        low_verdict = 'Strong Hit' if score_low > 7.5 else 'Likely Hit' if score_low > 6.0 else 'Mixed Signal' if score_low > 4.5 else 'Likely Miss' if score_low > 3.0 else 'Strong Miss'
+        high_verdict = 'Strong Hit' if score_high > 7.5 else 'Likely Hit' if score_high > 6.0 else 'Mixed Signal' if score_high > 4.5 else 'Likely Miss' if score_high > 3.0 else 'Strong Miss'
+        verdict_range = f'{low_verdict} to {high_verdict}' if low_verdict != high_verdict else low_verdict
+
+        html += f'''
+<div style="background:#f8f9fa; border:1px solid #e0e0e0; border-radius:6px; padding:10px 16px; margin:8px 0; display:flex; align-items:center; gap:16px;">
+  <div style="flex-shrink:0;">
+    <div style="font-size:9px; color:#888; text-transform:uppercase; letter-spacing:1px;">Expected Range</div>
+    <div style="font-size:18px; font-weight:700; color:{band_color};">{score_low} – {score_high}</div>
+    <div style="font-size:8px; color:#aaa;">out of 10</div>
+  </div>
+  <div style="flex:1; padding:0 8px;">
+    <div style="background:#e8e8e8; height:8px; border-radius:4px; position:relative;">
+      <div style="position:absolute; left:{score_low*10}%; width:{(score_high-score_low)*10}%; height:100%; background:{band_color}; border-radius:4px; opacity:0.5;"></div>
+      <div style="position:absolute; left:{score*10}%; width:3px; height:100%; background:#1a1a2e; border-radius:2px; transform:translateX(-1px);"></div>
+    </div>
+    <div style="display:flex; justify-content:space-between; font-size:7px; color:#aaa; margin-top:2px;">
+      <span>1</span><span>5</span><span>10</span>
+    </div>
+  </div>
+  <div style="flex-shrink:0; text-align:right;">
+    <div style="font-size:9px; color:{band_color}; font-weight:600;">{band_label}</div>
+    <div style="font-size:8px; color:#888;">Verdict range: {verdict_range}</div>
+    <div style="font-size:7px; color:#aaa;">Based on agent score std dev ({std_overall:.1f})</div>
+  </div>
+</div>
+'''
+
+
+    faith_score = analysis.get('faithfulness_score', analysis.get('research', {}).get('faithfulness_score'))
+    if faith_score is not None:
+        html += f'<div style="text-align:center;"><div style="font-size:20pt;font-weight:700;color:#4488ff;">{faith_score:.0%}</div><div style="font-size:8pt;color:#888;">Faithfulness</div></div>\n'
+
+    html += f'''
+
+<div class="keep-together">
+<div class="section-bar">10-Dimension Scoring</div>
 {svg_horizontal_bars(dim_items)}
+</div>
 
 <div class="section-bar" style="margin-top: 16px;">General Information</div>
 <div class="grid-2 keep-together">
@@ -662,17 +968,29 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
     <div class="fact-item"><div class="fact-label">Stage</div><div class="fact-value">{extraction.get("stage", "")}</div></div>
   </div>
 </div>
+<div class="grid-2 keep-together" style="margin-top: 8px;">
+  <div>
+    {"<div class='fact-item'><div class='fact-label'>Website</div><div class='fact-value'><a href='" + extraction.get("website_url", "") + "' style='color:#3366cc;'>" + extraction.get("website_url", "") + "</a></div></div>" if extraction.get("website_url") else ""}
+    {"<div class='fact-item'><div class='fact-label'>Location</div><div class='fact-value'>" + extraction.get("location", "") + "</div></div>" if extraction.get("location") else ""}
+    {"<div class='fact-item'><div class='fact-label'>Year Founded</div><div class='fact-value'>" + extraction.get("year_founded", "") + "</div></div>" if extraction.get("year_founded") else ""}
+  </div>
+  <div>
+    {"<div class='fact-item'><div class='fact-label'>Revenue</div><div class='fact-value'>" + extraction.get("revenue", "") + "</div></div>" if extraction.get("revenue") else ""}
+    {"<div class='fact-item'><div class='fact-label'>Funding</div><div class='fact-value'>" + extraction.get("funding", "") + "</div></div>" if extraction.get("funding") else ""}
+    {"<div class='fact-item'><div class='fact-label'>Team</div><div class='fact-value'>" + extraction.get("team", "") + "</div></div>" if extraction.get("team") else ""}
+  </div>
+</div>
 
 <!-- PAGE 2: AGENT HEATMAP + DIVERGENCE -->
 <div class="page-break"></div>
 
-<div class="section-bar">Agent Scoring Heatmap</div>
+<div class="section-bar">Score Breakdown by Zone</div>
 '''
 
-    # Agent heatmap
+    # Zone dimension grouped bar chart
     if sample_agents:
-        html += svg_agent_heatmap(sample_agents)
-        html += '<div style="font-size: 9px; color: #888; margin-top: 4px;">Agents sorted by overall score. Green >= 7, Orange 5-6.9, Red < 5. Swarm scores 4 dimensions + overall; council scores 7 specialized dimensions (page 1).</div>\n'
+        html += svg_zone_dimension_bars(sample_agents)
+        html += '<div style="font-size: 9px; color: #888; margin-top: 4px;">Average scores per dimension grouped by zone. Bar length proportional to score (0-10).</div>\n'
 
     # Divergence radar
     if sample_agents and len(sample_agents) >= 5:
@@ -685,11 +1003,20 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
         html += 'Wide bands = high disagreement. Narrow bands = consensus.'
         html += '</div>\n</div>\n'
 
-    # Competitive scatter (if competitors available)
+    # Competitive comparison table (if competitors available)
     if competitors and len(competitors) >= 3:
-        html += '<div class="section-bar" style="margin-top: 16px;">Competitive Positioning</div>\n'
-        html += svg_competitive_scatter(competitors, company)
-        html += '<div style="font-size: 9px; color: #888; margin-top: 4px;">Position reflects relative price point and capability scope. Green = startup being evaluated.</div>\n'
+        html += '<div class="section-bar" style="margin-top: 16px;">Competitive Comparison</div>\n'
+        html += html_competitive_comparison(competitors, company)
+        html += '<div style="font-size: 9px; color: #888; margin-top: 4px;">Startup highlighted in green. Competitor details enriched from database where available.</div>\n'
+
+    # ── C3: Research Overview ──
+    if research_summary:
+        html += '\n<div class="section-bar">Research Overview</div>\n'
+        html += f'<div class="narrative"><p>{_sanitize_reasoning(_strip_markdown(research_summary[:500]))}</p></div>\n'
+        cited_count = len(cited_facts) if cited_facts else 0
+        source_count = len(set(c.get('source_domain', '') for c in (cited_facts or []) if c.get('source_domain')))
+        if cited_count:
+            html += f'<p style="font-size: 9px; color: #666;">{cited_count} facts verified across {source_count} sources</p>\n'
 
     html += f'''
 <!-- PAGE 3: MARKET ANALYSIS + COMPETITORS -->
@@ -722,21 +1049,80 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
     elif research_summary:
         html += f'<div class="narrative">{_to_paragraphs(research_summary)}</div>\n'
 
-    # Competitors table — enriched from DB + web (keep together)
+    # Competitors table — enriched from DB + Brave/SearXNG web search
     if competitors:
         html += '<div class="section-bar keep-together">Top Similar Companies</div>\n<table class="keep-together">\n'
         html += '<tr><th>#</th><th>Company</th><th>Industry</th><th>Status</th><th>Funding</th></tr>\n'
 
-        # Try to enrich from company DB
-        import sqlite3
-        db_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'companies.db')
+        # Company DB skipped (2026-03-24) — stale Crunchbase dump with wrong fuzzy matches
+        # (e.g. "HACH" matched "ChaCha" → showed "Advertising" industry)
+        # Competitor data now comes from OpenClaw research or web search fallback
         comp_conn = None
-        try:
-            if os.path.exists(db_path):
-                comp_conn = sqlite3.connect(db_path)
-                comp_conn.row_factory = sqlite3.Row
-        except Exception:
-            pass
+
+        # Web search enrichment via OpenClaw gateway
+        def _web_enrich_competitor(name: str) -> dict:
+            """Search via OpenClaw gateway for competitor info, with retry."""
+            result = {'industry': '', 'status': '', 'funding': ''}
+            try:
+                from .gateway_client import web_search as _gw_search
+                import time as _t
+                clean = name.split('(')[0].split('/')[0].strip()
+                query = f'"{clean}" company funding status industry'
+                search_results = None
+                for attempt in range(3):
+                    search_results = _gw_search(query, count=3)
+                    if search_results:
+                        break
+                    _t.sleep(1)
+                if not search_results:
+                    logger.warning(f"[Report] Competitor enrichment failed for '{clean}' after 3 attempts")
+                    return result
+                snippets = ' '.join(r.get('description', '') for r in search_results).lower()
+                if not snippets:
+                    return result
+                # Extract status
+                if 'acquired' in snippets:
+                    result['status'] = 'Acquired'
+                elif 'shut down' in snippets or 'closed' in snippets or 'defunct' in snippets:
+                    result['status'] = 'Closed'
+                elif 'ipo' in snippets or 'publicly traded' in snippets or 'nyse' in snippets or 'nasdaq' in snippets:
+                    result['status'] = 'Public'
+                else:
+                    result['status'] = 'Operating'
+                # Extract funding
+                import re as _re
+                fund_match = _re.search(r'(?:raised|funding|series\s*\w)\s*\$?([\d,.]+)\s*(million|billion|m|b|k)', snippets)
+                if fund_match:
+                    amount = fund_match.group(1).replace(',', '')
+                    unit = fund_match.group(2).lower()
+                    if unit in ('billion', 'b'):
+                        result['funding'] = f"${amount}B"
+                    elif unit in ('million', 'm'):
+                        result['funding'] = f"${amount}M"
+                    else:
+                        result['funding'] = f"${amount}"
+                # Extract industry
+                # Match industry from snippets — use word boundaries to avoid false positives
+                import re as _re2
+                industry_map = [
+                    ('water quality', 'Water Quality'), ('water monitoring', 'Water Tech'), ('water treatment', 'Water Tech'),
+                    ('cleantech', 'CleanTech'), ('clean tech', 'CleanTech'), ('clean energy', 'CleanTech'),
+                    ('fintech', 'FinTech'), ('healthtech', 'HealthTech'), ('health tech', 'HealthTech'),
+                    ('biotech', 'BioTech'), ('edtech', 'EdTech'), ('legaltech', 'LegalTech'),
+                    ('cybersecurity', 'Cybersecurity'), ('cyber security', 'Cybersecurity'),
+                    ('saas', 'SaaS'), ('software as a service', 'SaaS'),
+                    ('enterprise software', 'Enterprise Software'), ('iot', 'IoT'), ('internet of things', 'IoT'),
+                    ('environmental', 'Environmental'), ('energy', 'Energy'), ('agriculture', 'AgriTech'),
+                    ('logistics', 'Logistics'), ('marketplace', 'Marketplace'), ('hardware', 'Hardware'),
+                    ('artificial intelligence', 'AI/ML'), ('machine learning', 'AI/ML'),
+                ]
+                for pattern, label in industry_map:
+                    if pattern in snippets:
+                        result['industry'] = label
+                        break
+            except Exception as e:
+                logger.debug(f"[Report] Web enrichment failed for {name}: {e}")
+            return result
 
         for i, c in enumerate(competitors[:8]):
             if isinstance(c, (int, float)):
@@ -748,10 +1134,12 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
             else:
                 c_name = str(c)
             c_industry = industry
-            c_status = '-'
-            c_funding = '-'
+            c_status = ''
+            c_funding = ''
+            db_found = False
 
-            # Look up in DB
+            # Step 1: Look up in DB
+            db_industry_suspicious = False
             if comp_conn:
                 try:
                     clean_name = c_name.split('(')[0].split('/')[0].strip()
@@ -767,8 +1155,36 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
                     if row:
                         c_industry = row['industry'] or industry
                         c_status = (row['status'] or '').title()
+                        db_found = True
+                        # Sanity check: if the DB industry is completely
+                        # unrelated to the startup's industry, the LIKE
+                        # prefix match probably hit a wrong company (e.g.
+                        # "Hach%" matching "Hachette" -> "advertising").
+                        if (c_industry and industry
+                                and c_industry.lower() not in industry.lower()
+                                and industry.lower() not in c_industry.lower()):
+                            db_industry_suspicious = True
                 except Exception:
                     pass
+
+            # Step 2: Web search fallback if DB had no useful data
+            # Also run web enrichment when the DB industry looks suspicious
+            if not db_found or not c_status or c_status == '-' or db_industry_suspicious:
+                try:
+                    web_data = _web_enrich_competitor(c_name)
+                    if web_data.get('status'):
+                        c_status = web_data['status']
+                    if web_data.get('funding'):
+                        c_funding = web_data['funding']
+                    # Accept web industry when: no DB data, DB defaulted to
+                    # the startup's own industry, OR the DB match is suspicious
+                    if web_data.get('industry') and (not c_industry or c_industry == industry or db_industry_suspicious):
+                        c_industry = web_data['industry']
+                except Exception:
+                    pass
+
+            c_status = c_status or '—'
+            c_funding = c_funding or '—'
 
             html += f'<tr><td>{i+1}</td><td style="font-weight:bold;">{c_name}</td><td>{c_industry}</td><td>{c_status}</td><td>{c_funding}</td></tr>\n'
 
@@ -794,8 +1210,11 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
     # ═══ COUNCIL DELIBERATION ═══
 
     html += '<div class="section-bar">Council Deliberation</div>\n'
-    if council_models:
-        html += f'<p style="color: #666; margin-bottom: 12px;">{len(council_models)} models scored independently across 3 providers.</p>\n'
+    html += '<p style="color: #666; margin-bottom: 12px;">Multiple AI evaluators scored independently, each blind to the others\' assessments.</p>\n'
+
+    # B3: Show council reasoning if available
+    if council_reasoning:
+        html += f'<div class="narrative" style="margin-bottom: 12px;">{_to_paragraphs(_sanitize_reasoning(council_reasoning[:800]))}</div>\n'
 
     html += svg_horizontal_bars(dim_items)
 
@@ -814,7 +1233,7 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
         for model_label, scores in council_model_scores.items():
             if not isinstance(scores, dict):
                 continue
-            html += f'<tr><td style="font-weight:bold;font-size:10px;">{str(model_label)[:20]}</td>'
+            html += f'<tr><td style="font-weight:bold;font-size:10px;">{_sanitize_reasoning(str(model_label)[:20])}</td>'
             for d in dim_names[:7]:
                 s = float(scores.get(d, 0))
                 color = _color_for_score(s)
@@ -834,6 +1253,24 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
             html += f'<span style="color: #333;">{c_name.replace("_", " ").title()} - Models disagreed significantly on this dimension.</span><br/>\n'
         html += '</div>\n'
 
+    # ═══ C1: KEY THEMES (positive + negative) ═══
+    themes_pos = swarm.get('key_themes_positive', [])
+    themes_neg = swarm.get('key_themes_negative', [])
+    if themes_pos or themes_neg:
+        html += '\n<div class="section-bar">Key Themes</div>\n'
+        html += '<div style="display: flex; gap: 20px; margin-bottom: 16px;">\n'
+        if themes_pos:
+            html += '<div style="flex: 1;"><p style="color: #2e7d32; font-weight: bold; margin-bottom: 6px;">Positive Signals</p><ul style="font-size: 11px; line-height: 1.6;">\n'
+            for t in themes_pos[:5]:
+                html += f'<li>{_sanitize_reasoning(str(t))}</li>\n'
+            html += '</ul></div>\n'
+        if themes_neg:
+            html += '<div style="flex: 1;"><p style="color: #d32f2f; font-weight: bold; margin-bottom: 6px;">Risk Signals</p><ul style="font-size: 11px; line-height: 1.6;">\n'
+            for t in themes_neg[:5]:
+                html += f'<li>{_sanitize_reasoning(str(t))}</li>\n'
+            html += '</ul></div>\n'
+        html += '</div>\n'
+
     # ═══ AGENT HIGHLIGHTS (selected 5-6 most interesting) ═══
     if highlight_agents:
         html += '<div class="page-break"></div>\n'
@@ -845,7 +1282,7 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
             ha_vote = 'HIT' if ha_score >= 5.5 else 'MISS'
             ha_color = '#2e7d32' if ha_vote == 'HIT' else '#d32f2f'
             ha_label = ha.get('_highlight', '')
-            ha_persona = str(ha.get('persona', '?'))[:50]
+            ha_persona = _sanitize_persona_name(str(ha.get('persona', '?')))
             ha_zone = ha.get('zone', 'wildcard').title()
             ha_reasoning = _replace_em_dashes(str(ha.get('reasoning', '')))
 
@@ -908,10 +1345,10 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
             zone_color = '#2e7d32' if zone_hit_pct >= 60 else '#d32f2f' if zone_hit_pct <= 40 else '#f57c00'
 
             html += f'<div class="section-bar">{zone_labels.get(zone_key, zone_key.title())} ({zone_total} agents - <span style="color:{zone_color}">{zone_hit_pct:.0f}% HIT</span>)</div>\n'
-            html += '<table>\n<tr><th>Agent</th><th>Vote</th><th>Score</th><th>Reasoning</th></tr>\n'
+            html += '<table class="agents-table">\n<tr><th>Agent</th><th>Vote</th><th>Score</th><th>Reasoning</th></tr>\n'
 
             for agent in zone_agents:
-                persona = str(agent.get('persona', '?'))[:60]
+                persona = _sanitize_persona_name(str(agent.get('persona', '?'))[:60])
                 overall = float(agent.get('overall', 0))
                 vote = 'HIT' if overall >= 5.5 else 'MISS'
                 vote_color = '#2e7d32' if vote == 'HIT' else '#d32f2f'
@@ -950,7 +1387,7 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
                 html += f'<tr><td>{o["persona"][:50]}</td><td>{o["zone"].title()}</td>'
                 html += f'<td style="font-weight:bold;">{o["overall"]:.1f}</td>'
                 html += f'<td style="color:{d_color};font-weight:bold;">{z_display}</td>'
-                html += f'<td style="font-size:10px;color:#555;">{_replace_em_dashes(o["excerpt"][:150])}</td></tr>\n'
+                html += f'<td style="font-size:10px;color:#555;">{_replace_em_dashes(_truncate(o["excerpt"], 180))}</td></tr>\n'
             html += '</table>\n'
 
     # ═══ INVESTMENT COMMITTEE DELIBERATION ═══
@@ -1065,15 +1502,26 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
         end_s = oasis.get('end_sentiment', oasis.get('endSentiment', 50))
         traj_color = '#2e7d32' if trajectory == 'improving' else '#d32f2f' if trajectory == 'declining' else '#f57c00'
         html += f'<p style="color: {traj_color}; font-weight: bold; font-size: 16px;">Trajectory: {trajectory.upper()} ({start_s}% -> {end_s}%)</p>\n'
-        html += '<table>\n<tr><th>Month</th><th>Event</th><th>Sentiment</th><th>Change</th></tr>\n'
+        html += '<table>\n<tr><th>Month</th><th>Event</th><th>Sentiment</th><th>Change</th><th>Confidence</th></tr>\n'
         for t in oasis_timeline:
             if isinstance(t, dict):
                 change = t.get('sentiment_change', t.get('change', 0))
                 change_str = f'+{change}%' if change > 0 else f'{change}%'
                 change_color = '#2e7d32' if change > 0 else '#d32f2f' if change < 0 else '#888'
                 event_text = _strip_markdown(_replace_em_dashes(str(t.get("event", ""))))
-                html += f'<tr><td>Month {t.get("month", "?")}</td><td>{event_text}</td><td>{t.get("sentiment_pct", t.get("sentimentPct", "?"))}%</td><td style="color:{change_color}">{change_str}</td></tr>\n'
+                conf_low = t.get("confidence_low", t.get("confidenceLow", 0))
+                conf_high = t.get("confidence_high", t.get("confidenceHigh", 100))
+                band_width = conf_high - conf_low
+                band_color = '#27ae60' if band_width < 20 else ('#f39c12' if band_width < 40 else '#e74c3c')
+                html += f'<tr><td>Month {t.get("month", "?")}</td><td>{event_text}</td><td>{t.get("sentiment_pct", t.get("sentimentPct", "?"))}%</td><td style="color:{change_color}">{change_str}</td>\n'
+                html += f'<td style="color:{band_color};">{conf_low:.0f}% - {conf_high:.0f}%</td></tr>\n'
         html += '</table>\n'
+
+        # C4: OASIS verdict adjustment note
+        oasis_trajectory = oasis.get('trajectory', 'stable')
+        if oasis_trajectory != 'stable':
+            direction = 'upgraded' if oasis_trajectory == 'improving' else 'adjusted downward'
+            html += f'<p style="font-size: 10px; color: #666; margin-top: 8px;"><em>Note: The 6-month market trajectory ({oasis_trajectory}) {direction} the final verdict assessment.</em></p>\n'
 
     # ═══ RISKS + PLAN ═══
     html += '<div class="page-break"></div>\n'
@@ -1085,7 +1533,7 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
             r_text = _replace_em_dashes(str(r_text))
             severity = 'HIGH' if i < 2 else 'MEDIUM'
             sev_class = 'sev-high' if i < 2 else 'sev-medium'
-            html += f'<div class="risk-card{"" if i < 2 else " medium"}">\n'
+            html += f'<div class="risk-card keep-together{"" if i < 2 else " medium"}">\n'
             html += f'  <span class="severity {sev_class}">{severity}</span>\n'
             html += f'  <div style="margin-top: 6px; color: #333;">{r_text}</div>\n'
             html += '</div>\n'
@@ -1098,7 +1546,7 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
         for i, move in enumerate(moves[:5]):
             m_text = move.get('move', move.get('action', move)) if isinstance(move, dict) else str(move)
             m_text = _replace_em_dashes(str(m_text))
-            html += f'<div class="move-card">\n'
+            html += f'<div class="move-card keep-together">\n'
             html += f'  <strong>Move {i+1}</strong>\n'
             html += f'  <div style="margin-top: 4px; color: #333;">{m_text}</div>\n'
             html += '</div>\n'
@@ -1110,13 +1558,37 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
     if suggestions:
         html += '<div class="section-bar">Actionable Improvements</div>\n'
         for sug in suggestions:
-            html += f'<div class="suggestion-card">\n'
+            html += f'<div class="suggestion-card keep-together">\n'
             html += f'  <strong style="color: #1565c0;">{sug["area"]}</strong> - <span style="color: #f57c00;">{sug["issue"]}</span>\n'
             html += f'  <div style="margin-top: 4px; color: #333;">{sug["action"]}</div>\n'
             html += '</div>\n'
 
     if verdict_summary:
         html += f'<div class="section-bar">Investment Verdict</div>\n<div class="narrative">{_to_paragraphs(_replace_em_dashes(verdict_summary))}</div>\n'
+
+    # ═══ Fact Verification Summary ═══
+    fact_check = analysis.get('fact_check', analysis.get('fact_verification', {}))
+    if fact_check and isinstance(fact_check, dict):
+        verified = fact_check.get('verified_count', fact_check.get('verified', 0))
+        contradicted = fact_check.get('contradicted_count', fact_check.get('contradicted', 0))
+        unverified = fact_check.get('unverified_count', fact_check.get('unverified', 0))
+        total = verified + contradicted + unverified
+        trust = fact_check.get('trust_score', 0)
+        if total > 0:
+            html += '<div class="section-heading">Fact Verification Summary</div>\n'
+            html += f'<div style="display:flex;gap:16px;margin:8px 0;">\n'
+            html += f'<div style="color:#27ae60;font-size:14pt;font-weight:700;">{verified} verified</div>\n'
+            html += f'<div style="color:#e74c3c;font-size:14pt;font-weight:700;">{contradicted} contradicted</div>\n'
+            html += f'<div style="color:#888;font-size:14pt;font-weight:700;">{unverified} unverified</div>\n'
+            html += f'</div>\n'
+            html += f'<div style="font-size:10pt;color:#aaa;">Trust score: {trust:.0%} ({verified}/{total} claims verified against external sources)</div>\n'
+            # List critical contradictions
+            critical = fact_check.get('critical_contradictions', [])
+            if critical:
+                html += '<div style="margin-top:8px;padding:8px;background:rgba(231,76,60,0.1);border-radius:4px;">\n'
+                for c in critical[:5]:
+                    html += f'<div style="font-size:9pt;color:#e74c3c;">- {c[:200]}</div>\n'
+                html += '</div>\n'
 
     # ═══ APPENDIX: Full narratives ═══
     has_appendix = False
@@ -1133,52 +1605,204 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
         html += f'<div class="narrative">{_to_paragraphs(_replace_em_dashes(competitive_position))}</div>\n'
         has_appendix = True
 
-    # ═══ Appendix E: Methodology ═══
-    html += '<div class="page-break"></div>\n'
-    html += '<div class="section-heading">Appendix E: Methodology</div>\n'
-    html += '<table>\n'
-    html += f'<tr><td style="font-weight:bold;width:180px;">Council Models</td><td>{len(council_models) or 4} models across 3 providers (Anthropic, OpenAI, Google)</td></tr>\n'
-    html += f'<tr><td style="font-weight:bold;">Swarm Size</td><td>{total_agents} agents ({total_agents} Wave 1 individual calls)</td></tr>\n'
-    html += '<tr><td style="font-weight:bold;">Persona Pool</td><td>88.5B+ unique combinations from 11-dimension trait generator (142 roles, 16 MBTI behavioral types, 7 risk profiles, 7 experience levels, 22 cognitive biases, 28 geographic lenses, 26 industry focuses, zone-specific fund contexts, backstories, decision frameworks)</td></tr>\n'
-    html += '<tr><td style="font-weight:bold;">Persona Curation</td><td>Industry-aware role priority mapping. 60% of each zone uses curated roles matching the startup\'s industry. "Stay in your lane" directive enforces domain-specific reasoning.</td></tr>\n'
-    html += '<tr><td style="font-weight:bold;">Scoring Method</td><td>Each agent scores 5 dimensions (market, team, product, timing, overall) from 1-10. Verdict derived from median overall: Strong Hit (>7.5), Likely Hit (>6.0), Uncertain (>4.5), Likely Miss (>3.0), Strong Miss.</td></tr>\n'
-    html += '<tr><td style="font-weight:bold;">Divergence Detection</td><td>Z-score outlier analysis (|z| > 1.5 SD). Per-zone agreement tracking. Per-dimension standard deviation comparison.</td></tr>\n'
+    # ═══ Appendix D: Research Sources & Citations ═══
+    # Filter to only show cited facts with real sources (not "multi-model synthesis")
+    real_citations = [c for c in (cited_facts or []) if isinstance(c, dict) and c.get('source_url') and c.get('source_domain', '') != 'multi-model synthesis']
+    if not real_citations:
+        real_citations = cited_facts or []  # fallback to all if no real sources
+    if real_citations:
+        html += '<div class="page-break"></div>\n'
+        html += '<div class="section-heading">Appendix D: Research Sources &amp; Citations</div>\n'
+        html += '<table>\n'
+        html += '<tr style="background:#1a1a2e;color:#e0e0e0;"><th>Fact</th><th>Source</th><th>Confidence</th></tr>\n'
+        for cf in real_citations[:20]:
+            text = str(cf.get('text', ''))[:200] if isinstance(cf, dict) else str(cf)[:200]
+            source = cf.get('source_domain', '') if isinstance(cf, dict) else ''
+            url = cf.get('source_url', '') if isinstance(cf, dict) else ''
+            conf = cf.get('confidence', 'medium') if isinstance(cf, dict) else 'medium'
+            conf_color = {'high': '#2ecc71', 'medium': '#f39c12', 'low': '#e74c3c'}.get(conf, '#f39c12')
+            source_cell = f'<a href="{url}" style="color:#7fdbca;">{source}</a>' if url else (source or 'multi-model synthesis')
+            html += f'<tr><td>{text}</td><td>{source_cell}</td><td style="color:{conf_color};">{conf}</td></tr>\n'
+        html += '</table>\n'
 
-    delib = swarm.get('deliberation') or analysis.get('deliberation') or {}
-    if delib:
-        html += f'<tr><td style="font-weight:bold;">Committee Deliberation</td><td>{len(delib.get("positions", delib.get("challenges", [])))} committee members selected for diversity. {delib.get("rounds", 2)} rounds: position statements + chair synthesis. {delib.get("extra_llm_calls", 0)} additional LLM calls.</td></tr>\n'
+    # ═══ Appendix E: All Research Sources (bibliography) ═══
+    # Collect all unique URLs from cited_facts + research findings
+    all_urls = {}
+    for cf in (cited_facts or []):
+        if isinstance(cf, dict) and cf.get('source_url'):
+            url = cf['source_url']
+            domain = cf.get('source_domain', '')
+            if url not in all_urls:
+                all_urls[url] = domain
+    # Also pull from research context_facts sources if available
+    for src in (analysis.get('research', {}).get('sources', []) if isinstance(analysis.get('research'), dict) else []):
+        url = src.get('url', '') if isinstance(src, dict) else ''
+        if url and url not in all_urls:
+            from urllib.parse import urlparse as _up
+            all_urls[url] = _up(url).netloc
 
-    html += '<tr><td style="font-weight:bold;">Research Sources</td><td>SearXNG (70+ search engines), Crawl4AI, 231K company database, OpenBB financial data</td></tr>\n'
-    html += '<tr><td style="font-weight:bold;">Anti-Convergence</td><td>Zone-specific evaluation angles enforce domain vocabulary. Bias-framework anti-redundancy prevents duplicate reasoning patterns.</td></tr>\n'
-    html += '</table>\n'
+    if all_urls:
+        # Group by domain
+        from collections import defaultdict as _dd
+        by_domain = _dd(list)
+        for url, domain in all_urls.items():
+            by_domain[domain or 'other'].append(url)
+
+        html += '\n<div class="section-heading">Appendix E: Research Sources</div>\n'
+        html += '<p style="font-size: 10px; color: #666; margin-bottom: 10px;">All web sources consulted during research. Links are clickable in digital PDF.</p>\n'
+        for domain in sorted(by_domain.keys()):
+            urls = by_domain[domain]
+            html += f'<p style="margin: 6px 0 2px; font-weight: bold; font-size: 10px; color: #001f3f;">{domain} ({len(urls)} source{"s" if len(urls) > 1 else ""})</p>\n'
+            html += '<ul style="font-size: 9px; margin: 0; padding-left: 16px; line-height: 1.5;">\n'
+            for url in urls[:5]:  # Cap at 5 per domain
+                html += f'<li><a href="{url}" style="color: #3366cc; text-decoration: none;">{url[:80]}{"..." if len(url) > 80 else ""}</a></li>\n'
+            if len(urls) > 5:
+                html += f'<li style="color: #888;">... and {len(urls) - 5} more</li>\n'
+            html += '</ul>\n'
 
     # Footer
     sources = analysis.get('data_sources', [])
     html += f'''
 <div class="footer">
   Generated by Mirai (未来) AI Due Diligence Platform<br/>
-  Data sources: {', '.join(sources) if sources else 'SearXNG, LLM Council, Swarm Agents'}<br/>
-  Council: {len(council_models) or 4} models · Swarm: {total_agents} agents from 1.6M persona pool · {timestamp}<br/>
+  Data sources: {', '.join(sources) if sources else 'Web Research, AI Council, Swarm Evaluators'}<br/>
+  Council: Multi-model assessment · Swarm: {total_agents} AI evaluators with diverse professional backgrounds · {timestamp}<br/>
   &copy; 2026 Mirai Analysis. For research purposes only.
 </div>
 
+<button onclick="window.print()" style="position:fixed; bottom:24px; right:24px; background:#001f3f; color:white; border:none; padding:12px 24px; border-radius:8px; font-size:14px; font-weight:600; cursor:pointer; box-shadow:0 2px 8px rgba(0,0,0,0.2); z-index:1000; display:flex; align-items:center; gap:8px;" onmouseover="this.style.background='#003366'" onmouseout="this.style.background='#001f3f'">
+  <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M6 9V2h12v7M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2M6 14h12v8H6z"/></svg>
+  Save as PDF
+</button>
+<style>@media print {{ button {{ display: none !important; }} }}</style>
+<script>if(new URLSearchParams(window.location.search).get('print')==='1')setTimeout(()=>window.print(),500);</script>
 </body>
 </html>'''
 
     return html
 
 
+def _audit_and_fix_html(html: str) -> str:
+    """LLM audit of report HTML — fixes formatting issues before PDF render."""
+    try:
+        from openai import OpenAI
+        from ..config import Config
+
+        proxy_key = Config.LLM_API_KEY
+        proxy_url = Config.LLM_BASE_URL
+        if not proxy_key:
+            return html
+
+        client = OpenAI(api_key=proxy_key, base_url=proxy_url)
+
+        # Extract just the visible text + structure (not full HTML — too long)
+        # Send a condensed version for audit
+        import re as _re
+        # Strip CSS/style blocks for the audit prompt
+        text_only = _re.sub(r'<style[^>]*>[\s\S]*?</style>', '', html)
+        text_only = _re.sub(r'<[^>]+>', ' ', text_only)
+        text_only = _re.sub(r'\s+', ' ', text_only).strip()
+
+        # Check for obvious issues programmatically first
+        issues = []
+        if '7-Dimension' in html:
+            html = html.replace('7-Dimension', '10-Dimension')
+            issues.append("Fixed: '7-Dimension' → '10-Dimension'")
+        if '7 dimensions' in html.lower():
+            html = _re.sub(r'7 dimensions', '10 dimensions', html, flags=_re.IGNORECASE)
+            issues.append("Fixed: '7 dimensions' → '10 dimensions'")
+
+        # Check for empty sections (label followed by empty value)
+        empty_fields = _re.findall(r'<div class="fact-label">([^<]+)</div>\s*<div class="fact-value">\s*</div>', html)
+        if empty_fields:
+            issues.append(f"Empty fields found: {', '.join(empty_fields)}")
+
+        # Check for large empty pages (page-break followed by minimal content)
+        pages = html.split('class="page-break"')
+        for i, page in enumerate(pages):
+            visible_text = _re.sub(r'<[^>]+>', '', page).strip()
+            if len(visible_text) < 100 and i > 0 and i < len(pages) - 1:
+                issues.append(f"Page {i+1} appears nearly empty ({len(visible_text)} chars)")
+
+        # Check for "Ai" as industry in competitor tables (common bug)
+        if '>Ai<' in html:
+            extraction = _re.search(r'<div class="fact-label">Industry</div>\s*<div class="fact-value">([^<]+)</div>', html)
+            real_industry = extraction.group(1).strip() if extraction else ''
+            if real_industry and real_industry != 'Ai':
+                html = html.replace('>Ai</td>', f'>{real_industry}</td>')
+                issues.append(f"Fixed: competitor industry 'Ai' → '{real_industry}'")
+
+        # LLM audit for deeper issues (only if HTML is reasonable size)
+        if len(text_only) < 15000:
+            audit_prompt = (
+                "You are a professional report formatter. Audit this report text for issues.\n\n"
+                f"REPORT TEXT (first 8000 chars):\n{text_only[:8000]}\n\n"
+                "Check for:\n"
+                "1. Missing data (fields that say 'Unknown' or are blank where data should exist)\n"
+                "2. Inconsistencies (e.g., '7 dimensions' when there are 10)\n"
+                "3. Garbled text or encoding issues\n"
+                "4. Sentences that cut off mid-word\n"
+                "5. Duplicate sections\n\n"
+                "Return JSON: {\"issues\": [\"issue description\"], \"fixes\": [{\"find\": \"text to find\", \"replace\": \"corrected text\"}]}\n"
+                "If no issues found, return: {\"issues\": [], \"fixes\": []}"
+            )
+
+            resp = client.chat.completions.create(
+                model="claude-opus-4-6",
+                messages=[{"role": "user", "content": audit_prompt}],
+                max_tokens=1000,
+                temperature=0.1,
+            )
+
+            audit_text = resp.choices[0].message.content or ""
+            audit_text = _re.sub(r'^```(?:json)?\s*\n?', '', audit_text.strip(), flags=_re.IGNORECASE)
+            audit_text = _re.sub(r'\n?```\s*$', '', audit_text)
+
+            try:
+                import json as _json
+                first_brace = audit_text.find('{')
+                if first_brace >= 0:
+                    audit_result = _json.loads(audit_text[first_brace:])
+                    llm_issues = audit_result.get("issues", [])
+                    fixes = audit_result.get("fixes", [])
+
+                    for fix in fixes:
+                        find_text = fix.get("find", "")
+                        replace_text = fix.get("replace", "")
+                        if find_text and replace_text and find_text in html:
+                            html = html.replace(find_text, replace_text, 1)
+                            issues.append(f"LLM fix: '{find_text[:40]}' → '{replace_text[:40]}'")
+
+                    if llm_issues:
+                        issues.extend([f"LLM flagged: {i}" for i in llm_issues[:5]])
+            except Exception:
+                pass
+
+        if issues:
+            logger.info(f"[Report Audit] {len(issues)} issues: {'; '.join(issues[:5])}")
+        else:
+            logger.info("[Report Audit] No issues found")
+
+        return html
+    except Exception as e:
+        logger.warning(f"[Report Audit] Audit failed (non-fatal): {e}")
+        return html
+
+
 def generate_pdf_report(analysis: Dict[str, Any], narrative: str = '', output_path: Optional[str] = None) -> bytes:
-    """Generate PDF from analysis results."""
+    """Generate PDF from analysis results. Runs LLM audit before rendering."""
     try:
         html = generate_html_report(analysis, narrative)
     except Exception as e:
         logger.error(f"[Report] HTML generation failed: {e}")
         import traceback
         traceback.print_exc()
-        # Fallback: minimal report
         company = analysis.get('extraction', {}).get('company', 'Unknown')
         html = f"<html><body><h1>Mirai Report: {company}</h1><p>Report generation error: {e}</p></body></html>"
+
+    # Audit and fix HTML before PDF render
+    html = _audit_and_fix_html(html)
+
     try:
         from weasyprint import HTML
         pdf_bytes = HTML(string=html).write_pdf()

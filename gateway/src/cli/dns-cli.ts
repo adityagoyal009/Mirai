@@ -7,7 +7,7 @@ import { pickPrimaryTailnetIPv4, pickPrimaryTailnetIPv6 } from "../infra/tailnet
 import { getWideAreaZonePath, resolveWideAreaDiscoveryDomain } from "../infra/widearea-dns.js";
 import { defaultRuntime } from "../runtime.js";
 import { formatDocsLink } from "../terminal/links.js";
-import { getTerminalTableWidth, renderTable } from "../terminal/table.js";
+import { renderTable } from "../terminal/table.js";
 import { theme } from "../terminal/theme.js";
 
 type RunOpts = { allowFailure?: boolean; inherit?: boolean };
@@ -105,7 +105,7 @@ export function registerDnsCli(program: Command) {
     .description("DNS helpers for wide-area discovery (Tailscale + CoreDNS)")
     .addHelpText(
       "after",
-      () => `\n${theme.muted("Docs:")} ${formatDocsLink("/cli/dns", "github.com/adityagoyal009/Mirai/tree/main/gateway/docs/cli/dns")}\n`,
+      () => `\n${theme.muted("Docs:")} ${formatDocsLink("/cli/dns", "docs.mirai.ai/cli/dns")}\n`,
     );
 
   dns
@@ -113,7 +113,7 @@ export function registerDnsCli(program: Command) {
     .description(
       "Set up CoreDNS to serve your discovery domain for unicast DNS-SD (Wide-Area Bonjour)",
     )
-    .option("--domain <domain>", "Wide-area discovery domain (e.g. openclaw.internal)")
+    .option("--domain <domain>", "Wide-area discovery domain (e.g. mirai.internal)")
     .option(
       "--apply",
       "Install/update CoreDNS config and (re)start the service (requires sudo)",
@@ -133,7 +133,7 @@ export function registerDnsCli(program: Command) {
       }
       const zonePath = getWideAreaZonePath(wideAreaDomain);
 
-      const tableWidth = getTerminalTableWidth();
+      const tableWidth = Math.max(60, (process.stdout.columns ?? 120) - 1);
       defaultRuntime.log(theme.heading("DNS setup"));
       defaultRuntime.log(
         renderTable({
@@ -153,7 +153,7 @@ export function registerDnsCli(program: Command) {
         }).trimEnd(),
       );
       defaultRuntime.log("");
-      defaultRuntime.log(theme.heading("Recommended ~/.openclaw/openclaw.json:"));
+      defaultRuntime.log(theme.heading("Recommended ~/.mirai/mirai.json:"));
       defaultRuntime.log(
         JSON.stringify(
           {
@@ -231,7 +231,7 @@ export function registerDnsCli(program: Command) {
         const serial = `${y}${m}${d}01`;
 
         const zoneLines = [
-          `; created by openclaw dns setup (will be overwritten by the gateway when wide-area discovery is enabled)`,
+          `; created by mirai dns setup (will be overwritten by the gateway when wide-area discovery is enabled)`,
           `$ORIGIN ${wideAreaDomain}`,
           `$TTL 60`,
           `@ IN SOA ns1 hostmaster ${serial} 7200 3600 1209600 60`,
@@ -254,7 +254,7 @@ export function registerDnsCli(program: Command) {
         defaultRuntime.log("");
         defaultRuntime.log(
           theme.muted(
-            "Note: enable discovery.wideArea.enabled in ~/.openclaw/openclaw.json on the gateway and restart the gateway so it writes the DNS-SD zone.",
+            "Note: enable discovery.wideArea.enabled in ~/.mirai/mirai.json on the gateway and restart the gateway so it writes the DNS-SD zone.",
           ),
         );
       }

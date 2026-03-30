@@ -8,9 +8,8 @@ import {
   resolveActiveTalkProviderConfig,
   resolveTalkApiKey,
 } from "./talk.js";
-import type { OpenClawConfig } from "./types.js";
+import type { MiraiConfig } from "./types.js";
 import type { ModelDefinitionConfig } from "./types.models.js";
-import { hasConfiguredSecretInput } from "./types.secrets.js";
 
 type WarnState = { warned: boolean };
 
@@ -24,13 +23,12 @@ const DEFAULT_MODEL_ALIASES: Readonly<Record<string, string>> = {
   sonnet: "anthropic/claude-sonnet-4-6",
 
   // OpenAI
-  gpt: "openai/gpt-5.4",
+  gpt: "openai/gpt-5.2",
   "gpt-mini": "openai/gpt-5-mini",
 
   // Google Gemini (3.x are preview ids in the catalog)
-  gemini: "google/gemini-3.1-pro-preview",
+  gemini: "google/gemini-3-pro-preview",
   "gemini-flash": "google/gemini-3-flash-preview",
-  "gemini-flash-lite": "google/gemini-3.1-flash-lite-preview",
 };
 
 const DEFAULT_MODEL_COST: ModelDefinitionConfig["cost"] = {
@@ -71,7 +69,7 @@ function resolveModelCost(
   };
 }
 
-function resolveAnthropicDefaultAuthMode(cfg: OpenClawConfig): AnthropicAuthDefaultsMode | null {
+function resolveAnthropicDefaultAuthMode(cfg: MiraiConfig): AnthropicAuthDefaultsMode | null {
   const profiles = cfg.auth?.profiles ?? {};
   const anthropicProfiles = Object.entries(profiles).filter(
     ([, profile]) => profile?.provider === "anthropic",
@@ -128,7 +126,7 @@ export type SessionDefaultsOptions = {
   warnState?: WarnState;
 };
 
-export function applyMessageDefaults(cfg: OpenClawConfig): OpenClawConfig {
+export function applyMessageDefaults(cfg: MiraiConfig): MiraiConfig {
   const messages = cfg.messages;
   const hasAckScope = messages?.ackReactionScope !== undefined;
   if (hasAckScope) {
@@ -144,9 +142,9 @@ export function applyMessageDefaults(cfg: OpenClawConfig): OpenClawConfig {
 }
 
 export function applySessionDefaults(
-  cfg: OpenClawConfig,
+  cfg: MiraiConfig,
   options: SessionDefaultsOptions = {},
-): OpenClawConfig {
+): MiraiConfig {
   const session = cfg.session;
   if (!session || session.mainKey === undefined) {
     return cfg;
@@ -156,7 +154,7 @@ export function applySessionDefaults(
   const warn = options.warn ?? console.warn;
   const warnState = options.warnState ?? defaultWarnState;
 
-  const next: OpenClawConfig = {
+  const next: MiraiConfig = {
     ...cfg,
     session: { ...session, mainKey: "main" },
   };
@@ -169,7 +167,7 @@ export function applySessionDefaults(
   return next;
 }
 
-export function applyTalkApiKey(config: OpenClawConfig): OpenClawConfig {
+export function applyTalkApiKey(config: MiraiConfig): MiraiConfig {
   const normalized = normalizeTalkConfig(config);
   const resolved = resolveTalkApiKey();
   if (!resolved) {
@@ -178,26 +176,28 @@ export function applyTalkApiKey(config: OpenClawConfig): OpenClawConfig {
 
   const talk = normalized.talk;
   const active = resolveActiveTalkProviderConfig(talk);
-  if (active?.provider && active.provider !== DEFAULT_TALK_PROVIDER) {
+  if (active.provider && active.provider !== DEFAULT_TALK_PROVIDER) {
     return normalized;
   }
 
-  const existingProviderApiKeyConfigured = hasConfiguredSecretInput(active?.config?.apiKey);
-  const existingLegacyApiKeyConfigured = hasConfiguredSecretInput(talk?.apiKey);
-  if (existingProviderApiKeyConfigured || existingLegacyApiKeyConfigured) {
+  const existingProviderApiKey =
+    typeof active.config?.apiKey === "string" ? active.config.apiKey.trim() : "";
+  const existingLegacyApiKey = typeof talk?.apiKey === "string" ? talk.apiKey.trim() : "";
+  if (existingProviderApiKey || existingLegacyApiKey) {
     return normalized;
   }
 
-  const providerId = active?.provider ?? DEFAULT_TALK_PROVIDER;
+  const providerId = active.provider ?? DEFAULT_TALK_PROVIDER;
   const providers = { ...talk?.providers };
   const providerConfig = { ...providers[providerId], apiKey: resolved };
   providers[providerId] = providerConfig;
 
   const nextTalk = {
     ...talk,
-    apiKey: resolved,
     provider: talk?.provider ?? providerId,
     providers,
+    // Keep legacy shape populated during compatibility rollout.
+    apiKey: resolved,
   };
 
   return {
@@ -206,11 +206,11 @@ export function applyTalkApiKey(config: OpenClawConfig): OpenClawConfig {
   };
 }
 
-export function applyTalkConfigNormalization(config: OpenClawConfig): OpenClawConfig {
+export function applyTalkConfigNormalization(config: MiraiConfig): MiraiConfig {
   return normalizeTalkConfig(config);
 }
 
-export function applyModelDefaults(cfg: OpenClawConfig): OpenClawConfig {
+export function applyModelDefaults(cfg: MiraiConfig): MiraiConfig {
   let mutated = false;
   let nextCfg = cfg;
 
@@ -346,7 +346,7 @@ export function applyModelDefaults(cfg: OpenClawConfig): OpenClawConfig {
   };
 }
 
-export function applyAgentDefaults(cfg: OpenClawConfig): OpenClawConfig {
+export function applyAgentDefaults(cfg: MiraiConfig): MiraiConfig {
   const agents = cfg.agents;
   const defaults = agents?.defaults;
   const hasMax =
@@ -387,7 +387,7 @@ export function applyAgentDefaults(cfg: OpenClawConfig): OpenClawConfig {
   };
 }
 
-export function applyLoggingDefaults(cfg: OpenClawConfig): OpenClawConfig {
+export function applyLoggingDefaults(cfg: MiraiConfig): MiraiConfig {
   const logging = cfg.logging;
   if (!logging) {
     return cfg;
@@ -404,7 +404,7 @@ export function applyLoggingDefaults(cfg: OpenClawConfig): OpenClawConfig {
   };
 }
 
-export function applyContextPruningDefaults(cfg: OpenClawConfig): OpenClawConfig {
+export function applyContextPruningDefaults(cfg: MiraiConfig): MiraiConfig {
   const defaults = cfg.agents?.defaults;
   if (!defaults) {
     return cfg;
@@ -506,7 +506,7 @@ export function applyContextPruningDefaults(cfg: OpenClawConfig): OpenClawConfig
   };
 }
 
-export function applyCompactionDefaults(cfg: OpenClawConfig): OpenClawConfig {
+export function applyCompactionDefaults(cfg: MiraiConfig): MiraiConfig {
   const defaults = cfg.agents?.defaults;
   if (!defaults) {
     return cfg;

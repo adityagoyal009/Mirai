@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { OpenClawConfig } from "../config/config.js";
+import type { MiraiConfig } from "../config/config.js";
 import {
   listBundledWebSearchProviders,
   resolveBundledWebSearchPluginIds,
@@ -116,8 +116,8 @@ describe("bundled web search metadata", () => {
         contractProvider.getCredentialValue(contractSearchConfig),
       );
 
-      const fastConfig = {} as OpenClawConfig;
-      const contractConfig = {} as OpenClawConfig;
+      const fastConfig = {} as MiraiConfig;
+      const contractConfig = {} as MiraiConfig;
       fastPathProvider.setConfiguredCredentialValue?.(fastConfig, "test-key");
       contractProvider.setConfiguredCredentialValue?.(contractConfig, "test-key");
       expect(fastConfig).toEqual(contractConfig);
@@ -126,8 +126,8 @@ describe("bundled web search metadata", () => {
       );
 
       if (fastPathProvider.applySelectionConfig || contractProvider.applySelectionConfig) {
-        expect(fastPathProvider.applySelectionConfig?.({} as OpenClawConfig)).toEqual(
-          contractProvider.applySelectionConfig?.({} as OpenClawConfig),
+        expect(fastPathProvider.applySelectionConfig?.({} as MiraiConfig)).toEqual(
+          contractProvider.applySelectionConfig?.({} as MiraiConfig),
         );
       }
 

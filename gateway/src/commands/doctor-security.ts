@@ -1,66 +1,24 @@
 import { listChannelPlugins } from "../channels/plugins/index.js";
 import type { ChannelId } from "../channels/plugins/types.js";
 import { formatCliCommand } from "../cli/command-format.js";
-import type { OpenClawConfig, GatewayBindMode } from "../config/config.js";
-import type { AgentConfig } from "../config/types.agents.js";
-import { hasConfiguredSecretInput } from "../config/types.secrets.js";
+import type { MiraiConfig, GatewayBindMode } from "../config/config.js";
 import { resolveGatewayAuth } from "../gateway/auth.js";
 import { isLoopbackHost, resolveGatewayBindHost } from "../gateway/net.js";
 import { resolveDmAllowState } from "../security/dm-policy-shared.js";
 import { note } from "../terminal/note.js";
 import { resolveDefaultChannelAccountContext } from "./channel-account-context.js";
 
-function collectImplicitHeartbeatDirectPolicyWarnings(cfg: OpenClawConfig): string[] {
-  const warnings: string[] = [];
-
-  const maybeWarn = (params: {
-    label: string;
-    heartbeat: AgentConfig["heartbeat"] | undefined;
-    pathHint: string;
-  }) => {
-    const heartbeat = params.heartbeat;
-    if (!heartbeat || heartbeat.target === undefined || heartbeat.target === "none") {
-      return;
-    }
-    if (heartbeat.directPolicy !== undefined) {
-      return;
-    }
-    warnings.push(
-      `- ${params.label}: heartbeat delivery is configured while ${params.pathHint} is unset.`,
-      '  Heartbeat now allows direct/DM targets by default. Set it explicitly to "allow" or "block" to pin upgrade behavior.',
-    );
-  };
-
-  maybeWarn({
-    label: "Heartbeat defaults",
-    heartbeat: cfg.agents?.defaults?.heartbeat,
-    pathHint: "agents.defaults.heartbeat.directPolicy",
-  });
-
-  for (const agent of cfg.agents?.list ?? []) {
-    maybeWarn({
-      label: `Heartbeat agent "${agent.id}"`,
-      heartbeat: agent.heartbeat,
-      pathHint: `heartbeat.directPolicy for agent "${agent.id}"`,
-    });
-  }
-
-  return warnings;
-}
-
-export async function noteSecurityWarnings(cfg: OpenClawConfig) {
+export async function noteSecurityWarnings(cfg: MiraiConfig) {
   const warnings: string[] = [];
   const auditHint = `- Run: ${formatCliCommand("mirai security audit --deep")}`;
 
   if (cfg.approvals?.exec?.enabled === false) {
     warnings.push(
       "- Note: approvals.exec.enabled=false disables approval forwarding only.",
-      "  Host exec gating still comes from ~/.openclaw/exec-approvals.json.",
+      "  Host exec gating still comes from ~/.mirai/exec-approvals.json.",
       `  Check local policy with: ${formatCliCommand("mirai approvals get --gateway")}`,
     );
   }
-
-  warnings.push(...collectImplicitHeartbeatDirectPolicyWarnings(cfg));
 
   // ===========================================
   // GATEWAY NETWORK EXPOSURE CHECK
@@ -86,12 +44,8 @@ export async function noteSecurityWarnings(cfg: OpenClawConfig) {
   });
   const authToken = resolvedAuth.token?.trim() ?? "";
   const authPassword = resolvedAuth.password?.trim() ?? "";
-  const hasToken =
-    authToken.length > 0 ||
-    hasConfiguredSecretInput(cfg.gateway?.auth?.token, cfg.secrets?.defaults);
-  const hasPassword =
-    authPassword.length > 0 ||
-    hasConfiguredSecretInput(cfg.gateway?.auth?.password, cfg.secrets?.defaults);
+  const hasToken = authToken.length > 0;
+  const hasPassword = authPassword.length > 0;
   const hasSharedSecret =
     (resolvedAuth.mode === "token" && hasToken) ||
     (resolvedAuth.mode === "password" && hasPassword);
@@ -99,7 +53,7 @@ export async function noteSecurityWarnings(cfg: OpenClawConfig) {
   const saferRemoteAccessLines = [
     "  Safer remote access: keep bind loopback and use Tailscale Serve/Funnel or an SSH tunnel.",
     "  Example tunnel: ssh -N -L 18789:127.0.0.1:18789 user@gateway-host",
-    "  Docs: https://github.com/adityagoyal009/Mirai/tree/main/gateway/docs/gateway/remote",
+    "  Docs: https://docs.mirai.ai/gateway/remote",
   ];
 
   if (isExposed) {
@@ -136,7 +90,6 @@ export async function noteSecurityWarnings(cfg: OpenClawConfig) {
   const warnDmPolicy = async (params: {
     label: string;
     provider: ChannelId;
-    accountId: string;
     dmPolicy: string;
     allowFrom?: Array<string | number> | null;
     policyPath?: string;
@@ -148,7 +101,6 @@ export async function noteSecurityWarnings(cfg: OpenClawConfig) {
     const policyPath = params.policyPath ?? `${params.allowFromPath}policy`;
     const { hasWildcard, allowCount, isMultiUserDm } = await resolveDmAllowState({
       provider: params.provider,
-      accountId: params.accountId,
       allowFrom: params.allowFrom,
       normalizeEntry: params.normalizeEntry,
     });
@@ -189,14 +141,8 @@ export async function noteSecurityWarnings(cfg: OpenClawConfig) {
     if (!plugin.security) {
       continue;
     }
-    const { defaultAccountId, account, enabled, configured, diagnostics } =
-      await resolveDefaultChannelAccountContext(plugin, cfg, {
-        mode: "read_only",
-        commandName: "doctor",
-      });
-    for (const diagnostic of diagnostics) {
-      warnings.push(`- [secrets] ${diagnostic}`);
-    }
+    const { defaultAccountId, account, enabled, configured } =
+      await resolveDefaultChannelAccountContext(plugin, cfg);
     if (!enabled) {
       continue;
     }
@@ -212,7 +158,6 @@ export async function noteSecurityWarnings(cfg: OpenClawConfig) {
       await warnDmPolicy({
         label: plugin.meta.label ?? plugin.id,
         provider: plugin.id,
-        accountId: defaultAccountId,
         dmPolicy: dmPolicy.policy,
         allowFrom: dmPolicy.allowFrom,
         policyPath: dmPolicy.policyPath,

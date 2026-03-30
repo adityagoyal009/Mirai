@@ -5,7 +5,7 @@ import type {
   OnboardOptions,
   ResetScope,
 } from "../commands/onboard-types.js";
-import type { OpenClawConfig } from "../config/config.js";
+import type { MiraiConfig } from "../config/config.js";
 import {
   DEFAULT_GATEWAY_PORT,
   readConfigFileSnapshot,
@@ -67,7 +67,7 @@ async function requireRiskAcknowledgement(params: {
   const ok = await params.prompter.confirm({
     message:
       "I understand this is personal-by-default and shared/multi-user use requires lock-down. Continue?",
-    initialValue: false,
+    initialValue: true,
   });
   if (!ok) {
     throw new WizardCancelledError("risk not accepted");
@@ -85,7 +85,7 @@ export async function runSetupWizard(
   await requireRiskAcknowledgement({ opts, prompter });
 
   const snapshot = await readConfigFileSnapshot();
-  let baseConfig: OpenClawConfig = snapshot.valid ? (snapshot.exists ? snapshot.config : {}) : {};
+  let baseConfig: MiraiConfig = snapshot.valid ? (snapshot.exists ? snapshot.config : {}) : {};
 
   if (snapshot.exists && !snapshot.valid) {
     await prompter.note(onboardHelpers.summarizeExistingConfig(baseConfig), "Invalid config");
@@ -306,7 +306,7 @@ export async function runSetupWizard(
 
   const localPort = resolveGatewayPort(baseConfig);
   const localUrl = `ws://127.0.0.1:${localPort}`;
-  let localGatewayToken = process.env.OPENCLAW_GATEWAY_TOKEN ?? process.env.CLAWDBOT_GATEWAY_TOKEN;
+  let localGatewayToken = process.env.MIRAI_GATEWAY_TOKEN ?? process.env.MIRAI_LEGACY_GATEWAY_TOKEN;
   try {
     const resolvedGatewayToken = await resolveSetupSecretInputString({
       config: baseConfig,
@@ -327,7 +327,7 @@ export async function runSetupWizard(
     );
   }
   let localGatewayPassword =
-    process.env.OPENCLAW_GATEWAY_PASSWORD ?? process.env.CLAWDBOT_GATEWAY_PASSWORD;
+    process.env.MIRAI_GATEWAY_PASSWORD ?? process.env.MIRAI_LEGACY_GATEWAY_PASSWORD;
   try {
     const resolvedGatewayPassword = await resolveSetupSecretInputString({
       config: baseConfig,
@@ -432,7 +432,7 @@ export async function runSetupWizard(
   const workspaceDir = resolveUserPath(workspaceInput.trim() || onboardHelpers.DEFAULT_WORKSPACE);
 
   const { applyLocalSetupWorkspaceConfig } = await import("../commands/onboard-config.js");
-  let nextConfig: OpenClawConfig = applyLocalSetupWorkspaceConfig(baseConfig, workspaceDir);
+  let nextConfig: MiraiConfig = applyLocalSetupWorkspaceConfig(baseConfig, workspaceDir);
 
   const { ensureAuthProfileStore } = await import("../agents/auth-profiles.runtime.js");
   const { promptAuthChoiceGrouped } = await import("../commands/auth-choice-prompt.js");
@@ -526,7 +526,7 @@ export async function runSetupWizard(
 
   let addMore = await prompter.confirm({
     message: "Add another model provider for Council/Swarm predictions?",
-    initialValue: false,
+    initialValue: true,
   });
 
   while (addMore) {
@@ -564,7 +564,13 @@ export async function runSetupWizard(
       allowKeep: false,
       ignoreAllowlist: true,
       includeProviderPluginSetups: true,
-      preferredProvider: undefined,
+      preferredProvider: extraAuthChoice !== "custom-api-key"
+        ? await resolvePreferredProviderForAuthChoice({
+            choice: extraAuthChoice,
+            config: nextConfig,
+            workspaceDir,
+          })
+        : undefined,
       workspaceDir,
       runtime,
     });

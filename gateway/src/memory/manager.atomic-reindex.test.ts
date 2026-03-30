@@ -2,14 +2,12 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import type { OpenClawConfig } from "../config/config.js";
+import type { MiraiConfig } from "../config/config.js";
+import { getEmbedBatchMock, resetEmbeddingMocks } from "./embedding.test-mocks.js";
 import type { MemoryIndexManager } from "./index.js";
+import { getRequiredMemoryIndexManager } from "./test-manager-helpers.js";
 
 let shouldFail = false;
-
-type EmbeddingTestMocksModule = typeof import("./embedding.test-mocks.js");
-type TestManagerHelpersModule = typeof import("./test-manager-helpers.js");
-type MemoryIndexModule = typeof import("./index.js");
 
 describe("memory manager atomic reindex", () => {
   let fixtureRoot = "";
@@ -17,22 +15,14 @@ describe("memory manager atomic reindex", () => {
   let workspaceDir: string;
   let indexPath: string;
   let manager: MemoryIndexManager | null = null;
-  let embedBatch: ReturnType<EmbeddingTestMocksModule["getEmbedBatchMock"]>;
-  let resetEmbeddingMocks: EmbeddingTestMocksModule["resetEmbeddingMocks"];
-  let getRequiredMemoryIndexManager: TestManagerHelpersModule["getRequiredMemoryIndexManager"];
-  let closeAllMemorySearchManagers: MemoryIndexModule["closeAllMemorySearchManagers"];
+  const embedBatch = getEmbedBatchMock();
 
   beforeAll(async () => {
-    fixtureRoot = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-mem-atomic-"));
-    const embeddingMocks = await import("./embedding.test-mocks.js");
-    embedBatch = embeddingMocks.getEmbedBatchMock();
-    resetEmbeddingMocks = embeddingMocks.resetEmbeddingMocks;
-    ({ getRequiredMemoryIndexManager } = await import("./test-manager-helpers.js"));
-    ({ closeAllMemorySearchManagers } = await import("./index.js"));
+    fixtureRoot = await fs.mkdtemp(path.join(os.tmpdir(), "mirai-mem-atomic-"));
   });
 
   beforeEach(async () => {
-    vi.stubEnv("OPENCLAW_TEST_MEMORY_UNSAFE_REINDEX", "0");
+    vi.stubEnv("MIRAI_TEST_MEMORY_UNSAFE_REINDEX", "0");
     resetEmbeddingMocks();
     shouldFail = false;
     embedBatch.mockImplementation(async (texts: string[]) => {
@@ -53,8 +43,6 @@ describe("memory manager atomic reindex", () => {
       await manager.close();
       manager = null;
     }
-    await closeAllMemorySearchManagers();
-    vi.unstubAllEnvs();
   });
 
   afterAll(async () => {
@@ -81,7 +69,7 @@ describe("memory manager atomic reindex", () => {
         },
         list: [{ id: "main", default: true }],
       },
-    } as OpenClawConfig;
+    } as MiraiConfig;
 
     manager = await getRequiredMemoryIndexManager({ cfg, agentId: "main" });
 

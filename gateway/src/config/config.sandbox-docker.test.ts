@@ -7,26 +7,6 @@ import {
 import { validateConfigObject } from "./config.js";
 
 describe("sandbox docker config", () => {
-  it("joins setupCommand arrays with newlines", () => {
-    const res = validateConfigObject({
-      agents: {
-        defaults: {
-          sandbox: {
-            docker: {
-              setupCommand: ["apt-get update", "apt-get install -y curl"],
-            },
-          },
-        },
-      },
-    });
-    expect(res.ok).toBe(true);
-    if (res.ok) {
-      expect(res.config.agents?.defaults?.sandbox?.docker?.setupCommand).toBe(
-        "apt-get update\napt-get install -y curl",
-      );
-    }
-  });
-
   it("accepts safe binds array in sandbox.docker config", () => {
     const res = validateConfigObject({
       agents: {
@@ -264,16 +244,16 @@ describe("sandbox browser binds config", () => {
       globalBrowser: {},
       agentBrowser: {},
     });
-    expect(resolved.network).toBe("openclaw-sandbox-browser");
+    expect(resolved.network).toBe("mirai-sandbox-browser");
   });
 
   it("prefers agent browser network over global browser network", () => {
     const resolved = resolveSandboxBrowserConfig({
       scope: "agent",
-      globalBrowser: { network: "openclaw-sandbox-browser-global" },
-      agentBrowser: { network: "openclaw-sandbox-browser-agent" },
+      globalBrowser: { network: "mirai-sandbox-browser-global" },
+      agentBrowser: { network: "mirai-sandbox-browser-agent" },
     });
-    expect(resolved.network).toBe("openclaw-sandbox-browser-agent");
+    expect(resolved.network).toBe("mirai-sandbox-browser-agent");
   });
 
   it("merges cdpSourceRange with agent override", () => {

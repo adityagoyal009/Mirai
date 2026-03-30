@@ -232,25 +232,11 @@ def _handle_full_analysis(msg: dict):
                     _blind_thread.start()
                     logger.info("[WS] Blind scoring started in parallel with research")
 
-            # Check research cache
+            # Research cache disabled — always run fresh research for every analysis
             research = None
             research_failed = False
             cache = None
             cache_key = None
-            try:
-                from ..services.research_cache import ResearchCache
-                cache = ResearchCache()
-                cache_key = cache.make_key(
-                    getattr(extraction, 'company', ''),
-                    getattr(extraction, 'industry', ''),
-                )
-                cached = cache.get(cache_key)
-                if cached and isinstance(cached, dict) and 'summary' in cached:
-                    logger.info(f"[WS] Cache HIT — skipping research")
-                    broadcast({"type": "researchProgress", "round": 0, "status": "Using cached research..."})
-                    research = cached
-            except Exception as e:
-                logger.error(f"[WS] Cache check failed (non-fatal): {e}\n{traceback.format_exc()}")
 
             # Run research if no cache — OpenClaw primary, Gemini fallback
             if research is None:
@@ -314,9 +300,7 @@ def _handle_full_analysis(msg: dict):
                         })
                         return
 
-                # Cache for future use
-                if cache and cache_key and research and research.get('summary'):
-                    cache.put(cache_key, research)
+                # Research cache disabled — fresh research every time
 
             broadcast({
                 "type": "researchComplete",
@@ -329,7 +313,7 @@ def _handle_full_analysis(msg: dict):
 
             # Wait for blind scoring thread if it was started
             if _blind_thread is not None:
-                _blind_thread.join(timeout=30)
+                _blind_thread.join()  # No timeout — prevent NVIDIA overlap with swarm
                 if _blind_scores[0]:
                     logger.info(f"[WS] Blind scores ready from parallel thread: {len(_blind_scores[0])} models")
 
@@ -453,6 +437,7 @@ def _handle_full_analysis(msg: dict):
                     industry=extraction.industry if hasattr(extraction, 'industry') else '',
                     product=extraction.product if hasattr(extraction, 'product') else '',
                     stage=stage or (extraction.stage if hasattr(extraction, 'stage') else ''),
+                    research_data=research if isinstance(research, dict) else None,
                 )
 
                 raw = swarm_result.to_dict()

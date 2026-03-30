@@ -1,41 +1,18 @@
-import { resolveIsNixMode } from "../../config/paths.js";
 import {
   resolveGatewayLaunchAgentLabel,
   resolveGatewaySystemdServiceName,
   resolveGatewayWindowsTaskName,
 } from "../../daemon/constants.js";
+import { resolveGatewayLogPaths } from "../../daemon/launchd.js";
 import { formatRuntimeStatus } from "../../daemon/runtime-format.js";
-import {
-  buildPlatformRuntimeLogHints,
-  buildPlatformServiceStartHints,
-} from "../../daemon/runtime-hints.js";
+import { pickPrimaryLanIPv4 } from "../../gateway/net.js";
 import { getResolvedLoggerSettings } from "../../logging.js";
 import { colorize, isRich, theme } from "../../terminal/theme.js";
 import { formatCliCommand } from "../command-format.js";
 import { parsePort } from "../shared/parse-port.js";
-import { createDaemonActionContext } from "./response.js";
 
 export { formatRuntimeStatus };
 export { parsePort };
-
-export function createDaemonInstallActionContext(jsonFlag: unknown) {
-  const json = Boolean(jsonFlag);
-  return {
-    json,
-    ...createDaemonActionContext({ action: "install", json }),
-  };
-}
-
-export function failIfNixDaemonInstallMode(
-  fail: (message: string, hints?: string[]) => void,
-  env: NodeJS.ProcessEnv = process.env,
-): boolean {
-  if (!resolveIsNixMode(env)) {
-    return false;
-  }
-  fail("Nix mode detected; service install is disabled.");
-  return true;
-}
 
 export function createCliStatusTextStyles() {
   const rich = isRich();
@@ -96,20 +73,17 @@ export function pickProbeHostForBind(
     return tailnetIPv4 ?? "127.0.0.1";
   }
   if (bindMode === "lan") {
-    // Same as call.ts: self-connections should always target loopback.
-    // bind=lan controls which interfaces the server listens on (0.0.0.0),
-    // but co-located CLI probes should connect via 127.0.0.1.
-    return "127.0.0.1";
+    return pickPrimaryLanIPv4() ?? "127.0.0.1";
   }
   return "127.0.0.1";
 }
 
 const SAFE_DAEMON_ENV_KEYS = [
-  "OPENCLAW_PROFILE",
-  "OPENCLAW_STATE_DIR",
-  "OPENCLAW_CONFIG_PATH",
-  "OPENCLAW_GATEWAY_PORT",
-  "OPENCLAW_NIX_MODE",
+  "MIRAI_PROFILE",
+  "MIRAI_STATE_DIR",
+  "MIRAI_CONFIG_PATH",
+  "MIRAI_GATEWAY_PORT",
+  "MIRAI_NIX_MODE",
 ];
 
 export function filterDaemonEnv(env: Record<string, string> | undefined): Record<string, string> {
@@ -168,24 +142,41 @@ export function renderRuntimeHints(
     if (fileLog) {
       hints.push(`File logs: ${fileLog}`);
     }
-    hints.push(
-      ...buildPlatformRuntimeLogHints({
-        env,
-        systemdServiceName: resolveGatewaySystemdServiceName(env.OPENCLAW_PROFILE),
-        windowsTaskName: resolveGatewayWindowsTaskName(env.OPENCLAW_PROFILE),
-      }),
-    );
+    if (process.platform === "darwin") {
+      const logs = resolveGatewayLogPaths(env);
+      hints.push(`Launchd stdout (if installed): ${logs.stdoutPath}`);
+      hints.push(`Launchd stderr (if installed): ${logs.stderrPath}`);
+    } else if (process.platform === "linux") {
+      const unit = resolveGatewaySystemdServiceName(env.MIRAI_PROFILE);
+      hints.push(`Logs: journalctl --user -u ${unit}.service -n 200 --no-pager`);
+    } else if (process.platform === "win32") {
+      const task = resolveGatewayWindowsTaskName(env.MIRAI_PROFILE);
+      hints.push(`Logs: schtasks /Query /TN "${task}" /V /FO LIST`);
+    }
   }
   return hints;
 }
 
 export function renderGatewayServiceStartHints(env: NodeJS.ProcessEnv = process.env): string[] {
-  const profile = env.OPENCLAW_PROFILE;
-  return buildPlatformServiceStartHints({
-    installCommand: formatCliCommand("mirai gateway install", env),
-    startCommand: formatCliCommand("mirai gateway", env),
-    launchAgentPlistPath: `~/Library/LaunchAgents/${resolveGatewayLaunchAgentLabel(profile)}.plist`,
-    systemdServiceName: resolveGatewaySystemdServiceName(profile),
-    windowsTaskName: resolveGatewayWindowsTaskName(profile),
-  });
+  const base = [
+    formatCliCommand("mirai gateway install", env),
+    formatCliCommand("mirai gateway", env),
+  ];
+  const profile = env.MIRAI_PROFILE;
+  switch (process.platform) {
+    case "darwin": {
+      const label = resolveGatewayLaunchAgentLabel(profile);
+      return [...base, `launchctl bootstrap gui/$UID ~/Library/LaunchAgents/${label}.plist`];
+    }
+    case "linux": {
+      const unit = resolveGatewaySystemdServiceName(profile);
+      return [...base, `systemctl --user start ${unit}.service`];
+    }
+    case "win32": {
+      const task = resolveGatewayWindowsTaskName(profile);
+      return [...base, `schtasks /Run /TN "${task}"`];
+    }
+    default:
+      return base;
+  }
 }

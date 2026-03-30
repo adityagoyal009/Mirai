@@ -192,7 +192,7 @@ describe("browser manage output", () => {
         ? {
             enabled: true,
             profile: "remote",
-            driver: "openclaw",
+            driver: "mirai",
             transport: "cdp",
             running: true,
             cdpReady: true,

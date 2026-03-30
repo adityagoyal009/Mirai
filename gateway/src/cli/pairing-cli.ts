@@ -10,7 +10,7 @@ import {
 } from "../pairing/pairing-store.js";
 import { defaultRuntime } from "../runtime.js";
 import { formatDocsLink } from "../terminal/links.js";
-import { getTerminalTableWidth, renderTable } from "../terminal/table.js";
+import { renderTable } from "../terminal/table.js";
 import { theme } from "../terminal/theme.js";
 import { formatCliCommand } from "./command-format.js";
 
@@ -57,7 +57,7 @@ export function registerPairingCli(program: Command) {
     .addHelpText(
       "after",
       () =>
-        `\n${theme.muted("Docs:")} ${formatDocsLink("/cli/pairing", "github.com/adityagoyal009/Mirai/tree/main/gateway/docs/cli/pairing")}\n`,
+        `\n${theme.muted("Docs:")} ${formatDocsLink("/cli/pairing", "docs.mirai.ai/cli/pairing")}\n`,
     );
 
   pairing
@@ -88,7 +88,7 @@ export function registerPairingCli(program: Command) {
         return;
       }
       const idLabel = resolvePairingIdLabel(channel);
-      const tableWidth = getTerminalTableWidth();
+      const tableWidth = Math.max(60, (process.stdout.columns ?? 120) - 1);
       defaultRuntime.log(
         `${theme.heading("Pairing requests")} ${theme.muted(`(${requests.length})`)}`,
       );

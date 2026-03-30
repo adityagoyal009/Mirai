@@ -16,8 +16,8 @@ const BUNDLED_WEB_SEARCH_PROVIDERS = [
   { pluginId: "tavily", id: "tavily", order: 70 },
 ] as const;
 
-const { loadOpenClawPluginsMock } = vi.hoisted(() => ({
-  loadOpenClawPluginsMock: vi.fn((params?: { config?: { plugins?: Record<string, unknown> } }) => {
+const { loadMiraiPluginsMock } = vi.hoisted(() => ({
+  loadMiraiPluginsMock: vi.fn((params?: { config?: { plugins?: Record<string, unknown> } }) => {
     const plugins = params?.config?.plugins as
       | {
           enabled?: boolean;
@@ -65,12 +65,12 @@ const { loadOpenClawPluginsMock } = vi.hoisted(() => ({
 }));
 
 vi.mock("./loader.js", () => ({
-  loadOpenClawPlugins: loadOpenClawPluginsMock,
+  loadMiraiPlugins: loadMiraiPluginsMock,
 }));
 
 describe("resolvePluginWebSearchProviders", () => {
   beforeEach(() => {
-    loadOpenClawPluginsMock.mockClear();
+    loadMiraiPluginsMock.mockClear();
     setActivePluginRegistry(createEmptyPluginRegistry());
   });
 
@@ -90,7 +90,7 @@ describe("resolvePluginWebSearchProviders", () => {
       "firecrawl:firecrawl",
       "tavily:tavily",
     ]);
-    expect(loadOpenClawPluginsMock).toHaveBeenCalledTimes(1);
+    expect(loadMiraiPluginsMock).toHaveBeenCalledTimes(1);
   });
 
   it("prefers the active plugin registry for runtime resolution", () => {
@@ -124,6 +124,6 @@ describe("resolvePluginWebSearchProviders", () => {
     expect(providers.map((provider) => `${provider.pluginId}:${provider.id}`)).toEqual([
       "custom-search:custom",
     ]);
-    expect(loadOpenClawPluginsMock).not.toHaveBeenCalled();
+    expect(loadMiraiPluginsMock).not.toHaveBeenCalled();
   });
 });

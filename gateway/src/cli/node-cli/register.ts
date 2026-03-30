@@ -33,7 +33,7 @@ export function registerNodeCli(program: Command) {
           ["mirai node status", "Check node host service status."],
           ["mirai node install", "Install the node host service."],
           ["mirai node restart", "Restart the installed node host service."],
-        ])}\n\n${theme.muted("Docs:")} ${formatDocsLink("/cli/node", "github.com/adityagoyal009/Mirai/tree/main/gateway/docs/cli/node")}\n`,
+        ])}\n\n${theme.muted("Docs:")} ${formatDocsLink("/cli/node", "docs.mirai.ai/cli/node")}\n`,
     );
 
   node

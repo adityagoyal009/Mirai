@@ -22,11 +22,6 @@ const CANVAS_WS_OPEN_TIMEOUT_MS = 2_000;
 const CANVAS_RELOAD_TIMEOUT_MS = 4_000;
 const CANVAS_RELOAD_TEST_TIMEOUT_MS = 12_000;
 
-function isLoopbackBindDenied(error: unknown) {
-  const code = (error as NodeJS.ErrnoException | undefined)?.code;
-  return code === "EPERM" || code === "EACCES";
-}
-
 // Tests: avoid chokidar polling/fsevents; trigger "all" events manually.
 vi.mock("chokidar", () => {
   const createWatcher = () => {
@@ -70,27 +65,8 @@ describe("canvas host", () => {
     return dir;
   };
 
-  const startFixtureCanvasHost = async (
-    rootDir: string,
-    overrides: Partial<Parameters<typeof startCanvasHost>[0]> = {},
-  ) =>
-    await startCanvasHost({
-      runtime: quietRuntime,
-      rootDir,
-      port: 0,
-      listenHost: "127.0.0.1",
-      allowInTests: true,
-      ...overrides,
-    });
-
-  const fetchCanvasHtml = async (port: number) => {
-    const res = await fetch(`http://127.0.0.1:${port}${CANVAS_HOST_PATH}/`);
-    const html = await res.text();
-    return { res, html };
-  };
-
   beforeAll(async () => {
-    fixtureRoot = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-canvas-fixtures-"));
+    fixtureRoot = await fs.mkdtemp(path.join(os.tmpdir(), "mirai-canvas-fixtures-"));
   });
 
   afterAll(async () => {
@@ -101,27 +77,27 @@ describe("canvas host", () => {
     const out = injectCanvasLiveReload("<html><body>Hello</body></html>");
     expect(out).toContain(CANVAS_WS_PATH);
     expect(out).toContain("location.reload");
-    expect(out).toContain("openclawCanvasA2UIAction");
-    expect(out).toContain("openclawSendUserAction");
+    expect(out).toContain("miraiCanvasA2UIAction");
+    expect(out).toContain("miraiSendUserAction");
   });
 
   it("creates a default index.html when missing", async () => {
     const dir = await createCaseDir();
-    let server: Awaited<ReturnType<typeof startFixtureCanvasHost>>;
-    try {
-      server = await startFixtureCanvasHost(dir);
-    } catch (error) {
-      if (isLoopbackBindDenied(error)) {
-        return;
-      }
-      throw error;
-    }
+
+    const server = await startCanvasHost({
+      runtime: quietRuntime,
+      rootDir: dir,
+      port: 0,
+      listenHost: "127.0.0.1",
+      allowInTests: true,
+    });
 
     try {
-      const { res, html } = await fetchCanvasHtml(server.port);
+      const res = await fetch(`http://127.0.0.1:${server.port}${CANVAS_HOST_PATH}/`);
+      const html = await res.text();
       expect(res.status).toBe(200);
       expect(html).toContain("Interactive test page");
-      expect(html).toContain("openclawSendUserAction");
+      expect(html).toContain("miraiSendUserAction");
       expect(html).toContain(CANVAS_WS_PATH);
     } finally {
       await server.close();
@@ -131,18 +107,19 @@ describe("canvas host", () => {
   it("skips live reload injection when disabled", async () => {
     const dir = await createCaseDir();
     await fs.writeFile(path.join(dir, "index.html"), "<html><body>no-reload</body></html>", "utf8");
-    let server: Awaited<ReturnType<typeof startFixtureCanvasHost>>;
-    try {
-      server = await startFixtureCanvasHost(dir, { liveReload: false });
-    } catch (error) {
-      if (isLoopbackBindDenied(error)) {
-        return;
-      }
-      throw error;
-    }
+
+    const server = await startCanvasHost({
+      runtime: quietRuntime,
+      rootDir: dir,
+      port: 0,
+      listenHost: "127.0.0.1",
+      allowInTests: true,
+      liveReload: false,
+    });
 
     try {
-      const { res, html } = await fetchCanvasHtml(server.port);
+      const res = await fetch(`http://127.0.0.1:${server.port}${CANVAS_HOST_PATH}/`);
+      const html = await res.text();
       expect(res.status).toBe(200);
       expect(html).toContain("no-reload");
       expect(html).not.toContain(CANVAS_WS_PATH);
@@ -181,27 +158,8 @@ describe("canvas host", () => {
       }
       socket.destroy();
     });
-    try {
-      await new Promise<void>((resolve, reject) => {
-        const onError = (error: Error) => {
-          server.off("listening", onListening);
-          reject(error);
-        };
-        const onListening = () => {
-          server.off("error", onError);
-          resolve();
-        };
-        server.once("error", onError);
-        server.once("listening", onListening);
-        server.listen(0, "127.0.0.1");
-      });
-    } catch (error) {
-      await handler.close();
-      if (isLoopbackBindDenied(error)) {
-        return;
-      }
-      throw error;
-    }
+
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     const port = (server.address() as AddressInfo).port;
 
     try {
@@ -248,21 +206,20 @@ describe("canvas host", () => {
       await fs.writeFile(index, "<html><body>v1</body></html>", "utf8");
 
       const watcherStart = chokidarMockState.watchers.length;
-      let server: Awaited<ReturnType<typeof startFixtureCanvasHost>>;
-      try {
-        server = await startFixtureCanvasHost(dir);
-      } catch (error) {
-        if (isLoopbackBindDenied(error)) {
-          return;
-        }
-        throw error;
-      }
+      const server = await startCanvasHost({
+        runtime: quietRuntime,
+        rootDir: dir,
+        port: 0,
+        listenHost: "127.0.0.1",
+        allowInTests: true,
+      });
 
       try {
         const watcher = chokidarMockState.watchers[watcherStart];
         expect(watcher).toBeTruthy();
 
-        const { res, html } = await fetchCanvasHtml(server.port);
+        const res = await fetch(`http://127.0.0.1:${server.port}${CANVAS_HOST_PATH}/`);
+        const html = await res.text();
         expect(res.status).toBe(200);
         expect(html).toContain("v1");
         expect(html).toContain(CANVAS_WS_PATH);
@@ -313,40 +270,38 @@ describe("canvas host", () => {
     const linkPath = path.join(a2uiRoot, linkName);
     let createdBundle = false;
     let createdLink = false;
-    let server: Awaited<ReturnType<typeof startFixtureCanvasHost>> | undefined;
 
     try {
       await fs.stat(bundlePath);
     } catch {
-      await fs.writeFile(bundlePath, "window.openclawA2UI = {};", "utf8");
+      await fs.writeFile(bundlePath, "window.miraiA2UI = {};", "utf8");
       createdBundle = true;
     }
 
     await fs.symlink(path.join(process.cwd(), "package.json"), linkPath);
     createdLink = true;
 
-    try {
-      try {
-        server = await startFixtureCanvasHost(dir);
-      } catch (error) {
-        if (isLoopbackBindDenied(error)) {
-          return;
-        }
-        throw error;
-      }
+    const server = await startCanvasHost({
+      runtime: quietRuntime,
+      rootDir: dir,
+      port: 0,
+      listenHost: "127.0.0.1",
+      allowInTests: true,
+    });
 
-      const res = await fetch(`http://127.0.0.1:${server.port}/__openclaw__/a2ui/`);
+    try {
+      const res = await fetch(`http://127.0.0.1:${server.port}/__mirai__/a2ui/`);
       const html = await res.text();
       expect(res.status).toBe(200);
-      expect(html).toContain("openclaw-a2ui-host");
-      expect(html).toContain("openclawCanvasA2UIAction");
+      expect(html).toContain("mirai-a2ui-host");
+      expect(html).toContain("miraiCanvasA2UIAction");
 
       const bundleRes = await fetch(
-        `http://127.0.0.1:${server.port}/__openclaw__/a2ui/a2ui.bundle.js`,
+        `http://127.0.0.1:${server.port}/__mirai__/a2ui/a2ui.bundle.js`,
       );
       const js = await bundleRes.text();
       expect(bundleRes.status).toBe(200);
-      expect(js).toContain("openclawA2UI");
+      expect(js).toContain("miraiA2UI");
       const traversalRes = await fetch(
         `http://127.0.0.1:${server.port}${A2UI_PATH}/%2e%2e%2fpackage.json`,
       );
@@ -356,7 +311,7 @@ describe("canvas host", () => {
       expect(symlinkRes.status).toBe(404);
       expect(await symlinkRes.text()).toBe("not found");
     } finally {
-      await server?.close();
+      await server.close();
       if (createdLink) {
         await fs.rm(linkPath, { force: true });
       }

@@ -15,9 +15,9 @@ export type SwarmMessage =
   | { type: 'connected' }
   // Full pipeline events
   | { type: 'researchStarted' }
-  | { type: 'researchComplete'; findings: number; competitors: number; summary: string }
+  | { type: 'researchComplete'; findings: number; competitors: number; summary: string; faithfulnessScore?: number; citedFacts?: number }
   | { type: 'councilStarted'; modelCount: number; models: string[] }
-  | { type: 'councilComplete'; overall: number; verdict: string; confidence: number; dimensions: Array<{name: string; score: number}>; contestedDimensions: string[]; models: string[] }
+  | { type: 'councilComplete'; overall: number; verdict: string; confidence: number; dimensions: Array<{name: string; score: number}>; contestedDimensions: string[]; models: string[]; factVerification?: {verified: number; contradicted: number; unverified: number; trustScore: number}; divergence?: any; deliberation?: any }
   | { type: 'planStarted' }
   | { type: 'planComplete'; risks: any[]; moves: any[] }
   | { type: 'analysisComplete'; fullResult: any }
@@ -43,6 +43,8 @@ export interface SwarmResult {
   contestedThemes: string[]
   modelsUsed: string[]
   executionTimeSeconds: number
+  divergence?: any
+  deliberation?: any
 }
 
 type MessageHandler = (msg: SwarmMessage) => void
@@ -51,11 +53,14 @@ export class MiraiConnection {
   private socket: WebSocket | null = null
   private handlers: Set<MessageHandler> = new Set()
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
+  private pingTimer: ReturnType<typeof setInterval> | null = null
   private _connected = false
+  private _url: string = ''
 
   get connected() { return this._connected }
 
   connect(url: string) {
+    this._url = url
     if (this.socket?.readyState === WebSocket.OPEN) return
 
     this.socket = new WebSocket(url)
@@ -64,11 +69,19 @@ export class MiraiConnection {
       this._connected = true
       this.emit({ type: 'connected' })
       console.log('[mirai] WebSocket connected')
+      // Keep-alive ping every 30s to prevent idle disconnect
+      if (this.pingTimer) clearInterval(this.pingTimer)
+      this.pingTimer = setInterval(() => {
+        if (this.socket?.readyState === WebSocket.OPEN) {
+          this.socket.send(JSON.stringify({ type: 'ping' }))
+        }
+      }, 30000)
     }
 
     this.socket.onmessage = (e) => {
       try {
         const msg = JSON.parse(e.data) as SwarmMessage
+        if ((msg as any).type === 'pong') return // ignore pong replies
         this.emit(msg)
       } catch (err) {
         console.warn('[mirai] Failed to parse message:', e.data)
@@ -77,8 +90,9 @@ export class MiraiConnection {
 
     this.socket.onclose = () => {
       this._connected = false
-      console.log('[mirai] WebSocket closed, reconnecting in 3s...')
-      this.reconnectTimer = setTimeout(() => this.connect(url), 3000)
+      if (this.pingTimer) { clearInterval(this.pingTimer); this.pingTimer = null }
+      console.log('[mirai] WebSocket closed, reconnecting in 1s...')
+      this.reconnectTimer = setTimeout(() => this.connect(this._url), 1000)
     }
 
     this.socket.onerror = (err) => {
@@ -88,6 +102,7 @@ export class MiraiConnection {
 
   disconnect() {
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
+    if (this.pingTimer) { clearInterval(this.pingTimer); this.pingTimer = null }
     this.socket?.close()
     this._connected = false
   }

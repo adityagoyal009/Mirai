@@ -95,20 +95,6 @@ describe("exec PATH login shell merge", () => {
     expect(shellPathMock).toHaveBeenCalledTimes(1);
   });
 
-  it("sets OPENCLAW_SHELL for host=gateway commands", async () => {
-    if (isWin) {
-      return;
-    }
-
-    const tool = createExecTool({ host: "gateway", security: "full", ask: "off" });
-    const result = await tool.execute("call-openclaw-shell", {
-      command: 'printf "%s" "${OPENCLAW_SHELL:-}"',
-    });
-    const value = normalizeText(result.content.find((c) => c.type === "text")?.text);
-
-    expect(value).toBe("exec");
-  });
-
   it("throws security violation when env.PATH is provided", async () => {
     if (isWin) {
       return;
@@ -130,28 +116,12 @@ describe("exec PATH login shell merge", () => {
     expect(shellPathMock).not.toHaveBeenCalled();
   });
 
-  it("fails closed when a blocked runtime override key is requested", async () => {
-    if (isWin) {
-      return;
-    }
-    const tool = createExecTool({ host: "gateway", security: "full", ask: "off" });
-
-    await expect(
-      tool.execute("call-blocked-runtime-env", {
-        command: "echo ok",
-        env: { CLASSPATH: "/tmp/evil-classpath" },
-      }),
-    ).rejects.toThrow(
-      /Security Violation: Environment variable 'CLASSPATH' is forbidden during host execution\./,
-    );
-  });
-
   it("does not apply login-shell PATH when probe rejects unregistered absolute SHELL", async () => {
     if (isWin) {
       return;
     }
     process.env.PATH = "/usr/bin";
-    const shellDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-shell-env-"));
+    const shellDir = fs.mkdtempSync(path.join(os.tmpdir(), "mirai-shell-env-"));
     const unregisteredShellPath = path.join(shellDir, "unregistered-shell");
     fs.writeFileSync(unregisteredShellPath, '#!/bin/sh\nexec /bin/sh "$@"\n', {
       encoding: "utf8",
@@ -201,7 +171,7 @@ describe("exec host env validation", () => {
       return;
     }
     const original = process.env.SSLKEYLOGFILE;
-    process.env.SSLKEYLOGFILE = "/tmp/openclaw-ssl-keys.log";
+    process.env.SSLKEYLOGFILE = "/tmp/mirai-ssl-keys.log";
     try {
       const { createExecTool } = await import("./bash-tools.exec.js");
       const tool = createExecTool({ host: "gateway", security: "full", ask: "off" });
@@ -209,7 +179,7 @@ describe("exec host env validation", () => {
         command: "printf '%s' \"${SSLKEYLOGFILE:-}\"",
       });
       const output = normalizeText(result.content.find((c) => c.type === "text")?.text);
-      expect(output).not.toContain("/tmp/openclaw-ssl-keys.log");
+      expect(output).not.toContain("/tmp/mirai-ssl-keys.log");
     } finally {
       if (original === undefined) {
         delete process.env.SSLKEYLOGFILE;

@@ -3,6 +3,7 @@ Project Context Management
 Persists project state on the server side to avoid passing large data between API calls on the frontend
 """
 
+import logging
 import os
 import json
 import uuid
@@ -12,6 +13,8 @@ from typing import Dict, Any, List, Optional
 from enum import Enum
 from dataclasses import dataclass, field, asdict
 from ..config import Config
+
+_project_logger = logging.getLogger(__name__)
 
 
 class ProjectStatus(str, Enum):
@@ -212,6 +215,8 @@ class ProjectManager:
             project = cls.get_project(project_id)
             if project:
                 projects.append(project)
+            else:
+                _project_logger.warning(f"[ProjectManager] Skipping unreadable or corrupt project: {project_id}")
         
         # Sort by creation time descending
         projects.sort(key=lambda p: p.created_at, reverse=True)
@@ -244,7 +249,7 @@ class ProjectManager:
         
         Args:
             project_id: Project ID
-            file_storage: Flask's FileStorage object
+            file_storage: uploaded file object
             original_filename: Original filename
             
         Returns:

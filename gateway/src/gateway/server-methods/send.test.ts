@@ -13,7 +13,7 @@ const mocks = vi.hoisted(() => ({
   resolveMessageChannelSelection: vi.fn(),
   sendPoll: vi.fn(async () => ({ messageId: "poll-1" })),
   getChannelPlugin: vi.fn(),
-  loadOpenClawPlugins: vi.fn(),
+  loadMiraiPlugins: vi.fn(),
 }));
 
 vi.mock("../../config/config.js", async () => {
@@ -30,22 +30,6 @@ vi.mock("../../channels/plugins/index.js", () => ({
   normalizeChannelId: (value: string) => (value === "webchat" ? null : value),
 }));
 
-const TEST_AGENT_WORKSPACE = "/tmp/openclaw-test-workspace";
-
-function resolveAgentIdFromSessionKeyForTests(params: { sessionKey?: string }): string {
-  if (typeof params.sessionKey === "string") {
-    const match = params.sessionKey.match(/^agent:([^:]+)/i);
-    if (match?.[1]) {
-      return match[1];
-    }
-  }
-  return "main";
-}
-
-function passthroughPluginAutoEnable(config: unknown) {
-  return { config, changes: [] as unknown[] };
-}
-
 vi.mock("../../agents/agent-scope.js", () => ({
   resolveSessionAgentId: ({
     sessionKey,
@@ -53,17 +37,25 @@ vi.mock("../../agents/agent-scope.js", () => ({
     sessionKey?: string;
     config?: unknown;
     agentId?: string;
-  }) => resolveAgentIdFromSessionKeyForTests({ sessionKey }),
+  }) => {
+    if (typeof sessionKey === "string") {
+      const match = sessionKey.match(/^agent:([^:]+)/i);
+      if (match?.[1]) {
+        return match[1];
+      }
+    }
+    return "main";
+  },
   resolveDefaultAgentId: () => "main",
-  resolveAgentWorkspaceDir: () => TEST_AGENT_WORKSPACE,
+  resolveAgentWorkspaceDir: () => "/tmp/mirai-test-workspace",
 }));
 
 vi.mock("../../config/plugin-auto-enable.js", () => ({
-  applyPluginAutoEnable: ({ config }: { config: unknown }) => passthroughPluginAutoEnable(config),
+  applyPluginAutoEnable: ({ config }: { config: unknown }) => ({ config, changes: [] }),
 }));
 
 vi.mock("../../plugins/loader.js", () => ({
-  loadOpenClawPlugins: mocks.loadOpenClawPlugins,
+  loadMiraiPlugins: mocks.loadMiraiPlugins,
 }));
 
 vi.mock("../../infra/outbound/targets.js", () => ({
@@ -118,21 +110,6 @@ async function runPoll(params: Record<string, unknown>) {
     isWebchatConnect: () => false,
   });
   return { respond };
-}
-
-function expectDeliverySessionMirror(params: { agentId: string; sessionKey: string }) {
-  expect(mocks.deliverOutboundPayloads).toHaveBeenCalledWith(
-    expect.objectContaining({
-      session: expect.objectContaining({
-        agentId: params.agentId,
-        key: params.sessionKey,
-      }),
-      mirror: expect.objectContaining({
-        sessionKey: params.sessionKey,
-        agentId: params.agentId,
-      }),
-    }),
-  );
 }
 
 function mockDeliverySuccess(messageId: string) {
@@ -334,7 +311,6 @@ describe("gateway send mirroring", () => {
           sessionKey: "agent:main:main",
           text: "caption",
           mediaUrls: ["https://example.com/files/report.pdf?sig=1"],
-          idempotencyKey: "idem-2",
         }),
       }),
     );
@@ -416,10 +392,7 @@ describe("gateway send mirroring", () => {
 
     expect(mocks.deliverOutboundPayloads).toHaveBeenCalledWith(
       expect.objectContaining({
-        session: expect.objectContaining({
-          agentId: "work",
-          key: "agent:work:slack:channel:resolved",
-        }),
+        agentId: "work",
         mirror: expect.objectContaining({
           sessionKey: "agent:work:slack:channel:resolved",
           agentId: "work",
@@ -439,10 +412,15 @@ describe("gateway send mirroring", () => {
       idempotencyKey: "idem-session-agent",
     });
 
-    expectDeliverySessionMirror({
-      agentId: "work",
-      sessionKey: "agent:work:slack:channel:c1",
-    });
+    expect(mocks.deliverOutboundPayloads).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentId: "work",
+        mirror: expect.objectContaining({
+          sessionKey: "agent:work:slack:channel:c1",
+          agentId: "work",
+        }),
+      }),
+    );
   });
 
   it("prefers explicit agentId over sessionKey agent for delivery and mirror", async () => {
@@ -459,10 +437,7 @@ describe("gateway send mirroring", () => {
 
     expect(mocks.deliverOutboundPayloads).toHaveBeenCalledWith(
       expect.objectContaining({
-        session: expect.objectContaining({
-          agentId: "work",
-          key: "agent:main:slack:channel:c1",
-        }),
+        agentId: "work",
         mirror: expect.objectContaining({
           sessionKey: "agent:main:slack:channel:c1",
           agentId: "work",
@@ -483,10 +458,15 @@ describe("gateway send mirroring", () => {
       idempotencyKey: "idem-agent-blank",
     });
 
-    expectDeliverySessionMirror({
-      agentId: "work",
-      sessionKey: "agent:work:slack:channel:c1",
-    });
+    expect(mocks.deliverOutboundPayloads).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentId: "work",
+        mirror: expect.objectContaining({
+          sessionKey: "agent:work:slack:channel:c1",
+          agentId: "work",
+        }),
+      }),
+    );
   });
 
   it("forwards threadId to outbound delivery when provided", async () => {
@@ -552,7 +532,7 @@ describe("gateway send mirroring", () => {
       idempotencyKey: "idem-cold-telegram-thread",
     });
 
-    expect(mocks.loadOpenClawPlugins).toHaveBeenCalledTimes(1);
+    expect(mocks.loadMiraiPlugins).toHaveBeenCalledTimes(1);
     expect(mocks.deliverOutboundPayloads).toHaveBeenCalledWith(
       expect.objectContaining({
         channel: "telegram",

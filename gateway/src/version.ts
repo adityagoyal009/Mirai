@@ -1,7 +1,7 @@
 import { createRequire } from "node:module";
 
-declare const __OPENCLAW_VERSION__: string | undefined;
-const CORE_PACKAGE_NAME = "openclaw";
+declare const __MIRAI_VERSION__: string | undefined;
+const CORE_PACKAGE_NAME = "mirai";
 
 const PACKAGE_JSON_CANDIDATES = [
   "../package.json",
@@ -71,48 +71,18 @@ export function resolveVersionFromModuleUrl(moduleUrl: string): string | null {
   );
 }
 
-export function resolveBinaryVersion(params: {
-  moduleUrl: string;
-  injectedVersion?: string;
-  bundledVersion?: string;
-  fallback?: string;
-}): string {
-  return (
-    firstNonEmpty(params.injectedVersion) ||
-    resolveVersionFromModuleUrl(params.moduleUrl) ||
-    firstNonEmpty(params.bundledVersion) ||
-    params.fallback ||
-    "0.0.0"
-  );
-}
-
 export type RuntimeVersionEnv = {
   [key: string]: string | undefined;
 };
 
-export const RUNTIME_SERVICE_VERSION_FALLBACK = "unknown";
-
-export function resolveUsableRuntimeVersion(version: string | undefined): string | undefined {
-  const trimmed = version?.trim();
-  // "0.0.0" is the resolver's hard fallback when module metadata cannot be read.
-  // Prefer explicit service/package markers in that edge case.
-  if (!trimmed || trimmed === "0.0.0") {
-    return undefined;
-  }
-  return trimmed;
-}
-
 export function resolveRuntimeServiceVersion(
   env: RuntimeVersionEnv = process.env as RuntimeVersionEnv,
-  fallback = RUNTIME_SERVICE_VERSION_FALLBACK,
+  fallback = "dev",
 ): string {
-  const runtimeVersion = resolveUsableRuntimeVersion(VERSION);
-
   return (
     firstNonEmpty(
-      env["OPENCLAW_VERSION"],
-      runtimeVersion,
-      env["OPENCLAW_SERVICE_VERSION"],
+      env["MIRAI_VERSION"],
+      env["MIRAI_SERVICE_VERSION"],
       env["npm_package_version"],
     ) ?? fallback
   );
@@ -121,8 +91,8 @@ export function resolveRuntimeServiceVersion(
 // Single source of truth for the current Mirai version.
 // - Embedded/bundled builds: injected define or env var.
 // - Dev/npm builds: package.json.
-export const VERSION = resolveBinaryVersion({
-  moduleUrl: import.meta.url,
-  injectedVersion: typeof __OPENCLAW_VERSION__ === "string" ? __OPENCLAW_VERSION__ : undefined,
-  bundledVersion: process.env.OPENCLAW_BUNDLED_VERSION,
-});
+export const VERSION =
+  (typeof __MIRAI_VERSION__ === "string" && __MIRAI_VERSION__) ||
+  process.env.MIRAI_BUNDLED_VERSION ||
+  resolveVersionFromModuleUrl(import.meta.url) ||
+  "0.0.0";

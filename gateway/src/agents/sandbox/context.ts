@@ -1,18 +1,17 @@
 import fs from "node:fs/promises";
 import { DEFAULT_BROWSER_EVALUATE_ENABLED } from "../../browser/constants.js";
 import { ensureBrowserControlAuth, resolveBrowserControlAuth } from "../../browser/control-auth.js";
-import type { OpenClawConfig } from "../../config/config.js";
+import type { MiraiConfig } from "../../config/config.js";
 import { loadConfig } from "../../config/config.js";
 import { defaultRuntime } from "../../runtime.js";
 import { resolveUserPath } from "../../utils.js";
 import { syncSkillsToWorkspace } from "../skills.js";
 import { DEFAULT_AGENT_WORKSPACE_DIR } from "../workspace.js";
-import { requireSandboxBackendFactory } from "./backend.js";
 import { ensureSandboxBrowser } from "./browser.js";
 import { resolveSandboxConfigForAgent } from "./config.js";
+import { ensureSandboxContainer } from "./docker.js";
 import { createSandboxFsBridge } from "./fs-bridge.js";
 import { maybePruneSandboxes } from "./prune.js";
-import { updateRegistry } from "./registry.js";
 import { resolveSandboxRuntimeStatus } from "./runtime-status.js";
 import { resolveSandboxScopeKey, resolveSandboxWorkspaceDir } from "./shared.js";
 import type { SandboxContext, SandboxDockerConfig, SandboxWorkspaceInfo } from "./types.js";
@@ -21,7 +20,7 @@ import { ensureSandboxWorkspace } from "./workspace.js";
 async function ensureSandboxWorkspaceLayout(params: {
   cfg: ReturnType<typeof resolveSandboxConfigForAgent>;
   rawSessionKey: string;
-  config?: OpenClawConfig;
+  config?: MiraiConfig;
   workspaceDir?: string;
 }): Promise<{
   agentWorkspaceDir: string;
@@ -88,7 +87,7 @@ export async function resolveSandboxDockerUser(params: {
   }
 }
 
-function resolveSandboxSession(params: { config?: OpenClawConfig; sessionKey?: string }) {
+function resolveSandboxSession(params: { config?: MiraiConfig; sessionKey?: string }) {
   const rawSessionKey = params.sessionKey?.trim();
   if (!rawSessionKey) {
     return null;
@@ -107,7 +106,7 @@ function resolveSandboxSession(params: { config?: OpenClawConfig; sessionKey?: s
 }
 
 export async function resolveSandboxContext(params: {
-  config?: OpenClawConfig;
+  config?: MiraiConfig;
   sessionKey?: string;
   workspaceDir?: string;
 }): Promise<SandboxContext | null> {
@@ -132,23 +131,11 @@ export async function resolveSandboxContext(params: {
   });
   const resolvedCfg = docker === cfg.docker ? cfg : { ...cfg, docker };
 
-  const backendFactory = requireSandboxBackendFactory(resolvedCfg.backend);
-  const backend = await backendFactory({
+  const containerName = await ensureSandboxContainer({
     sessionKey: rawSessionKey,
-    scopeKey,
     workspaceDir,
     agentWorkspaceDir,
     cfg: resolvedCfg,
-  });
-  await updateRegistry({
-    containerName: backend.runtimeId,
-    backendId: backend.id,
-    runtimeLabel: backend.runtimeLabel,
-    sessionKey: scopeKey,
-    createdAtMs: Date.now(),
-    lastUsedAtMs: Date.now(),
-    image: backend.configLabel ?? resolvedCfg.docker.image,
-    configLabelKind: backend.configLabelKind ?? "Image",
   });
 
   const evaluateEnabled =
@@ -170,50 +157,36 @@ export async function resolveSandboxContext(params: {
         return browserAuth;
       })()
     : undefined;
-  if (resolvedCfg.browser.enabled && backend.capabilities?.browser !== true) {
-    throw new Error(
-      `Sandbox backend "${resolvedCfg.backend}" does not support browser sandboxes yet.`,
-    );
-  }
-  const browser =
-    resolvedCfg.browser.enabled && backend.capabilities?.browser === true
-      ? await ensureSandboxBrowser({
-          scopeKey,
-          workspaceDir,
-          agentWorkspaceDir,
-          cfg: resolvedCfg,
-          evaluateEnabled,
-          bridgeAuth,
-        })
-      : null;
+  const browser = await ensureSandboxBrowser({
+    scopeKey,
+    workspaceDir,
+    agentWorkspaceDir,
+    cfg: resolvedCfg,
+    evaluateEnabled,
+    bridgeAuth,
+  });
 
   const sandboxContext: SandboxContext = {
     enabled: true,
-    backendId: backend.id,
     sessionKey: rawSessionKey,
     workspaceDir,
     agentWorkspaceDir,
     workspaceAccess: resolvedCfg.workspaceAccess,
-    runtimeId: backend.runtimeId,
-    runtimeLabel: backend.runtimeLabel,
-    containerName: backend.runtimeId,
-    containerWorkdir: backend.workdir,
+    containerName,
+    containerWorkdir: resolvedCfg.docker.workdir,
     docker: resolvedCfg.docker,
     tools: resolvedCfg.tools,
     browserAllowHostControl: resolvedCfg.browser.allowHostControl,
     browser: browser ?? undefined,
-    backend,
   };
 
-  sandboxContext.fsBridge =
-    backend.createFsBridge?.({ sandbox: sandboxContext }) ??
-    createSandboxFsBridge({ sandbox: sandboxContext });
+  sandboxContext.fsBridge = createSandboxFsBridge({ sandbox: sandboxContext });
 
   return sandboxContext;
 }
 
 export async function ensureSandboxWorkspaceForSession(params: {
-  config?: OpenClawConfig;
+  config?: MiraiConfig;
   sessionKey?: string;
   workspaceDir?: string;
 }): Promise<SandboxWorkspaceInfo | null> {

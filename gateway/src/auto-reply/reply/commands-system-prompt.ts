@@ -3,7 +3,7 @@ import { resolveSessionAgentIds } from "../../agents/agent-scope.js";
 import { resolveBootstrapContextForRun } from "../../agents/bootstrap-files.js";
 import { resolveDefaultModelForAgent } from "../../agents/model-selection.js";
 import type { EmbeddedContextFile } from "../../agents/pi-embedded-helpers.js";
-import { createOpenClawCodingTools } from "../../agents/pi-tools.js";
+import { createMiraiCodingTools } from "../../agents/pi-tools.js";
 import { resolveSandboxRuntimeStatus } from "../../agents/sandbox.js";
 import { buildWorkspaceSkillSnapshot } from "../../agents/skills.js";
 import { getSkillsSnapshotVersion } from "../../agents/skills/refresh.js";
@@ -52,12 +52,11 @@ export async function resolveCommandsSystemPromptBundle(
   });
   const tools = (() => {
     try {
-      return createOpenClawCodingTools({
+      return createMiraiCodingTools({
         config: params.cfg,
         agentId: params.agentId,
         workspaceDir,
         sessionKey: params.sessionKey,
-        allowGatewaySubagentBinding: true,
         messageProvider: params.command.channel,
         groupId: params.sessionEntry?.groupId ?? undefined,
         groupChannel: params.sessionEntry?.groupChannel ?? undefined,
@@ -127,7 +126,6 @@ export async function resolveCommandsSystemPromptBundle(
     skillsPrompt,
     heartbeatPrompt: undefined,
     ttsHint,
-    acpEnabled: params.cfg?.acp?.enabled !== false,
     runtimeInfo,
     sandboxInfo,
     memoryCitationsMode: params.cfg?.memory?.citations,

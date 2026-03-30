@@ -13,7 +13,7 @@ async function expectLoadRejectionPreservesField(params: {
   expectedValue: unknown;
 }) {
   await withTempHome(async (home) => {
-    const configPath = path.join(home, ".openclaw", "openclaw.json");
+    const configPath = path.join(home, ".mirai", "mirai.json");
     await fs.mkdir(path.dirname(configPath), { recursive: true });
     await fs.writeFile(configPath, JSON.stringify(params.config, null, 2), "utf-8");
 
@@ -34,7 +34,7 @@ async function withSnapshotForConfig(
   run: (params: { snapshot: ConfigSnapshot; parsed: unknown; configPath: string }) => Promise<void>,
 ) {
   await withTempHome(async (home) => {
-    const configPath = path.join(home, ".openclaw", "openclaw.json");
+    const configPath = path.join(home, ".mirai", "mirai.json");
     await fs.mkdir(path.dirname(configPath), { recursive: true });
     await fs.writeFile(configPath, JSON.stringify(config, null, 2), "utf-8");
     const snapshot = await readConfigFileSnapshot();
@@ -274,15 +274,6 @@ describe("legacy config detection", () => {
       },
     );
   });
-  it("flags top-level heartbeat as legacy in snapshot", async () => {
-    await withSnapshotForConfig(
-      { heartbeat: { model: "anthropic/claude-3-5-haiku-20241022", every: "30m" } },
-      async (ctx) => {
-        expect(ctx.snapshot.valid).toBe(false);
-        expect(ctx.snapshot.legacyIssues.some((issue) => issue.path === "heartbeat")).toBe(true);
-      },
-    );
-  });
   it("flags legacy provider sections in snapshot", async () => {
     await withSnapshotForConfig({ whatsapp: { allowFrom: ["+1555"] } }, async (ctx) => {
       expect(ctx.snapshot.valid).toBe(false);
@@ -298,7 +289,7 @@ describe("legacy config detection", () => {
   });
   it("does not auto-migrate claude-cli auth profile mode on load", async () => {
     await withTempHome(async (home) => {
-      const configPath = path.join(home, ".openclaw", "openclaw.json");
+      const configPath = path.join(home, ".mirai", "mirai.json");
       await fs.mkdir(path.dirname(configPath), { recursive: true });
       await fs.writeFile(
         configPath,

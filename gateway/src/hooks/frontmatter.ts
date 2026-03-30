@@ -1,17 +1,16 @@
 import { parseFrontmatterBlock } from "../markdown/frontmatter.js";
 import {
-  applyOpenClawManifestInstallCommonFields,
   getFrontmatterString,
   normalizeStringList,
-  parseOpenClawManifestInstallBase,
+  parseMiraiManifestInstallBase,
   parseFrontmatterBool,
-  resolveOpenClawManifestBlock,
-  resolveOpenClawManifestInstall,
-  resolveOpenClawManifestOs,
-  resolveOpenClawManifestRequires,
+  resolveMiraiManifestBlock,
+  resolveMiraiManifestInstall,
+  resolveMiraiManifestOs,
+  resolveMiraiManifestRequires,
 } from "../shared/frontmatter.js";
 import type {
-  OpenClawHookMetadata,
+  MiraiHookMetadata,
   HookEntry,
   HookInstallSpec,
   HookInvocationPolicy,
@@ -23,17 +22,24 @@ export function parseFrontmatter(content: string): ParsedHookFrontmatter {
 }
 
 function parseInstallSpec(input: unknown): HookInstallSpec | undefined {
-  const parsed = parseOpenClawManifestInstallBase(input, ["bundled", "npm", "git"]);
+  const parsed = parseMiraiManifestInstallBase(input, ["bundled", "npm", "git"]);
   if (!parsed) {
     return undefined;
   }
   const { raw } = parsed;
-  const spec = applyOpenClawManifestInstallCommonFields<HookInstallSpec>(
-    {
-      kind: parsed.kind as HookInstallSpec["kind"],
-    },
-    parsed,
-  );
+  const spec: HookInstallSpec = {
+    kind: parsed.kind as HookInstallSpec["kind"],
+  };
+
+  if (parsed.id) {
+    spec.id = parsed.id;
+  }
+  if (parsed.label) {
+    spec.label = parsed.label;
+  }
+  if (parsed.bins) {
+    spec.bins = parsed.bins;
+  }
   if (typeof raw.package === "string") {
     spec.package = raw.package;
   }
@@ -44,16 +50,16 @@ function parseInstallSpec(input: unknown): HookInstallSpec | undefined {
   return spec;
 }
 
-export function resolveOpenClawMetadata(
+export function resolveMiraiMetadata(
   frontmatter: ParsedHookFrontmatter,
-): OpenClawHookMetadata | undefined {
-  const metadataObj = resolveOpenClawManifestBlock({ frontmatter });
+): MiraiHookMetadata | undefined {
+  const metadataObj = resolveMiraiManifestBlock({ frontmatter });
   if (!metadataObj) {
     return undefined;
   }
-  const requires = resolveOpenClawManifestRequires(metadataObj);
-  const install = resolveOpenClawManifestInstall(metadataObj, parseInstallSpec);
-  const osRaw = resolveOpenClawManifestOs(metadataObj);
+  const requires = resolveMiraiManifestRequires(metadataObj);
+  const install = resolveMiraiManifestInstall(metadataObj, parseInstallSpec);
+  const osRaw = resolveMiraiManifestOs(metadataObj);
   const eventsRaw = normalizeStringList(metadataObj.events);
   return {
     always: typeof metadataObj.always === "boolean" ? metadataObj.always : undefined,

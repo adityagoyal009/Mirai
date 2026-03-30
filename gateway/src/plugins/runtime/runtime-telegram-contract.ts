@@ -4,9 +4,9 @@ export type {
   ChannelMessageActionAdapter,
 } from "../../channels/plugins/types.js";
 export type { ChannelPlugin } from "../../channels/plugins/types.plugin.js";
-export type { OpenClawConfig } from "../../config/config.js";
+export type { MiraiConfig } from "../../config/config.js";
 export type { PluginRuntime } from "./types.js";
-export type { OpenClawPluginApi } from "../types.js";
+export type { MiraiPluginApi } from "../types.js";
 export type {
   TelegramAccountConfig,
   TelegramActionConfig,

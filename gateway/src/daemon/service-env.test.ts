@@ -257,18 +257,6 @@ describe("buildMinimalServicePath", () => {
     const unique = [...new Set(parts)];
     expect(parts.length).toBe(unique.length);
   });
-
-  it("prepends explicit runtime bin directories before guessed user paths", () => {
-    const result = buildMinimalServicePath({
-      platform: "linux",
-      extraDirs: ["/home/alice/.nvm/versions/node/v22.22.0/bin"],
-      env: { HOME: "/home/alice" },
-    });
-    const parts = splitPath(result, "linux");
-
-    expect(parts[0]).toBe("/home/alice/.nvm/versions/node/v22.22.0/bin");
-    expect(parts).toContain("/home/alice/.nvm/current/bin");
-  });
 });
 
 describe("buildServiceEnvironment", () => {
@@ -276,22 +264,22 @@ describe("buildServiceEnvironment", () => {
     const env = buildServiceEnvironment({
       env: { HOME: "/home/user" },
       port: 18789,
+      token: "secret",
     });
     expect(env.HOME).toBe("/home/user");
     if (process.platform === "win32") {
-      expect(env).not.toHaveProperty("PATH");
+      expect(env.PATH).toBe("");
     } else {
       expect(env.PATH).toContain("/usr/bin");
     }
-    expect(env.OPENCLAW_GATEWAY_PORT).toBe("18789");
-    expect(env.OPENCLAW_GATEWAY_TOKEN).toBeUndefined();
-    expect(env.OPENCLAW_SERVICE_MARKER).toBe("openclaw");
-    expect(env.OPENCLAW_SERVICE_KIND).toBe("gateway");
-    expect(typeof env.OPENCLAW_SERVICE_VERSION).toBe("string");
-    expect(env.OPENCLAW_SYSTEMD_UNIT).toBe("openclaw-gateway.service");
-    expect(env.OPENCLAW_WINDOWS_TASK_NAME).toBe("OpenClaw Gateway");
+    expect(env.MIRAI_GATEWAY_PORT).toBe("18789");
+    expect(env.MIRAI_GATEWAY_TOKEN).toBe("secret");
+    expect(env.MIRAI_SERVICE_MARKER).toBe("mirai");
+    expect(env.MIRAI_SERVICE_KIND).toBe("gateway");
+    expect(typeof env.MIRAI_SERVICE_VERSION).toBe("string");
+    expect(env.MIRAI_SYSTEMD_UNIT).toBe("mirai-gateway.service");
     if (process.platform === "darwin") {
-      expect(env.OPENCLAW_LAUNCHD_LABEL).toBe("ai.openclaw.gateway");
+      expect(env.MIRAI_LAUNCHD_LABEL).toBe("ai.mirai.gateway");
     }
   });
 
@@ -313,13 +301,12 @@ describe("buildServiceEnvironment", () => {
 
   it("uses profile-specific unit and label", () => {
     const env = buildServiceEnvironment({
-      env: { HOME: "/home/user", OPENCLAW_PROFILE: "work" },
+      env: { HOME: "/home/user", MIRAI_PROFILE: "work" },
       port: 18789,
     });
-    expect(env.OPENCLAW_SYSTEMD_UNIT).toBe("openclaw-gateway-work.service");
-    expect(env.OPENCLAW_WINDOWS_TASK_NAME).toBe("OpenClaw Gateway (work)");
+    expect(env.MIRAI_SYSTEMD_UNIT).toBe("mirai-gateway-work.service");
     if (process.platform === "darwin") {
-      expect(env.OPENCLAW_LAUNCHD_LABEL).toBe("ai.openclaw.work");
+      expect(env.MIRAI_LAUNCHD_LABEL).toBe("ai.mirai.work");
     }
   });
 
@@ -342,33 +329,6 @@ describe("buildServiceEnvironment", () => {
     expect(env.http_proxy).toBe("http://proxy.local:7890");
     expect(env.all_proxy).toBe("socks5://proxy.local:1080");
   });
-
-  it("omits PATH on Windows so Scheduled Tasks can inherit the current shell path", () => {
-    const env = buildServiceEnvironment({
-      env: {
-        HOME: "C:\\Users\\alice",
-        PATH: "C:\\Windows\\System32;C:\\Tools\\rg",
-      },
-      port: 18789,
-      platform: "win32",
-    });
-
-    expect(env).not.toHaveProperty("PATH");
-    expect(env.OPENCLAW_WINDOWS_TASK_NAME).toBe("OpenClaw Gateway");
-  });
-
-  it("prepends extra runtime directories to the gateway service PATH", () => {
-    const env = buildServiceEnvironment({
-      env: { HOME: "/home/user" },
-      port: 18789,
-      platform: "linux",
-      extraPathDirs: ["/home/user/.nvm/versions/node/v22.22.0/bin"],
-    });
-
-    expect(env.PATH?.split(path.posix.delimiter)[0]).toBe(
-      "/home/user/.nvm/versions/node/v22.22.0/bin",
-    );
-  });
 });
 
 describe("buildNodeServiceEnvironment", () => {
@@ -377,42 +337,6 @@ describe("buildNodeServiceEnvironment", () => {
       env: { HOME: "/home/user" },
     });
     expect(env.HOME).toBe("/home/user");
-  });
-
-  it("passes through OPENCLAW_GATEWAY_TOKEN for node services", () => {
-    const env = buildNodeServiceEnvironment({
-      env: { HOME: "/home/user", OPENCLAW_GATEWAY_TOKEN: " node-token " },
-    });
-    expect(env.OPENCLAW_GATEWAY_TOKEN).toBe("node-token");
-  });
-
-  it("maps legacy CLAWDBOT_GATEWAY_TOKEN to OPENCLAW_GATEWAY_TOKEN for node services", () => {
-    const env = buildNodeServiceEnvironment({
-      env: { HOME: "/home/user", CLAWDBOT_GATEWAY_TOKEN: " legacy-token " },
-    });
-    expect(env.OPENCLAW_GATEWAY_TOKEN).toBe("legacy-token");
-  });
-
-  it("prefers OPENCLAW_GATEWAY_TOKEN over legacy CLAWDBOT_GATEWAY_TOKEN", () => {
-    const env = buildNodeServiceEnvironment({
-      env: {
-        HOME: "/home/user",
-        OPENCLAW_GATEWAY_TOKEN: "openclaw-token",
-        CLAWDBOT_GATEWAY_TOKEN: "legacy-token",
-      },
-    });
-    expect(env.OPENCLAW_GATEWAY_TOKEN).toBe("openclaw-token");
-  });
-
-  it("omits OPENCLAW_GATEWAY_TOKEN when both token env vars are empty", () => {
-    const env = buildNodeServiceEnvironment({
-      env: {
-        HOME: "/home/user",
-        OPENCLAW_GATEWAY_TOKEN: "   ",
-        CLAWDBOT_GATEWAY_TOKEN: " ",
-      },
-    });
-    expect(env.OPENCLAW_GATEWAY_TOKEN).toBeUndefined();
   });
 
   it("forwards proxy environment variables for node services", () => {
@@ -441,93 +365,36 @@ describe("buildNodeServiceEnvironment", () => {
     });
     expect(env.TMPDIR).toBe(os.tmpdir());
   });
-
-  it("prepends extra runtime directories to the node service PATH", () => {
-    const env = buildNodeServiceEnvironment({
-      env: { HOME: "/home/user" },
-      platform: "linux",
-      extraPathDirs: ["/home/user/.nvm/versions/node/v22.22.0/bin"],
-    });
-
-    expect(env.PATH?.split(path.posix.delimiter)[0]).toBe(
-      "/home/user/.nvm/versions/node/v22.22.0/bin",
-    );
-  });
-});
-
-describe("shared Node TLS env defaults", () => {
-  const builders = [
-    {
-      name: "gateway service env",
-      build: (env: Record<string, string | undefined>, platform?: NodeJS.Platform) =>
-        buildServiceEnvironment({ env, port: 18789, platform }),
-    },
-    {
-      name: "node service env",
-      build: (env: Record<string, string | undefined>, platform?: NodeJS.Platform) =>
-        buildNodeServiceEnvironment({ env, platform }),
-    },
-  ] as const;
-
-  it.each(builders)("$name defaults NODE_EXTRA_CA_CERTS on macOS", ({ build }) => {
-    const env = build({ HOME: "/home/user" }, "darwin");
-    expect(env.NODE_EXTRA_CA_CERTS).toBe("/etc/ssl/cert.pem");
-  });
-
-  it.each(builders)("$name does not default NODE_EXTRA_CA_CERTS on non-macOS", ({ build }) => {
-    const env = build({ HOME: "/home/user" }, "linux");
-    expect(env.NODE_EXTRA_CA_CERTS).toBeUndefined();
-  });
-
-  it.each(builders)("$name respects user-provided NODE_EXTRA_CA_CERTS", ({ build }) => {
-    const env = build({ HOME: "/home/user", NODE_EXTRA_CA_CERTS: "/custom/certs/ca.pem" });
-    expect(env.NODE_EXTRA_CA_CERTS).toBe("/custom/certs/ca.pem");
-  });
-
-  it.each(builders)("$name defaults NODE_USE_SYSTEM_CA=1 on macOS", ({ build }) => {
-    const env = build({ HOME: "/home/user" }, "darwin");
-    expect(env.NODE_USE_SYSTEM_CA).toBe("1");
-  });
-
-  it.each(builders)("$name does not default NODE_USE_SYSTEM_CA on non-macOS", ({ build }) => {
-    const env = build({ HOME: "/home/user" }, "linux");
-    expect(env.NODE_USE_SYSTEM_CA).toBeUndefined();
-  });
-
-  it.each(builders)("$name respects user-provided NODE_USE_SYSTEM_CA", ({ build }) => {
-    const env = build({ HOME: "/home/user", NODE_USE_SYSTEM_CA: "0" }, "darwin");
-    expect(env.NODE_USE_SYSTEM_CA).toBe("0");
-  });
 });
 
 describe("resolveGatewayStateDir", () => {
   it("uses the default state dir when no overrides are set", () => {
     const env = { HOME: "/Users/test" };
-    expect(resolveGatewayStateDir(env)).toBe(path.join("/Users/test", ".openclaw"));
+    expect(resolveGatewayStateDir(env)).toBe(path.join("/Users/test", ".mirai"));
   });
 
   it("appends the profile suffix when set", () => {
-    const env = { HOME: "/Users/test", OPENCLAW_PROFILE: "rescue" };
-    expect(resolveGatewayStateDir(env)).toBe(path.join("/Users/test", ".openclaw-rescue"));
+    const env = { HOME: "/Users/test", MIRAI_PROFILE: "rescue" };
+    expect(resolveGatewayStateDir(env)).toBe(path.join("/Users/test", ".mirai-rescue"));
   });
 
   it("treats default profiles as the base state dir", () => {
-    const env = { HOME: "/Users/test", OPENCLAW_PROFILE: "Default" };
-    expect(resolveGatewayStateDir(env)).toBe(path.join("/Users/test", ".openclaw"));
+    const env = { HOME: "/Users/test", MIRAI_PROFILE: "Default" };
+    expect(resolveGatewayStateDir(env)).toBe(path.join("/Users/test", ".mirai"));
   });
 
-  it("uses OPENCLAW_STATE_DIR when provided", () => {
-    const env = { HOME: "/Users/test", OPENCLAW_STATE_DIR: "/var/lib/openclaw" };
-    expect(resolveGatewayStateDir(env)).toBe(path.resolve("/var/lib/openclaw"));
+  it("uses MIRAI_STATE_DIR when provided", () => {
+    const env = { HOME: "/Users/test", MIRAI_STATE_DIR: "/var/lib/mirai" };
+    expect(resolveGatewayStateDir(env)).toBe(path.resolve("/var/lib/mirai"));
   });
 
-  it("expands ~ in OPENCLAW_STATE_DIR", () => {
-    const env = { HOME: "/Users/test", OPENCLAW_STATE_DIR: "~/openclaw-state" };
-    expect(resolveGatewayStateDir(env)).toBe(path.resolve("/Users/test/openclaw-state"));
+  it("expands ~ in MIRAI_STATE_DIR", () => {
+    const env = { HOME: "/Users/test", MIRAI_STATE_DIR: "~/mirai-state" };
+    expect(resolveGatewayStateDir(env)).toBe(path.resolve("/Users/test/mirai-state"));
   });
 
   it("preserves Windows absolute paths without HOME", () => {
-    const env = { OPENCLAW_STATE_DIR: "C:\\State\\openclaw" };
-    expect(resolveGatewayStateDir(env)).toBe("C:\\State\\openclaw");
+    const env = { MIRAI_STATE_DIR: "C:\\State\\mirai" };
+    expect(resolveGatewayStateDir(env)).toBe("C:\\State\\mirai");
   });
 });

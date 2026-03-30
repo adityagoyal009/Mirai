@@ -93,10 +93,10 @@ describe("cli integration: qr + dashboard token SecretRef", () => {
   beforeAll(() => {
     envSnapshot = captureEnv([
       "SHARED_GATEWAY_TOKEN",
-      "OPENCLAW_GATEWAY_TOKEN",
-      "CLAWDBOT_GATEWAY_TOKEN",
-      "OPENCLAW_GATEWAY_PASSWORD",
-      "CLAWDBOT_GATEWAY_PASSWORD",
+      "MIRAI_GATEWAY_TOKEN",
+      "MIRAI_LEGACY_GATEWAY_TOKEN",
+      "MIRAI_GATEWAY_PASSWORD",
+      "MIRAI_LEGACY_GATEWAY_PASSWORD",
     ]);
   });
 
@@ -108,10 +108,10 @@ describe("cli integration: qr + dashboard token SecretRef", () => {
     runtimeLogs.length = 0;
     runtimeErrors.length = 0;
     vi.clearAllMocks();
-    delete process.env.OPENCLAW_GATEWAY_TOKEN;
-    delete process.env.CLAWDBOT_GATEWAY_TOKEN;
-    delete process.env.OPENCLAW_GATEWAY_PASSWORD;
-    delete process.env.CLAWDBOT_GATEWAY_PASSWORD;
+    delete process.env.MIRAI_GATEWAY_TOKEN;
+    delete process.env.MIRAI_LEGACY_GATEWAY_TOKEN;
+    delete process.env.MIRAI_GATEWAY_PASSWORD;
+    delete process.env.MIRAI_LEGACY_GATEWAY_PASSWORD;
     delete process.env.SHARED_GATEWAY_TOKEN;
   });
 
@@ -120,7 +120,7 @@ describe("cli integration: qr + dashboard token SecretRef", () => {
     process.env.SHARED_GATEWAY_TOKEN = "shared-token-123";
     loadConfigMock.mockReturnValue(fixture);
     readConfigFileSnapshotMock.mockResolvedValue({
-      path: "/tmp/openclaw.json",
+      path: "/tmp/mirai.json",
       exists: true,
       valid: true,
       issues: [],
@@ -152,7 +152,7 @@ describe("cli integration: qr + dashboard token SecretRef", () => {
     const fixture = createGatewayTokenRefFixture();
     loadConfigMock.mockReturnValue(fixture);
     readConfigFileSnapshotMock.mockResolvedValue({
-      path: "/tmp/openclaw.json",
+      path: "/tmp/mirai.json",
       exists: true,
       valid: true,
       issues: [],
@@ -169,6 +169,6 @@ describe("cli integration: qr + dashboard token SecretRef", () => {
     expect(joined).toContain("Dashboard URL: http://127.0.0.1:18789/");
     expect(joined).not.toContain("#token=");
     expect(joined).toContain("Token auto-auth unavailable");
-    expect(joined).toContain("Set OPENCLAW_GATEWAY_TOKEN");
+    expect(joined).toContain("Set MIRAI_GATEWAY_TOKEN");
   });
 });

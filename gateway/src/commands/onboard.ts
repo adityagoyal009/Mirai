@@ -6,16 +6,11 @@ import { defaultRuntime } from "../runtime.js";
 import { resolveUserPath } from "../utils.js";
 import { isDeprecatedAuthChoice, normalizeLegacyOnboardAuthChoice } from "./auth-choice-legacy.js";
 import { DEFAULT_WORKSPACE, handleReset } from "./onboard-helpers.js";
-import { runInteractiveSetup } from "./onboard-interactive.js";
-import { runNonInteractiveSetup } from "./onboard-non-interactive.js";
-import type { OnboardOptions, ResetScope } from "./onboard-types.js";
+import { runInteractiveOnboarding } from "./onboard-interactive.js";
+import { runNonInteractiveOnboarding } from "./onboard-non-interactive.js";
+import type { OnboardOptions } from "./onboard-types.js";
 
-const VALID_RESET_SCOPES = new Set<ResetScope>(["config", "config+creds+sessions", "full"]);
-
-export async function setupWizardCommand(
-  opts: OnboardOptions,
-  runtime: RuntimeEnv = defaultRuntime,
-) {
+export async function onboardCommand(opts: OnboardOptions, runtime: RuntimeEnv = defaultRuntime) {
   assertSupportedRuntime(runtime);
   const originalAuthChoice = opts.authChoice;
   const normalizedAuthChoice = normalizeLegacyOnboardAuthChoice(originalAuthChoice);
@@ -40,27 +35,12 @@ export async function setupWizardCommand(
     normalizedAuthChoice === opts.authChoice && flow === opts.flow
       ? opts
       : { ...opts, authChoice: normalizedAuthChoice, flow };
-  if (
-    normalizedOpts.secretInputMode &&
-    normalizedOpts.secretInputMode !== "plaintext" && // pragma: allowlist secret
-    normalizedOpts.secretInputMode !== "ref" // pragma: allowlist secret
-  ) {
-    runtime.error('Invalid --secret-input-mode. Use "plaintext" or "ref".');
-    runtime.exit(1);
-    return;
-  }
-
-  if (normalizedOpts.resetScope && !VALID_RESET_SCOPES.has(normalizedOpts.resetScope)) {
-    runtime.error('Invalid --reset-scope. Use "config", "config+creds+sessions", or "full".');
-    runtime.exit(1);
-    return;
-  }
 
   if (normalizedOpts.nonInteractive && normalizedOpts.acceptRisk !== true) {
     runtime.error(
       [
-        "Non-interactive setup requires explicit risk acknowledgement.",
-        "Read: https://github.com/adityagoyal009/Mirai/tree/main/gateway/docs/security",
+        "Non-interactive onboarding requires explicit risk acknowledgement.",
+        "Read: https://docs.mirai.ai/security",
         `Re-run with: ${formatCliCommand("mirai onboard --non-interactive --accept-risk ...")}`,
       ].join("\n"),
     );
@@ -73,30 +53,26 @@ export async function setupWizardCommand(
     const baseConfig = snapshot.valid ? snapshot.config : {};
     const workspaceDefault =
       normalizedOpts.workspace ?? baseConfig.agents?.defaults?.workspace ?? DEFAULT_WORKSPACE;
-    const resetScope: ResetScope = normalizedOpts.resetScope ?? "config+creds+sessions";
-    await handleReset(resetScope, resolveUserPath(workspaceDefault), runtime);
+    await handleReset("full", resolveUserPath(workspaceDefault), runtime);
   }
 
   if (process.platform === "win32") {
     runtime.log(
       [
-        "Windows detected - Mirai runs great on WSL2!",
+        "Windows detected — Mirai runs great on WSL2!",
         "Native Windows might be trickier.",
         "Quick setup: wsl --install (one command, one reboot)",
-        "Guide: https://github.com/adityagoyal009/Mirai/tree/main/gateway/docs/windows",
+        "Guide: https://docs.mirai.ai/windows",
       ].join("\n"),
     );
   }
 
   if (normalizedOpts.nonInteractive) {
-    await runNonInteractiveSetup(normalizedOpts, runtime);
+    await runNonInteractiveOnboarding(normalizedOpts, runtime);
     return;
   }
 
-  await runInteractiveSetup(normalizedOpts, runtime);
+  await runInteractiveOnboarding(normalizedOpts, runtime);
 }
 
-export const onboardCommand = setupWizardCommand;
-
 export type { OnboardOptions } from "./onboard-types.js";
-export type { OnboardOptions as SetupWizardOptions } from "./onboard-types.js";

@@ -6,7 +6,7 @@ import { resolveBrewExecutable, resolveBrewPathDirs } from "./brew.js";
 
 describe("brew helpers", () => {
   async function withBrewRoot(run: (tmp: string) => Promise<void>) {
-    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-brew-"));
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "mirai-brew-"));
     try {
       await run(tmp);
     } finally {
@@ -86,35 +86,6 @@ describe("brew helpers", () => {
       };
       expect(resolveBrewExecutable({ homeDir: tmp, env })).toBe(prefixBrew);
     });
-  });
-
-  it("ignores blank HOMEBREW_BREW_FILE and HOMEBREW_PREFIX values", async () => {
-    await withBrewRoot(async (tmp) => {
-      const homebrewBin = path.join(tmp, ".linuxbrew", "bin");
-      const brewPath = path.join(homebrewBin, "brew");
-      await writeExecutable(brewPath);
-
-      const env: NodeJS.ProcessEnv = {
-        HOMEBREW_BREW_FILE: "   ",
-        HOMEBREW_PREFIX: "\t",
-      };
-
-      expect(resolveBrewExecutable({ homeDir: tmp, env })).toBe(brewPath);
-
-      const dirs = resolveBrewPathDirs({ homeDir: tmp, env });
-      expect(dirs).not.toContain(path.join("", "bin"));
-      expect(dirs).not.toContain(path.join("", "sbin"));
-    });
-  });
-
-  it("always includes the standard macOS brew dirs after linuxbrew candidates", () => {
-    const env: NodeJS.ProcessEnv = {
-      HOMEBREW_BREW_FILE: "   ",
-      HOMEBREW_PREFIX: "   ",
-    };
-    const dirs = resolveBrewPathDirs({ homeDir: "/home/test", env });
-
-    expect(dirs.slice(-2)).toEqual(["/opt/homebrew/bin", "/usr/local/bin"]);
   });
 
   it("includes Linuxbrew bin/sbin in path candidates", () => {

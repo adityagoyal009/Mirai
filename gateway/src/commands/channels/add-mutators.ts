@@ -1,32 +1,30 @@
 import { getChannelPlugin } from "../../channels/plugins/index.js";
-import type { ChannelId, ChannelPlugin, ChannelSetupInput } from "../../channels/plugins/types.js";
-import type { OpenClawConfig } from "../../config/config.js";
+import type { ChannelId, ChannelSetupInput } from "../../channels/plugins/types.js";
+import type { MiraiConfig } from "../../config/config.js";
 import { normalizeAccountId } from "../../routing/session-key.js";
 
 type ChatChannel = ChannelId;
 
 export function applyAccountName(params: {
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   channel: ChatChannel;
   accountId: string;
   name?: string;
-  plugin?: ChannelPlugin;
-}): OpenClawConfig {
+}): MiraiConfig {
   const accountId = normalizeAccountId(params.accountId);
-  const plugin = params.plugin ?? getChannelPlugin(params.channel);
+  const plugin = getChannelPlugin(params.channel);
   const apply = plugin?.setup?.applyAccountName;
   return apply ? apply({ cfg: params.cfg, accountId, name: params.name }) : params.cfg;
 }
 
 export function applyChannelAccountConfig(params: {
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   channel: ChatChannel;
   accountId: string;
   input: ChannelSetupInput;
-  plugin?: ChannelPlugin;
-}): OpenClawConfig {
+}): MiraiConfig {
   const accountId = normalizeAccountId(params.accountId);
-  const plugin = params.plugin ?? getChannelPlugin(params.channel);
+  const plugin = getChannelPlugin(params.channel);
   const apply = plugin?.setup?.applyAccountConfig;
   if (!apply) {
     return params.cfg;

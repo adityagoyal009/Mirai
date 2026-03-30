@@ -1,9 +1,9 @@
-import type { OpenClawConfig } from "../config/config.js";
-import { LITELLM_DEFAULT_MODEL_REF } from "../plugins/provider-auth-storage.js";
+import type { MiraiConfig } from "../config/config.js";
 import {
   applyAgentDefaultModelPrimary,
   applyProviderConfigWithDefaultModel,
-} from "../plugins/provider-onboarding-config.js";
+} from "./onboard-auth.config-shared.js";
+import { LITELLM_DEFAULT_MODEL_REF } from "./onboard-auth.credentials.js";
 
 export const LITELLM_BASE_URL = "http://localhost:4000";
 export const LITELLM_DEFAULT_MODEL_ID = "claude-opus-4-6";
@@ -36,7 +36,7 @@ function buildLitellmModelDefinition(): {
   };
 }
 
-export function applyLitellmProviderConfig(cfg: OpenClawConfig): OpenClawConfig {
+export function applyLitellmProviderConfig(cfg: MiraiConfig): MiraiConfig {
   const models = { ...cfg.agents?.defaults?.models };
   models[LITELLM_DEFAULT_MODEL_REF] = {
     ...models[LITELLM_DEFAULT_MODEL_REF],
@@ -59,7 +59,7 @@ export function applyLitellmProviderConfig(cfg: OpenClawConfig): OpenClawConfig 
   });
 }
 
-export function applyLitellmConfig(cfg: OpenClawConfig): OpenClawConfig {
+export function applyLitellmConfig(cfg: MiraiConfig): MiraiConfig {
   const next = applyLitellmProviderConfig(cfg);
   return applyAgentDefaultModelPrimary(next, LITELLM_DEFAULT_MODEL_REF);
 }

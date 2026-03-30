@@ -1,14 +1,13 @@
-import type { OpenClawConfig } from "../../config/config.js";
+import type { MiraiConfig } from "../../config/config.js";
 import { loadSessionStore, resolveStorePath } from "../../config/sessions.js";
 import { readChannelAllowFromStoreSync } from "../../pairing/pairing-store.js";
-import { DEFAULT_ACCOUNT_ID } from "../../routing/session-key.js";
 import { normalizeE164 } from "../../utils.js";
 import { normalizeChatChannelId } from "../registry.js";
 
 type HeartbeatRecipientsResult = { recipients: string[]; source: string };
 type HeartbeatRecipientsOpts = { to?: string; all?: boolean };
 
-function getSessionRecipients(cfg: OpenClawConfig) {
+function getSessionRecipients(cfg: MiraiConfig) {
   const sessionCfg = cfg.session;
   const scope = sessionCfg?.scope ?? "per-sender";
   if (scope === "global") {
@@ -45,7 +44,7 @@ function getSessionRecipients(cfg: OpenClawConfig) {
 }
 
 export function resolveWhatsAppHeartbeatRecipients(
-  cfg: OpenClawConfig,
+  cfg: MiraiConfig,
   opts: HeartbeatRecipientsOpts = {},
 ): HeartbeatRecipientsResult {
   if (opts.to) {
@@ -57,11 +56,7 @@ export function resolveWhatsAppHeartbeatRecipients(
     Array.isArray(cfg.channels?.whatsapp?.allowFrom) && cfg.channels.whatsapp.allowFrom.length > 0
       ? cfg.channels.whatsapp.allowFrom.filter((v) => v !== "*").map(normalizeE164)
       : [];
-  const storeAllowFrom = readChannelAllowFromStoreSync(
-    "whatsapp",
-    process.env,
-    DEFAULT_ACCOUNT_ID,
-  ).map(normalizeE164);
+  const storeAllowFrom = readChannelAllowFromStoreSync("whatsapp").map(normalizeE164);
 
   const unique = (list: string[]) => [...new Set(list.filter(Boolean))];
   const allowFrom = unique([...configuredAllowFrom, ...storeAllowFrom]);

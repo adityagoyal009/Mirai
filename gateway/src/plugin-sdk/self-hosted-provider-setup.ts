@@ -1,5 +1,5 @@
 export type {
-  OpenClawPluginApi,
+  MiraiPluginApi,
   ProviderAuthContext,
   ProviderAuthMethodNonInteractiveContext,
   ProviderAuthResult,

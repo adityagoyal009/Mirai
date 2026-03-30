@@ -6,11 +6,11 @@ import {
 } from "./redact-snapshot.js";
 import { __test__ } from "./schema.hints.js";
 import type { ConfigUiHints } from "./schema.js";
-import type { ConfigFileSnapshot } from "./types.openclaw.js";
-import { OpenClawSchema } from "./zod-schema.js";
+import type { ConfigFileSnapshot } from "./types.mirai.js";
+import { MiraiSchema } from "./zod-schema.js";
 
 const { mapSensitivePaths } = __test__;
-const mainSchemaHints = mapSensitivePaths(OpenClawSchema, "", {});
+const mainSchemaHints = mapSensitivePaths(MiraiSchema, "", {});
 
 type TestSnapshot<TConfig extends Record<string, unknown>> = ConfigFileSnapshot & {
   parsed: TConfig;
@@ -23,7 +23,7 @@ function makeSnapshot<TConfig extends Record<string, unknown>>(
   raw?: string,
 ): TestSnapshot<TConfig> {
   return {
-    path: "/home/user/.openclaw/config.json5",
+    path: "/home/user/.mirai/config.json5",
     exists: true,
     raw: raw ?? JSON.stringify(config),
     parsed: config,
@@ -49,11 +49,11 @@ function restoreRedactedValues<TOriginal>(
 
 describe("realredactConfigSnapshot_real", () => {
   it("main schema redact works (samples)", () => {
-    const schema = OpenClawSchema.toJSONSchema({
+    const schema = MiraiSchema.toJSONSchema({
       target: "draft-07",
       unrepresentable: "any",
     });
-    schema.title = "OpenClawConfig";
+    schema.title = "MiraiConfig";
     const hints = mainSchemaHints;
 
     const snapshot = makeSnapshot({

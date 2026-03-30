@@ -19,13 +19,74 @@ export type AuthChoiceGroup = {
   options: AuthChoiceOption[];
 };
 
+// Matches Mirai's provider groups — Anthropic, OpenAI, Google as top-level choices
 export const CORE_AUTH_CHOICE_OPTIONS: ReadonlyArray<AuthChoiceOption> = [
+  // ── Anthropic ──
+  {
+    value: "setup-token" as AuthChoice,
+    label: "Anthropic token (paste setup-token)",
+    hint: "run `claude setup-token` elsewhere, then paste the token here",
+    groupId: "anthropic" as AuthChoiceGroupId,
+    groupLabel: "Anthropic",
+    groupHint: "setup-token + API key",
+  },
+  {
+    value: "apiKey" as AuthChoice,
+    label: "Anthropic API key",
+    hint: "sk-ant-... key from console.anthropic.com",
+    groupId: "anthropic" as AuthChoiceGroupId,
+    groupLabel: "Anthropic",
+    groupHint: "setup-token + API key",
+  },
+  // ── OpenAI ──
+  {
+    value: "openai-codex" as AuthChoice,
+    label: "OpenAI Codex OAuth",
+    hint: "Browser login — no API key needed",
+    groupId: "openai" as AuthChoiceGroupId,
+    groupLabel: "OpenAI",
+    groupHint: "Codex OAuth + API key",
+  },
+  {
+    value: "openai-api-key" as AuthChoice,
+    label: "OpenAI API key",
+    hint: "sk-... key from platform.openai.com",
+    groupId: "openai" as AuthChoiceGroupId,
+    groupLabel: "OpenAI",
+    groupHint: "Codex OAuth + API key",
+  },
+  // ── Google ──
+  {
+    value: "google-gemini-cli" as AuthChoice,
+    label: "Google Gemini CLI OAuth",
+    hint: "Browser login — no API key needed",
+    groupId: "google" as AuthChoiceGroupId,
+    groupLabel: "Google",
+    groupHint: "Gemini API key + OAuth",
+  },
+  {
+    value: "gemini-api-key" as AuthChoice,
+    label: "Gemini API key",
+    hint: "API key from aistudio.google.com",
+    groupId: "google" as AuthChoiceGroupId,
+    groupLabel: "Google",
+    groupHint: "Gemini API key + OAuth",
+  },
+  // ── Other providers ──
   {
     value: "chutes",
     label: "Chutes (OAuth)",
     groupId: "chutes",
     groupLabel: "Chutes",
     groupHint: "OAuth",
+  },
+  {
+    value: "ollama" as AuthChoice,
+    label: "Ollama (local)",
+    hint: "Local LLM server",
+    groupId: "ollama" as AuthChoiceGroupId,
+    groupLabel: "Ollama",
+    groupHint: "Local models",
   },
   {
     value: "litellm-api-key",

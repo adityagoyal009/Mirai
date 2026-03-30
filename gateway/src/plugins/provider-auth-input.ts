@@ -1,5 +1,5 @@
 import { resolveEnvApiKey } from "../agents/model-auth.js";
-import type { OpenClawConfig } from "../config/types.js";
+import type { MiraiConfig } from "../config/types.js";
 import {
   isValidEnvSecretRefId,
   type SecretInput,
@@ -109,7 +109,7 @@ function resolveDefaultFilePointerId(provider: string): string {
 }
 
 function resolveRefFallbackInput(params: {
-  config: OpenClawConfig;
+  config: MiraiConfig;
   provider: string;
   preferredEnvVar?: string;
 }): { ref: SecretRef; resolvedValue: string } {
@@ -139,7 +139,7 @@ function resolveRefFallbackInput(params: {
 
 export async function promptSecretRefForSetup(params: {
   provider: string;
-  config: OpenClawConfig;
+  config: MiraiConfig;
   prompter: WizardPrompter;
   preferredEnvVar?: string;
   copy?: SecretRefSetupPromptCopy;
@@ -397,7 +397,7 @@ export async function ensureApiKeyFromOptionEnvOrPrompt(params: {
   token: string | undefined;
   tokenProvider: string | undefined;
   secretInputMode?: SecretInputMode;
-  config: OpenClawConfig;
+  config: MiraiConfig;
   expectedProviders: string[];
   provider: string;
   envLabel: string;
@@ -439,7 +439,7 @@ export async function ensureApiKeyFromOptionEnvOrPrompt(params: {
 }
 
 export async function ensureApiKeyFromEnvOrPrompt(params: {
-  config: OpenClawConfig;
+  config: MiraiConfig;
   provider: string;
   envLabel: string;
   promptMessage: string;

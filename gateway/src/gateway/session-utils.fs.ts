@@ -1,7 +1,6 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { deriveSessionTotalTokens, hasNonzeroUsage, normalizeUsage } from "../agents/usage.js";
 import {
   formatSessionArchiveTimestamp,
   parseSessionArchiveTimestamp,
@@ -11,7 +10,6 @@ import {
   resolveSessionTranscriptPathInDir,
 } from "../config/sessions.js";
 import { resolveRequiredHomeDir } from "../infra/home-dir.js";
-import { jsonUtf8Bytes } from "../infra/json-utf8-bytes.js";
 import { hasInterSessionUserProvenance } from "../sessions/input-provenance.js";
 import { stripInlineDirectiveTagsForDisplay } from "../utils/directive-tags.js";
 import { extractToolCallNames, hasToolCall } from "../utils/transcript-tools.js";
@@ -72,27 +70,6 @@ function setCachedSessionTitleFields(cacheKey: string, stat: fs.Stats, value: Se
   }
 }
 
-export function attachOpenClawTranscriptMeta(
-  message: unknown,
-  meta: Record<string, unknown>,
-): unknown {
-  if (!message || typeof message !== "object" || Array.isArray(message)) {
-    return message;
-  }
-  const record = message as Record<string, unknown>;
-  const existing =
-    record.__openclaw && typeof record.__openclaw === "object" && !Array.isArray(record.__openclaw)
-      ? (record.__openclaw as Record<string, unknown>)
-      : {};
-  return {
-    ...record,
-    __openclaw: {
-      ...existing,
-      ...meta,
-    },
-  };
-}
-
 export function readSessionMessages(
   sessionId: string,
   storePath: string | undefined,
@@ -107,7 +84,6 @@ export function readSessionMessages(
 
   const lines = fs.readFileSync(filePath, "utf-8").split(/\r?\n/);
   const messages: unknown[] = [];
-  let messageSeq = 0;
   for (const line of lines) {
     if (!line.trim()) {
       continue;
@@ -115,13 +91,7 @@ export function readSessionMessages(
     try {
       const parsed = JSON.parse(line);
       if (parsed?.message) {
-        messageSeq += 1;
-        messages.push(
-          attachOpenClawTranscriptMeta(parsed.message, {
-            ...(typeof parsed.id === "string" ? { id: parsed.id } : {}),
-            seq: messageSeq,
-          }),
-        );
+        messages.push(parsed.message);
         continue;
       }
 
@@ -130,15 +100,13 @@ export function readSessionMessages(
       if (parsed?.type === "compaction") {
         const ts = typeof parsed.timestamp === "string" ? Date.parse(parsed.timestamp) : Number.NaN;
         const timestamp = Number.isFinite(ts) ? ts : Date.now();
-        messageSeq += 1;
         messages.push({
           role: "system",
           content: [{ type: "text", text: "Compaction" }],
           timestamp,
-          __openclaw: {
+          __mirai: {
             kind: "compaction",
             id: typeof parsed.id === "string" ? parsed.id : undefined,
-            seq: messageSeq,
           },
         });
       }
@@ -188,7 +156,7 @@ export function resolveSessionTranscriptCandidates(
   }
 
   const home = resolveRequiredHomeDir(process.env, os.homedir);
-  const legacyDir = path.join(home, ".openclaw", "sessions");
+  const legacyDir = path.join(home, ".mirai", "sessions");
   pushCandidate(() => resolveSessionTranscriptPathInDir(sessionId, legacyDir));
 
   return Array.from(new Set(candidates));
@@ -295,6 +263,14 @@ export async function cleanupArchivedSessionTranscripts(opts: {
   }
 
   return { removed, scanned };
+}
+
+function jsonUtf8Bytes(value: unknown): number {
+  try {
+    return Buffer.byteLength(JSON.stringify(value), "utf8");
+  } catch {
+    return Buffer.byteLength(String(value), "utf8");
+  }
 }
 
 export function capArrayByJsonBytes<T>(
@@ -554,179 +530,6 @@ export function readLastMessagePreviewFromTranscript(
       return null;
     }
     return readLastMessagePreviewFromOpenTranscript({ fd, size });
-  });
-}
-
-export type SessionTranscriptUsageSnapshot = {
-  modelProvider?: string;
-  model?: string;
-  inputTokens?: number;
-  outputTokens?: number;
-  cacheRead?: number;
-  cacheWrite?: number;
-  totalTokens?: number;
-  totalTokensFresh?: boolean;
-  costUsd?: number;
-};
-
-function extractTranscriptUsageCost(raw: unknown): number | undefined {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    return undefined;
-  }
-  const cost = (raw as { cost?: unknown }).cost;
-  if (!cost || typeof cost !== "object" || Array.isArray(cost)) {
-    return undefined;
-  }
-  const total = (cost as { total?: unknown }).total;
-  return typeof total === "number" && Number.isFinite(total) && total >= 0 ? total : undefined;
-}
-
-function resolvePositiveUsageNumber(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
-}
-
-function extractLatestUsageFromTranscriptChunk(
-  chunk: string,
-): SessionTranscriptUsageSnapshot | null {
-  const lines = chunk.split(/\r?\n/).filter((line) => line.trim().length > 0);
-  const snapshot: SessionTranscriptUsageSnapshot = {};
-  let sawSnapshot = false;
-  let inputTokens = 0;
-  let outputTokens = 0;
-  let cacheRead = 0;
-  let cacheWrite = 0;
-  let sawInputTokens = false;
-  let sawOutputTokens = false;
-  let sawCacheRead = false;
-  let sawCacheWrite = false;
-  let costUsdTotal = 0;
-  let sawCost = false;
-
-  for (const line of lines) {
-    try {
-      const parsed = JSON.parse(line) as Record<string, unknown>;
-      const message =
-        parsed.message && typeof parsed.message === "object" && !Array.isArray(parsed.message)
-          ? (parsed.message as Record<string, unknown>)
-          : undefined;
-      if (!message) {
-        continue;
-      }
-      const role = typeof message.role === "string" ? message.role : undefined;
-      if (role && role !== "assistant") {
-        continue;
-      }
-      const usageRaw =
-        message.usage && typeof message.usage === "object" && !Array.isArray(message.usage)
-          ? message.usage
-          : parsed.usage && typeof parsed.usage === "object" && !Array.isArray(parsed.usage)
-            ? parsed.usage
-            : undefined;
-      const usage = normalizeUsage(usageRaw);
-      const totalTokens = resolvePositiveUsageNumber(deriveSessionTotalTokens({ usage }));
-      const costUsd = extractTranscriptUsageCost(usageRaw);
-      const modelProvider =
-        typeof message.provider === "string"
-          ? message.provider.trim()
-          : typeof parsed.provider === "string"
-            ? parsed.provider.trim()
-            : undefined;
-      const model =
-        typeof message.model === "string"
-          ? message.model.trim()
-          : typeof parsed.model === "string"
-            ? parsed.model.trim()
-            : undefined;
-      const isDeliveryMirror = modelProvider === "openclaw" && model === "delivery-mirror";
-      const hasMeaningfulUsage =
-        hasNonzeroUsage(usage) ||
-        typeof totalTokens === "number" ||
-        (typeof costUsd === "number" && Number.isFinite(costUsd));
-      const hasModelIdentity = Boolean(modelProvider || model);
-      if (!hasMeaningfulUsage && !hasModelIdentity) {
-        continue;
-      }
-      if (isDeliveryMirror && !hasMeaningfulUsage) {
-        continue;
-      }
-
-      sawSnapshot = true;
-      if (!isDeliveryMirror) {
-        if (modelProvider) {
-          snapshot.modelProvider = modelProvider;
-        }
-        if (model) {
-          snapshot.model = model;
-        }
-      }
-      if (typeof usage?.input === "number" && Number.isFinite(usage.input)) {
-        inputTokens += usage.input;
-        sawInputTokens = true;
-      }
-      if (typeof usage?.output === "number" && Number.isFinite(usage.output)) {
-        outputTokens += usage.output;
-        sawOutputTokens = true;
-      }
-      if (typeof usage?.cacheRead === "number" && Number.isFinite(usage.cacheRead)) {
-        cacheRead += usage.cacheRead;
-        sawCacheRead = true;
-      }
-      if (typeof usage?.cacheWrite === "number" && Number.isFinite(usage.cacheWrite)) {
-        cacheWrite += usage.cacheWrite;
-        sawCacheWrite = true;
-      }
-      if (typeof totalTokens === "number") {
-        snapshot.totalTokens = totalTokens;
-        snapshot.totalTokensFresh = true;
-      }
-      if (typeof costUsd === "number" && Number.isFinite(costUsd)) {
-        costUsdTotal += costUsd;
-        sawCost = true;
-      }
-    } catch {
-      // skip malformed lines
-    }
-  }
-
-  if (!sawSnapshot) {
-    return null;
-  }
-  if (sawInputTokens) {
-    snapshot.inputTokens = inputTokens;
-  }
-  if (sawOutputTokens) {
-    snapshot.outputTokens = outputTokens;
-  }
-  if (sawCacheRead) {
-    snapshot.cacheRead = cacheRead;
-  }
-  if (sawCacheWrite) {
-    snapshot.cacheWrite = cacheWrite;
-  }
-  if (sawCost) {
-    snapshot.costUsd = costUsdTotal;
-  }
-  return snapshot;
-}
-
-export function readLatestSessionUsageFromTranscript(
-  sessionId: string,
-  storePath: string | undefined,
-  sessionFile?: string,
-  agentId?: string,
-): SessionTranscriptUsageSnapshot | null {
-  const filePath = findExistingTranscriptPath(sessionId, storePath, sessionFile, agentId);
-  if (!filePath) {
-    return null;
-  }
-
-  return withOpenTranscriptFd(filePath, (fd) => {
-    const stat = fs.fstatSync(fd);
-    if (stat.size === 0) {
-      return null;
-    }
-    const chunk = fs.readFileSync(fd, "utf-8");
-    return extractLatestUsageFromTranscriptChunk(chunk);
   });
 }
 

@@ -5,9 +5,7 @@ import { vscode } from '../vscodeApi.js';
 import { SettingsModal } from './SettingsModal.js';
 
 interface BottomToolbarProps {
-  isEditMode: boolean;
   onOpenClaude: () => void;
-  onToggleEditMode: () => void;
   isDebugMode: boolean;
   onToggleDebugMode: () => void;
   alwaysShowOverlay: boolean;
@@ -47,9 +45,7 @@ const btnActive: React.CSSProperties = {
 };
 
 export function BottomToolbar({
-  isEditMode: _isEditMode,
   onOpenClaude,
-  onToggleEditMode: _onToggleEditMode,
   isDebugMode,
   onToggleDebugMode,
   alwaysShowOverlay,

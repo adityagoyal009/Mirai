@@ -10,16 +10,27 @@ import {
   setLoggerOverride,
 } from "../logging.js";
 import { loggingState } from "./state.js";
-import {
-  captureConsoleSnapshot,
-  type ConsoleSnapshot,
-  restoreConsoleSnapshot,
-} from "./test-helpers/console-snapshot.js";
+
+type ConsoleSnapshot = {
+  log: typeof console.log;
+  info: typeof console.info;
+  warn: typeof console.warn;
+  error: typeof console.error;
+  debug: typeof console.debug;
+  trace: typeof console.trace;
+};
 
 let snapshot: ConsoleSnapshot;
 
 beforeEach(() => {
-  snapshot = captureConsoleSnapshot();
+  snapshot = {
+    log: console.log,
+    info: console.info,
+    warn: console.warn,
+    error: console.error,
+    debug: console.debug,
+    trace: console.trace,
+  };
   loggingState.consolePatched = false;
   loggingState.forceConsoleToStderr = false;
   loggingState.consoleTimestampPrefix = false;
@@ -28,7 +39,12 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  restoreConsoleSnapshot(snapshot);
+  console.log = snapshot.log;
+  console.info = snapshot.info;
+  console.warn = snapshot.warn;
+  console.error = snapshot.error;
+  console.debug = snapshot.debug;
+  console.trace = snapshot.trace;
   loggingState.consolePatched = false;
   loggingState.forceConsoleToStderr = false;
   loggingState.consoleTimestampPrefix = false;
@@ -77,19 +93,16 @@ describe("enableConsoleCapture", () => {
     vi.useRealTimers();
   });
 
-  it.each(["DiscordMessageListener", "DiscordReactionListener", "DiscordReactionRemoveListener"])(
-    "suppresses discord EventQueue slow listener duplicates for %s",
-    (listener) => {
-      setLoggerOverride({ level: "info", file: tempLogPath() });
-      const warn = vi.fn();
-      console.warn = warn;
-      enableConsoleCapture();
-      console.warn(
-        `[EventQueue] Slow listener detected: ${listener} took 12.3 seconds for event MESSAGE_CREATE`,
-      );
-      expect(warn).not.toHaveBeenCalled();
-    },
-  );
+  it("suppresses discord EventQueue slow listener duplicates", () => {
+    setLoggerOverride({ level: "info", file: tempLogPath() });
+    const warn = vi.fn();
+    console.warn = warn;
+    enableConsoleCapture();
+    console.warn(
+      "[EventQueue] Slow listener detected: DiscordMessageListener took 12.3 seconds for event MESSAGE_CREATE",
+    );
+    expect(warn).not.toHaveBeenCalled();
+  });
 
   it("does not double-prefix timestamps", () => {
     setLoggerOverride({ level: "info", file: tempLogPath() });
@@ -133,7 +146,7 @@ describe("enableConsoleCapture", () => {
 });
 
 function tempLogPath() {
-  return path.join(os.tmpdir(), `openclaw-log-${crypto.randomUUID()}.log`);
+  return path.join(os.tmpdir(), `mirai-log-${crypto.randomUUID()}.log`);
 }
 
 function eioError() {

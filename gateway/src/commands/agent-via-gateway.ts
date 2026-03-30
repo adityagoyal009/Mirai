@@ -1,4 +1,3 @@
-import { resolveSendableOutboundReplyParts } from "openclaw/plugin-sdk/reply-payload";
 import { listAgentIds } from "../agents/agent-scope.js";
 import { formatCliCommand } from "../cli/command-format.js";
 import type { CliDeps } from "../cli/deps.js";
@@ -70,16 +69,16 @@ function formatPayloadForLog(payload: {
   mediaUrls?: string[];
   mediaUrl?: string | null;
 }) {
-  const parts = resolveSendableOutboundReplyParts({
-    text: payload.text,
-    mediaUrls: payload.mediaUrls,
-    mediaUrl: typeof payload.mediaUrl === "string" ? payload.mediaUrl : undefined,
-  });
   const lines: string[] = [];
-  if (parts.text) {
-    lines.push(parts.text.trimEnd());
+  if (payload.text) {
+    lines.push(payload.text.trimEnd());
   }
-  for (const url of parts.mediaUrls) {
+  const mediaUrl =
+    typeof payload.mediaUrl === "string" && payload.mediaUrl.trim()
+      ? payload.mediaUrl.trim()
+      : undefined;
+  const media = payload.mediaUrls ?? (mediaUrl ? [mediaUrl] : []);
+  for (const url of media) {
     lines.push(`MEDIA:${url}`);
   }
   return lines.join("\n").trimEnd();

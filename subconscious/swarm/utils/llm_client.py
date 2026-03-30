@@ -149,11 +149,29 @@ def _call_gateway(
     if model.startswith("@cf/"):
         return _call_cloudflare_ai(model, messages, max_tokens, temperature, timeout)
 
+    # Route NVIDIA NIM models BEFORE Groq (same model IDs exist on both,
+    # but NVIDIA has no TPM limits while Groq free tier is too restrictive)
+    # NVIDIA NIM: 40 RPM, no daily token cap. Council (7 models ~4 RPM) + Swarm (6 models ~15 RPM) = safe
+    _NVIDIA_MODELS = {"mistralai/mistral-large-3-675b-instruct-2512",
+                      "qwen/qwen3.5-397b-a17b", "z-ai/glm5",
+                      "nvidia/llama-3.1-nemotron-ultra-253b-v1",
+                      "nvidia/nemotron-3-super-120b-a12b",
+                      "meta/llama-3.3-70b-instruct", "deepseek-ai/deepseek-v3.1",
+                      "meta/llama-4-scout-17b-16e-instruct",
+                      "meta/llama-4-maverick-17b-128e-instruct",
+                      "moonshotai/kimi-k2-instruct", "openai/gpt-oss-120b",
+                      "qwen/qwq-32b",
+                      "qwen/qwen3-coder-480b-a35b-instruct",
+                      "qwen/qwen3-next-80b-a3b-instruct"}
+    if model in _NVIDIA_MODELS:
+        return _call_nvidia(model, messages, max_tokens, temperature, timeout)
+
     # Route Groq models directly to Groq API (OpenAI-compatible)
+    # Only models that are Groq-exclusive (not also on NVIDIA council)
     _GROQ_MODELS = {"llama-3.3-70b-versatile", "llama-3.1-8b-instant",
                     "meta-llama/llama-4-scout-17b-16e-instruct",
-                    "moonshotai/kimi-k2-instruct", "moonshotai/kimi-k2-instruct-0905",
-                    "openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3-32b"}
+                    "moonshotai/kimi-k2-instruct-0905",
+                    "openai/gpt-oss-20b", "qwen/qwen3-32b"}
     if model in _GROQ_MODELS:
         return _call_groq(model, messages, max_tokens, temperature, timeout)
 
@@ -168,15 +186,13 @@ def _call_gateway(
     if model in _MISTRAL_MODELS:
         return _call_mistral(model, messages, max_tokens, temperature, timeout)
 
-    # Route NVIDIA NIM models directly to NVIDIA API (OpenAI-compatible)
-    _NVIDIA_MODELS = {"mistralai/mistral-large-3-675b-instruct-2512",
-                      "qwen/qwen3.5-397b-a17b", "z-ai/glm5",
-                      "nvidia/llama-3.1-nemotron-ultra-253b-v1",
-                      "nvidia/nemotron-3-super-120b-a12b",
-                      "meta/llama-3.3-70b-instruct", "deepseek-ai/deepseek-v3.1",
-                      "qwen/qwq-32b", "moonshotai/kimi-k2-instruct"}
-    if model in _NVIDIA_MODELS:
-        return _call_nvidia(model, messages, max_tokens, temperature, timeout)
+    # NVIDIA routing handled above (before Groq)
+
+    # Route Cohere models directly to Cohere API (v2)
+    _COHERE_MODELS = {"command-a-03-2025", "command-r-plus-08-2024",
+                      "command-r7b-12-2024", "c4ai-aya-expanse-32b"}
+    if model in _COHERE_MODELS:
+        return _call_cohere(model, messages, max_tokens, temperature, timeout)
 
     # Route SambaNova models directly to SambaNova API (OpenAI-compatible)
     _SAMBANOVA_MODELS = {"DeepSeek-V3.1", "DeepSeek-V3.1-Terminus", "DeepSeek-V3-0324",
@@ -238,7 +254,7 @@ def _call_claude_cli(
     messages: List[Dict[str, str]],
     max_tokens: int = 4096,
     temperature: float = 0.7,
-    timeout: int = 120,
+    timeout: int = 420,
 ) -> str:
     """Call Claude via headless CLI. Uses Claude Code subscription auth directly."""
     import subprocess
@@ -636,6 +652,57 @@ def _call_cerebras(
     return content
 
 
+# ── Cohere API (v2, trial key — 20 RPM, 1K calls/month) ────────────────
+_COHERE_API_KEY = os.environ.get("COHERE_API_KEY", "")
+
+
+def _call_cohere(
+    model: str,
+    messages: List[Dict[str, str]],
+    max_tokens: int = 4096,
+    temperature: float = 0.7,
+    timeout: int = 60,
+) -> str:
+    """Call Cohere API (v2/chat). Trial key, 20 RPM."""
+    import http.client
+    import ssl
+
+    payload = json.dumps({
+        "model": model,
+        "messages": messages,
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+    }).encode("utf-8")
+
+    conn = http.client.HTTPSConnection("api.cohere.com", timeout=timeout,
+                                        context=ssl.create_default_context())
+    conn.request("POST", "/v2/chat", body=payload, headers={
+        "Authorization": f"Bearer {_COHERE_API_KEY}",
+        "Content-Type": "application/json",
+    })
+    resp = conn.getresponse()
+    raw_body = resp.read().decode("utf-8")
+    conn.close()
+
+    if resp.status != 200:
+        logger.error(f"[Cohere] HTTP {resp.status} for {model}: {raw_body[:300]}")
+        raise RuntimeError(f"Cohere HTTP {resp.status} for {model}: {raw_body[:300]}")
+
+    body = json.loads(raw_body)
+    # Cohere v2 response: message.content[0].text
+    msg = body.get("message", {})
+    content_blocks = msg.get("content", [])
+    if isinstance(content_blocks, list) and content_blocks:
+        content = content_blocks[0].get("text", "")
+    else:
+        content = str(content_blocks)
+
+    if not content:
+        raise RuntimeError(f"Cohere returned empty content for {model}: {body}")
+
+    return content
+
+
 # ── Cloudflare Workers AI ────────────────────────────────────────────────
 _CF_ACCOUNT_ID = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "")
 _CF_API_TOKEN = os.environ.get("CLOUDFLARE_AI_TOKEN", "")
@@ -750,6 +817,7 @@ def _call_openclaw_gateway(
         headers={
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
+            "x-openclaw-scopes": "operator.read,operator.write",
         },
         method="POST",
     )

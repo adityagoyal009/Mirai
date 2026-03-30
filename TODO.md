@@ -43,6 +43,30 @@
 - [x] OASIS graduated scoring (agents adjust -2 to +2 instead of binary)
 - [x] OASIS agent-to-agent visibility (panel summary fed into next round)
 - [x] OASIS anti-herding (minority amplification, running scores with inertia)
+- [x] Expand fact-checking (wired fact_checker.py into full pipeline with real verification)
+- [x] Reduce score clustering (semantic synthesis + divergence fix)
+- [x] Source credibility scoring fix (position-based fallback for score=0.0)
+- [x] Research query independence (differentiated fallback per model focus)
+- [x] Semantic research synthesis (confirmed_facts, contradictions, unique_insights, coverage_gaps)
+- [x] Full-swarm divergence (Wave 1 + Wave 2 agents analyzed)
+- [x] Weighted deliberation (DELIBERATION_WEIGHT=1.0, equal weight)
+- [x] Anonymized council labels (Evaluator A/B/C/D)
+- [x] Real fact verification (Brave + SearXNG + SEC EDGAR + Yahoo Finance + Jina)
+- [x] Brave Search API integration (free tier, 1,000 queries/month)
+- [x] Gateway web_fetch extraction (Readability.js, no Firecrawl)
+- [x] Source citation tracking (cited_facts through pipeline to PDF Appendix D)
+- [x] OASIS real market events (Brave + SearXNG news sourcing)
+- [x] OASIS swarm-sourced agents (12 panelists from actual swarm)
+- [x] OASIS uncertainty bands (confidence_low/high per round)
+- [x] Prompt registry with version tracking (SHA-256 hashes)
+- [x] Hallucination guard (TF-IDF traceability, faithfulness < 0.6 triggers re-synthesis)
+- [x] LLM observability logging (~/.mirai/logs/llm_calls.jsonl)
+- [x] Calibration pipeline (per-dimension/zone/model accuracy tracking)
+- [x] Mirai Eval Suite (LLM-as-judge, no deepeval dependency)
+- [x] Prompt regression tester (17 test cases, pure Python)
+- [x] Semantic dedup (TF-IDF cosine similarity, no semhash)
+- [x] Jina DeepSearch fact grounding (optional)
+- [x] Zero external dependencies (removed semhash, deepeval, edgartools, yfinance, langfuse, promptfoo)
 - [x] 88.5B+ persona trait generator (11 dimensions: roles, MBTI behavioral, risk, experience, biases, geography behavioral, industry, fund context, backstories, decision frameworks, portfolio composition)
 - [x] Role-experience compatibility filter (no junior PE Partners)
 - [x] Bias-framework anti-redundancy (never same category)
@@ -69,6 +93,35 @@
 - [x] PDF: OASIS markdown stripped from event text
 - [x] Backtest script (backtest.py) with 30 Tier 1 + 10 Tier 2 companies
 - [x] Landing page (website/index.html)
+- [x] Calibrated scoring rubrics (concrete 2/4/6/8/10 anchors per dimension) — 2026-03-24
+- [x] Two-pass council scoring (blind + research-informed) — 2026-03-24
+- [x] Calibration anchors in swarm prompts ("Use the FULL 1-10 range") — 2026-03-24
+- [x] Confidence-weighted verdict blending (replaces conservative-wins) — 2026-03-24
+- [x] Dimension correlation penalty (de-weight correlated pairs) — 2026-03-24
+- [x] OASIS trajectory wired into final verdict — 2026-03-24
+- [x] Data quality gates for low-data startups — 2026-03-24
+- [x] Deliberation prompt reordering (position before consensus) — 2026-03-24
+- [x] Deliberation weight 3.0 → 1.5 → 1.0 — 2026-03-29
+- [x] Wave 2 batch prompt unified with Wave 1 quality — 2026-03-24
+- [x] Deleted PERSONA_POOL dead code (116 lines) — 2026-03-24
+- [x] Wave 2 upgraded to use PersonaEngine personas — 2026-03-24
+- [x] Contrarian pessimistic prior removed — 2026-03-24
+- [x] Adaptive zone distribution (12 industry presets) — 2026-03-24
+- [x] Pre-filtered business_personas.jsonl (151K entries) — 2026-03-24
+- [x] Dataset personality injection into generated personas — 2026-03-24
+- [x] Semantic role dedup (role groups) — 2026-03-24
+- [x] 5 new persona dimensions (thesis, tech depth, scar tissue, network, decision speed) — 2026-03-24
+- [x] Website form: 122 industries, 789 keywords, 195 countries, 7 new fields — 2026-03-29
+- [x] SearchableSelect, MultiSelect, RadioGroup form components — 2026-03-29
+- [x] Backend validation: enum checks, URL format, length limits, atomic transactions — 2026-03-29
+- [x] 20 pipeline bias fixes (GEO neutral, MBTI no scoring, DELIBERATION=1.0, industry caps, stage normalized, ChromaDB scoped, prompt injection tags) — 2026-03-29
+- [x] REST API matches dashboard pipeline (structured passthrough, blind scoring, OpenClaw/Gemini research, council deep, swarm 50, OASIS auto) — 2026-03-30
+- [x] Async job pattern (/api/bi/analyze returns job_id, poll /api/bi/job/{id}) — 2026-03-30
+- [x] Claude CLI timeout 7 min, swarm workers 15→8, OpenClaw health check fix — 2026-03-30
+- [x] Deleted oasis_profile_generator.py dead code — 2026-03-30
+- [x] Report generator import fix (generate_html_report) — 2026-03-30
+- [x] Verdict override removed (advisory note only) — 2026-03-29
+- [x] Deliberation weight 1.5 → 1.0 (equal weight) — 2026-03-29
 
 ## In Progress
 - [~] Zone seating (agents in correct rooms)
@@ -77,8 +130,6 @@
 
 ## Next Up
 - [ ] Custom zone distribution (user picks per-zone agent count)
-- [ ] Expand fact-checking (wire fact_checker.py into full pipeline)
-- [ ] Reduce score clustering (better scoring rubric)
 - [ ] Agent speech bubbles with readable text (HTML overlay)
 - [ ] Research room with dedicated agent
 - [ ] Sound notifications
@@ -94,6 +145,10 @@
 - [ ] Measure deliberation impact (does it improve accuracy or add noise?)
 - [ ] Calibrate dimension weights against real outcomes
 - [ ] Scoring rubric tuning based on backtest results (fix clustering if found)
+- [ ] Reduce 7 dimensions to 5 independent factors (requires factor analysis on backtest data)
+- [ ] Per-dimension calibration curves from backtest outcomes
+- [ ] A/B test: blind vs informed council scoring (measure which produces better accuracy)
+- [ ] Track persona accuracy by bias type (are "critical" personas more predictive than "positive"?)
 
 ## Roadmap — Investor-Specific Panel Weighting
 - [ ] "Who are you pitching to?" dropdown in dashboard form
@@ -110,3 +165,14 @@
 - [ ] Auth on dashboard (prevent unauthorized API usage)
 - [ ] Rate limiting on analysis endpoints
 - [ ] Docker-compose verification and one-click deploy
+
+## Roadmap — Phase E2-E4
+- [ ] STORM perspective-guided research (dynamic perspective discovery)
+- [ ] Confidence-weighted aggregation (agents report confidence alongside scores)
+- [ ] Uncertainty toolbox calibration (Brier scores, Platt scaling)
+- [ ] BenchForm reflection round (optional post-scoring reconsideration)
+- [ ] Exa.ai founder/team verification (LinkedIn profile search)
+- [ ] Multi-backend search routing (academic/people/news/general)
+- [ ] Provider registry (dynamic LLM provider selection with failover)
+- [ ] PyOD ensemble divergence (Isolation Forest + LOF alongside z-score)
+- [ ] Report provenance grounding (verify narrative claims against research)

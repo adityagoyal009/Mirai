@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { OpenClawConfig } from "../config/config.js";
+import type { MiraiConfig } from "../config/config.js";
 import { readConfigFileSnapshot } from "../config/config.js";
 import { formatConfigIssueLines } from "../config/issue-format.js";
 import { note } from "../terminal/note.js";
@@ -14,8 +14,8 @@ async function maybeMigrateLegacyConfig(): Promise<string[]> {
     return changes;
   }
 
-  const targetDir = path.join(home, ".openclaw");
-  const targetPath = path.join(targetDir, "openclaw.json");
+  const targetDir = path.join(home, ".mirai");
+  const targetPath = path.join(targetDir, "mirai.json");
   try {
     await fs.access(targetPath);
     return changes;
@@ -24,9 +24,9 @@ async function maybeMigrateLegacyConfig(): Promise<string[]> {
   }
 
   const legacyCandidates = [
-    path.join(home, ".clawdbot", "clawdbot.json"),
-    path.join(home, ".moldbot", "moldbot.json"),
-    path.join(home, ".moltbot", "moltbot.json"),
+    path.join(home, ".mirai-legacy", "mirai-legacy.json"),
+    path.join(home, ".mirai-legacy2", "mirai-legacy2.json"),
+    path.join(home, ".mirai-legacy3", "mirai-legacy3.json"),
   ];
 
   let legacyPath: string | null = null;
@@ -56,7 +56,7 @@ async function maybeMigrateLegacyConfig(): Promise<string[]> {
 
 export type DoctorConfigPreflightResult = {
   snapshot: Awaited<ReturnType<typeof readConfigFileSnapshot>>;
-  baseConfig: OpenClawConfig;
+  baseConfig: MiraiConfig;
 };
 
 export async function runDoctorConfigPreflight(

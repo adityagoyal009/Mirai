@@ -5,6 +5,7 @@ import { buildGatewayConnectionDetails, callGateway } from "../gateway/call.js";
 import { info } from "../globals.js";
 import { formatTimeAgo } from "../infra/format-time/format-relative.ts";
 import type { HeartbeatEventPayload } from "../infra/heartbeat-events.js";
+import { formatUsageReportLines, loadProviderUsageSummary } from "../infra/provider-usage.js";
 import { normalizeUpdateChannel, resolveUpdateChannelDisplay } from "../infra/update-channels.js";
 import { formatGitInstallLabel } from "../infra/update-check.js";
 import {
@@ -13,17 +14,13 @@ import {
   resolveMemoryVectorState,
   type Tone,
 } from "../memory/status-format.js";
-import {
-  formatPluginCompatibilityNotice,
-  summarizePluginCompatibility,
-} from "../plugins/status.js";
 import type { RuntimeEnv } from "../runtime.js";
-import { getTerminalTableWidth, renderTable } from "../terminal/table.js";
+import { runSecurityAudit } from "../security/audit.js";
+import { renderTable } from "../terminal/table.js";
 import { theme } from "../terminal/theme.js";
 import { formatHealthChannelLines, type HealthSummary } from "./health.js";
 import { resolveControlUiLinks } from "./onboard-helpers.js";
 import { statusAllCommand } from "./status-all.js";
-import { groupChannelIssuesByChannel } from "./status-all/channel-issues.js";
 import { formatGatewayAuthUsed } from "./status-all/format.js";
 import { getDaemonStatusSummary, getNodeDaemonStatusSummary } from "./status.daemon.js";
 import {
@@ -32,25 +29,13 @@ import {
   formatTokensCompact,
   shortenText,
 } from "./status.format.js";
+import { resolveGatewayProbeAuth } from "./status.gateway-probe.js";
 import { scanStatus } from "./status.scan.js";
 import {
   formatUpdateAvailableHint,
   formatUpdateOneLiner,
   resolveUpdateAvailability,
 } from "./status.update.js";
-
-let providerUsagePromise: Promise<typeof import("../infra/provider-usage.js")> | undefined;
-let securityAuditModulePromise: Promise<typeof import("../security/audit.runtime.js")> | undefined;
-
-function loadProviderUsage() {
-  providerUsagePromise ??= import("../infra/provider-usage.js");
-  return providerUsagePromise;
-}
-
-function loadSecurityAuditModule() {
-  securityAuditModulePromise ??= import("../security/audit.runtime.js");
-  return securityAuditModulePromise;
-}
 
 function resolvePairingRecoveryContext(params: {
   error?: string | null;
@@ -99,26 +84,6 @@ export async function statusCommand(
     { json: opts.json, timeoutMs: opts.timeoutMs, all: opts.all },
     runtime,
   );
-  const runSecurityAudit = async () =>
-    await loadSecurityAuditModule().then(({ runSecurityAudit }) =>
-      runSecurityAudit({
-        config: scan.cfg,
-        sourceConfig: scan.sourceConfig,
-        deep: false,
-        includeFilesystem: true,
-        includeChannelSecurity: true,
-      }),
-    );
-  const securityAudit = opts.json
-    ? await runSecurityAudit()
-    : await withProgress(
-        {
-          label: "Running security audit…",
-          indeterminate: true,
-          enabled: true,
-        },
-        async () => await runSecurityAudit(),
-      );
   const {
     cfg,
     osSummary,
@@ -129,8 +94,6 @@ export async function statusCommand(
     gatewayConnection,
     remoteUrlMissing,
     gatewayMode,
-    gatewayProbeAuth,
-    gatewayProbeAuthWarning,
     gatewayProbe,
     gatewayReachable,
     gatewaySelf,
@@ -138,11 +101,24 @@ export async function statusCommand(
     agentStatus,
     channels,
     summary,
-    secretDiagnostics,
     memory,
     memoryPlugin,
-    pluginCompatibility,
   } = scan;
+
+  const securityAudit = await withProgress(
+    {
+      label: "Running security audit…",
+      indeterminate: true,
+      enabled: opts.json !== true,
+    },
+    async () =>
+      await runSecurityAudit({
+        config: cfg,
+        deep: false,
+        includeFilesystem: true,
+        includeChannelSecurity: true,
+      }),
+  );
 
   const usage = opts.usage
     ? await withProgress(
@@ -151,10 +127,7 @@ export async function statusCommand(
           indeterminate: true,
           enabled: opts.json !== true,
         },
-        async () => {
-          const { loadProviderUsageSummary } = await loadProviderUsage();
-          return await loadProviderUsageSummary({ timeoutMs: opts.timeoutMs });
-        },
+        async () => await loadProviderUsageSummary({ timeoutMs: opts.timeoutMs }),
       )
     : undefined;
   const health: HealthSummary | undefined = opts.deep
@@ -169,7 +142,6 @@ export async function statusCommand(
             method: "health",
             params: { probe: true },
             timeoutMs: opts.timeoutMs,
-            config: scan.cfg,
           }),
       )
     : undefined;
@@ -179,7 +151,6 @@ export async function statusCommand(
           method: "last-heartbeat",
           params: {},
           timeoutMs: opts.timeoutMs,
-          config: scan.cfg,
         }).catch(() => null)
       : null;
 
@@ -215,17 +186,11 @@ export async function statusCommand(
             connectLatencyMs: gatewayProbe?.connectLatencyMs ?? null,
             self: gatewaySelf,
             error: gatewayProbe?.error ?? null,
-            authWarning: gatewayProbeAuthWarning ?? null,
           },
           gatewayService: daemon,
           nodeService: nodeDaemon,
           agents: agentStatus,
           securityAudit,
-          secretDiagnostics,
-          pluginCompatibility: {
-            count: pluginCompatibility.length,
-            warnings: pluginCompatibility,
-          },
           ...(health || usage || lastHeartbeat ? { health, usage, lastHeartbeat } : {}),
         },
         null,
@@ -241,7 +206,7 @@ export async function statusCommand(
   const warn = (value: string) => (rich ? theme.warn(value) : value);
 
   if (opts.verbose) {
-    const details = buildGatewayConnectionDetails({ config: scan.cfg });
+    const details = buildGatewayConnectionDetails();
     runtime.log(info("Gateway connection:"));
     for (const line of details.message.split("\n")) {
       runtime.log(`  ${line}`);
@@ -249,15 +214,7 @@ export async function statusCommand(
     runtime.log("");
   }
 
-  const tableWidth = getTerminalTableWidth();
-
-  if (secretDiagnostics.length > 0) {
-    runtime.log(theme.warn("Secret diagnostics:"));
-    for (const entry of secretDiagnostics) {
-      runtime.log(`- ${entry}`);
-    }
-    runtime.log("");
-  }
+  const tableWidth = Math.max(60, (process.stdout.columns ?? 120) - 1);
 
   const dashboard = (() => {
     const controlUiEnabled = cfg.gateway?.controlUi?.enabled ?? true;
@@ -284,7 +241,7 @@ export async function statusCommand(
         : warn(gatewayProbe?.error ? `unreachable (${gatewayProbe.error})` : "unreachable");
     const auth =
       gatewayReachable && !remoteUrlMissing
-        ? ` · auth ${formatGatewayAuthUsed(gatewayProbeAuth)}`
+        ? ` · auth ${formatGatewayAuthUsed(resolveGatewayProbeAuth(cfg))}`
         : "";
     const self =
       gatewaySelf?.host || gatewaySelf?.version || gatewaySelf?.platform
@@ -324,14 +281,14 @@ export async function statusCommand(
     if (daemon.installed === false) {
       return `${daemon.label} not installed`;
     }
-    const installedPrefix = daemon.managedByOpenClaw ? "installed · " : "";
+    const installedPrefix = daemon.installed === true ? "installed · " : "";
     return `${daemon.label} ${installedPrefix}${daemon.loadedText}${daemon.runtimeShort ? ` · ${daemon.runtimeShort}` : ""}`;
   })();
   const nodeDaemonValue = (() => {
     if (nodeDaemon.installed === false) {
       return `${nodeDaemon.label} not installed`;
     }
-    const installedPrefix = nodeDaemon.managedByOpenClaw ? "installed · " : "";
+    const installedPrefix = nodeDaemon.installed === true ? "installed · " : "";
     return `${nodeDaemon.label} ${installedPrefix}${nodeDaemon.loadedText}${nodeDaemon.runtimeShort ? ` · ${nodeDaemon.runtimeShort}` : ""}`;
   })();
 
@@ -425,13 +382,6 @@ export async function statusCommand(
   const updateLine = formatUpdateOneLiner(update).replace(/^Update:\s*/i, "");
   const channelLabel = channelInfo.label;
   const gitLabel = formatGitInstallLabel(update);
-  const pluginCompatibilitySummary = summarizePluginCompatibility(pluginCompatibility);
-  const pluginCompatibilityValue =
-    pluginCompatibilitySummary.noticeCount === 0
-      ? ok("none")
-      : warn(
-          `${pluginCompatibilitySummary.noticeCount} notice${pluginCompatibilitySummary.noticeCount === 1 ? "" : "s"} · ${pluginCompatibilitySummary.pluginCount} plugin${pluginCompatibilitySummary.pluginCount === 1 ? "" : "s"}`,
-        );
 
   const overviewRows = [
     { Item: "Dashboard", Value: dashboard },
@@ -452,14 +402,10 @@ export async function statusCommand(
       Value: updateAvailability.available ? warn(`available · ${updateLine}`) : updateLine,
     },
     { Item: "Gateway", Value: gatewayValue },
-    ...(gatewayProbeAuthWarning
-      ? [{ Item: "Gateway auth warning", Value: warn(gatewayProbeAuthWarning) }]
-      : []),
     { Item: "Gateway service", Value: daemonValue },
     { Item: "Node service", Value: nodeDaemonValue },
     { Item: "Agents", Value: agentsValue },
     { Item: "Memory", Value: memoryValue },
-    { Item: "Plugin compatibility", Value: pluginCompatibilityValue },
     { Item: "Probes", Value: probesValue },
     { Item: "Events", Value: eventsValue },
     { Item: "Heartbeat", Value: heartbeatValue },
@@ -483,18 +429,6 @@ export async function statusCommand(
       rows: overviewRows,
     }).trimEnd(),
   );
-
-  if (pluginCompatibility.length > 0) {
-    runtime.log("");
-    runtime.log(theme.heading("Plugin compatibility"));
-    for (const notice of pluginCompatibility.slice(0, 8)) {
-      const label = notice.severity === "warn" ? theme.warn("WARN") : theme.muted("INFO");
-      runtime.log(`  ${label} ${formatPluginCompatibilityNotice(notice)}`);
-    }
-    if (pluginCompatibility.length > 8) {
-      runtime.log(theme.muted(`  … +${pluginCompatibility.length - 8} more`));
-    }
-  }
 
   if (pairingRecovery) {
     runtime.log("");
@@ -558,7 +492,19 @@ export async function statusCommand(
 
   runtime.log("");
   runtime.log(theme.heading("Channels"));
-  const channelIssuesByChannel = groupChannelIssuesByChannel(channelIssues);
+  const channelIssuesByChannel = (() => {
+    const map = new Map<string, typeof channelIssues>();
+    for (const issue of channelIssues) {
+      const key = issue.channel;
+      const list = map.get(key);
+      if (list) {
+        list.push(issue);
+      } else {
+        map.set(key, [issue]);
+      }
+    }
+    return map;
+  })();
   runtime.log(
     renderTable({
       width: tableWidth,
@@ -698,7 +644,6 @@ export async function statusCommand(
   }
 
   if (usage) {
-    const { formatUsageReportLines } = await loadProviderUsage();
     runtime.log("");
     runtime.log(theme.heading("Usage"));
     for (const line of formatUsageReportLines(usage)) {
@@ -707,8 +652,8 @@ export async function statusCommand(
   }
 
   runtime.log("");
-  runtime.log("FAQ: https://github.com/adityagoyal009/Mirai/tree/main/gateway/docs/faq");
-  runtime.log("Troubleshooting: https://github.com/adityagoyal009/Mirai/tree/main/gateway/docs/troubleshooting");
+  runtime.log("FAQ: https://docs.mirai.ai/faq");
+  runtime.log("Troubleshooting: https://docs.mirai.ai/troubleshooting");
   runtime.log("");
   const updateHint = formatUpdateAvailableHint(update);
   if (updateHint) {

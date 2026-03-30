@@ -46,7 +46,7 @@ describe("media server", () => {
   }
 
   beforeAll(async () => {
-    MEDIA_DIR = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-media-test-"));
+    MEDIA_DIR = await fs.mkdtemp(path.join(os.tmpdir(), "mirai-media-test-"));
     server = await startMediaServer(0, 1_000);
     port = (server.address() as AddressInfo).port;
   });
@@ -61,7 +61,6 @@ describe("media server", () => {
     const file = await writeMediaFile("file1", "hello");
     const res = await fetch(mediaUrl("file1"));
     expect(res.status).toBe(200);
-    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
     expect(await res.text()).toBe("hello");
     await waitForFileRemoval(file);
   });
@@ -114,7 +113,6 @@ describe("media server", () => {
   it("returns not found for missing media IDs", async () => {
     const res = await fetch(mediaUrl("missing-file"));
     expect(res.status).toBe(404);
-    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
     expect(await res.text()).toBe("not found");
   });
 

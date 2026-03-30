@@ -3,16 +3,14 @@ import {
   DEFAULT_NODE_DAEMON_RUNTIME,
   isNodeDaemonRuntime,
 } from "../../commands/node-daemon-runtime.js";
+import { resolveIsNixMode } from "../../config/paths.js";
 import {
   resolveNodeLaunchAgentLabel,
   resolveNodeSystemdServiceName,
   resolveNodeWindowsTaskName,
 } from "../../daemon/constants.js";
+import { resolveGatewayLogPaths } from "../../daemon/launchd.js";
 import { resolveNodeService } from "../../daemon/node-service.js";
-import {
-  buildPlatformRuntimeLogHints,
-  buildPlatformServiceStartHints,
-} from "../../daemon/runtime-hints.js";
 import type { GatewayServiceRuntime } from "../../daemon/service-runtime.js";
 import { loadNodeHostConfig } from "../../node-host/config.js";
 import { defaultRuntime } from "../../runtime.js";
@@ -24,11 +22,13 @@ import {
   runServiceStop,
   runServiceUninstall,
 } from "../daemon-cli/lifecycle-core.js";
-import { buildDaemonServiceSnapshot, installDaemonServiceAndEmit } from "../daemon-cli/response.js";
+import {
+  buildDaemonServiceSnapshot,
+  createDaemonActionContext,
+  installDaemonServiceAndEmit,
+} from "../daemon-cli/response.js";
 import {
   createCliStatusTextStyles,
-  createDaemonInstallActionContext,
-  failIfNixDaemonInstallMode,
   formatRuntimeStatus,
   parsePort,
   resolveRuntimeStatusColor,
@@ -55,21 +55,39 @@ type NodeDaemonStatusOptions = {
 };
 
 function renderNodeServiceStartHints(): string[] {
-  return buildPlatformServiceStartHints({
-    installCommand: formatCliCommand("mirai node install"),
-    startCommand: formatCliCommand("mirai node start"),
-    launchAgentPlistPath: `~/Library/LaunchAgents/${resolveNodeLaunchAgentLabel()}.plist`,
-    systemdServiceName: resolveNodeSystemdServiceName(),
-    windowsTaskName: resolveNodeWindowsTaskName(),
-  });
+  const base = [formatCliCommand("mirai node install"), formatCliCommand("mirai node start")];
+  switch (process.platform) {
+    case "darwin":
+      return [
+        ...base,
+        `launchctl bootstrap gui/$UID ~/Library/LaunchAgents/${resolveNodeLaunchAgentLabel()}.plist`,
+      ];
+    case "linux":
+      return [...base, `systemctl --user start ${resolveNodeSystemdServiceName()}.service`];
+    case "win32":
+      return [...base, `schtasks /Run /TN "${resolveNodeWindowsTaskName()}"`];
+    default:
+      return base;
+  }
 }
 
 function buildNodeRuntimeHints(env: NodeJS.ProcessEnv = process.env): string[] {
-  return buildPlatformRuntimeLogHints({
-    env,
-    systemdServiceName: resolveNodeSystemdServiceName(),
-    windowsTaskName: resolveNodeWindowsTaskName(),
-  });
+  if (process.platform === "darwin") {
+    const logs = resolveGatewayLogPaths(env);
+    return [
+      `Launchd stdout (if installed): ${logs.stdoutPath}`,
+      `Launchd stderr (if installed): ${logs.stderrPath}`,
+    ];
+  }
+  if (process.platform === "linux") {
+    const unit = resolveNodeSystemdServiceName();
+    return [`Logs: journalctl --user -u ${unit}.service -n 200 --no-pager`];
+  }
+  if (process.platform === "win32") {
+    const task = resolveNodeWindowsTaskName();
+    return [`Logs: schtasks /Query /TN "${task}" /V /FO LIST`];
+  }
+  return [];
 }
 
 function resolveNodeDefaults(
@@ -86,8 +104,11 @@ function resolveNodeDefaults(
 }
 
 export async function runNodeDaemonInstall(opts: NodeDaemonInstallOptions) {
-  const { json, stdout, warnings, emit, fail } = createDaemonInstallActionContext(opts.json);
-  if (failIfNixDaemonInstallMode(fail)) {
+  const json = Boolean(opts.json);
+  const { stdout, warnings, emit, fail } = createDaemonActionContext({ action: "install", json });
+
+  if (resolveIsNixMode(process.env)) {
+    fail("Nix mode detected; service install is disabled.");
     return;
   }
 
@@ -263,7 +284,7 @@ export async function runNodeDaemonStatus(opts: NodeDaemonStatusOptions = {}) {
   };
   const hintEnv = {
     ...baseEnv,
-    OPENCLAW_LOG_PREFIX: baseEnv.OPENCLAW_LOG_PREFIX ?? "node",
+    MIRAI_LOG_PREFIX: baseEnv.MIRAI_LOG_PREFIX ?? "node",
   } as NodeJS.ProcessEnv;
 
   if (runtime?.missingUnit) {

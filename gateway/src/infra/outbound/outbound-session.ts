@@ -1,31 +1,26 @@
-import { parseDiscordTarget } from "../../../extensions/discord/api.js";
-import { normalizeIMessageHandle, parseIMessageTarget } from "../../../extensions/imessage/api.js";
+import type { MsgContext } from "../../auto-reply/templating.js";
+import type { ChatType } from "../../channels/chat-type.js";
+import { getChannelPlugin } from "../../channels/plugins/index.js";
+import type { ChannelId } from "../../channels/plugins/types.js";
+import type { MiraiConfig } from "../../config/config.js";
+import { recordSessionMetaFromInbound, resolveStorePath } from "../../config/sessions.js";
+import { parseDiscordTarget } from "../../discord/targets.js";
+import { parseIMessageTarget, normalizeIMessageHandle } from "../../imessage/targets.js";
+import { buildAgentSessionKey, type RoutePeer } from "../../routing/resolve-route.js";
+import { resolveThreadSessionKeys } from "../../routing/session-key.js";
 import {
   looksLikeUuid,
   resolveSignalPeerId,
   resolveSignalRecipient,
   resolveSignalSender,
-} from "../../../extensions/signal/api.js";
-import {
-  createSlackWebClient,
-  normalizeAllowListLower,
-  parseSlackTarget,
-  resolveSlackAccount,
-} from "../../../extensions/slack/api.js";
-import {
-  buildTelegramGroupPeerId,
-  parseTelegramTarget,
-  parseTelegramThreadId,
-  resolveTelegramTargetChatType,
-} from "../../../extensions/telegram/api.js";
-import type { MsgContext } from "../../auto-reply/templating.js";
-import type { ChatType } from "../../channels/chat-type.js";
-import { getChannelPlugin } from "../../channels/plugins/index.js";
-import type { ChannelId } from "../../channels/plugins/types.js";
-import type { OpenClawConfig } from "../../config/config.js";
-import { recordSessionMetaFromInbound, resolveStorePath } from "../../config/sessions.js";
-import { buildAgentSessionKey, type RoutePeer } from "../../routing/resolve-route.js";
-import { resolveThreadSessionKeys } from "../../routing/session-key.js";
+} from "../../signal/identity.js";
+import { resolveSlackAccount } from "../../slack/accounts.js";
+import { createSlackWebClient } from "../../slack/client.js";
+import { normalizeAllowListLower } from "../../slack/monitor/allow-list.js";
+import { parseSlackTarget } from "../../slack/targets.js";
+import { buildTelegramGroupPeerId } from "../../telegram/bot/helpers.js";
+import { resolveTelegramTargetChatType } from "../../telegram/inline-buttons.js";
+import { parseTelegramTarget } from "../../telegram/targets.js";
 import { isWhatsAppGroupJid, normalizeWhatsAppTarget } from "../../whatsapp/normalize.js";
 import type { ResolvedMessagingTarget } from "./target-resolver.js";
 
@@ -40,7 +35,7 @@ export type OutboundSessionRoute = {
 };
 
 export type ResolveOutboundSessionRouteParams = {
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   channel: ChannelId;
   agentId: string;
   accountId?: string | null;
@@ -106,7 +101,7 @@ function inferPeerKind(params: {
 }
 
 function buildBaseSessionKey(params: {
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   agentId: string;
   channel: ChannelId;
   accountId?: string | null;
@@ -124,7 +119,7 @@ function buildBaseSessionKey(params: {
 
 // Best-effort mpim detection: allowlist/config, then Slack API (if token available).
 async function resolveSlackChannelType(params: {
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   accountId?: string | null;
   channelId: string;
 }): Promise<"channel" | "group" | "dm" | "unknown"> {
@@ -166,7 +161,9 @@ async function resolveSlackChannelType(params: {
     return "channel";
   }
 
-  const token = account.botToken?.trim() || account.userToken || "";
+  const token =
+    account.botToken?.trim() ||
+    (typeof account.config.userToken === "string" ? account.config.userToken.trim() : "");
   if (!token) {
     SLACK_CHANNEL_TYPE_CACHE.set(`${account.accountId}:${channelId}`, "unknown");
     return "unknown";
@@ -243,9 +240,7 @@ async function resolveSlackSession(
 function resolveDiscordSession(
   params: ResolveOutboundSessionRouteParams,
 ): OutboundSessionRoute | null {
-  const parsed = parseDiscordTarget(params.target, {
-    defaultKind: resolveDiscordOutboundTargetKindHint(params),
-  });
+  const parsed = parseDiscordTarget(params.target, { defaultKind: "channel" });
   if (!parsed) {
     return null;
   }
@@ -280,27 +275,6 @@ function resolveDiscordSession(
   };
 }
 
-function resolveDiscordOutboundTargetKindHint(
-  params: ResolveOutboundSessionRouteParams,
-): "user" | "channel" | undefined {
-  const resolvedKind = params.resolvedTarget?.kind;
-  if (resolvedKind === "user") {
-    return "user";
-  }
-  if (resolvedKind === "group" || resolvedKind === "channel") {
-    return "channel";
-  }
-
-  const target = params.target.trim();
-  if (/^channel:/i.test(target)) {
-    return "channel";
-  }
-  if (/^(user:|discord:|@|<@!?)/i.test(target)) {
-    return "user";
-  }
-  return undefined;
-}
-
 function resolveTelegramSession(
   params: ResolveOutboundSessionRouteParams,
 ): OutboundSessionRoute | null {
@@ -311,7 +285,8 @@ function resolveTelegramSession(
   }
   const parsedThreadId = parsed.messageThreadId;
   const fallbackThreadId = normalizeThreadId(params.threadId);
-  const resolvedThreadId = parsedThreadId ?? parseTelegramThreadId(fallbackThreadId);
+  const resolvedThreadId =
+    parsedThreadId ?? (fallbackThreadId ? Number.parseInt(fallbackThreadId, 10) : undefined);
   // Telegram topics are encoded in the peer id (chatId:topic:<id>).
   const chatType = resolveTelegramTargetChatType(params.target);
   // If the target is a username and we lack a resolvedTarget, default to DM to avoid group keys.
@@ -320,9 +295,7 @@ function resolveTelegramSession(
     (chatType === "unknown" &&
       params.resolvedTarget?.kind &&
       params.resolvedTarget.kind !== "user");
-  // For groups: include thread ID in peerId. For DMs: use simple chatId (thread handled via suffix).
-  const peerId =
-    isGroup && resolvedThreadId ? buildTelegramGroupPeerId(chatId, resolvedThreadId) : chatId;
+  const peerId = isGroup ? buildTelegramGroupPeerId(chatId, resolvedThreadId) : chatId;
   const peer: RoutePeer = {
     kind: isGroup ? "group" : "direct",
     id: peerId,
@@ -334,21 +307,12 @@ function resolveTelegramSession(
     accountId: params.accountId,
     peer,
   });
-  // Use thread suffix for DM topics to match inbound session key format
-  const threadKeys =
-    resolvedThreadId && !isGroup
-      ? { sessionKey: `${baseSessionKey}:thread:${resolvedThreadId}` }
-      : null;
   return {
-    sessionKey: threadKeys?.sessionKey ?? baseSessionKey,
+    sessionKey: baseSessionKey,
     baseSessionKey,
     peer,
     chatType: isGroup ? "group" : "direct",
-    from: isGroup
-      ? `telegram:group:${peerId}`
-      : resolvedThreadId
-        ? `telegram:${chatId}:topic:${resolvedThreadId}`
-        : `telegram:${chatId}`,
+    from: isGroup ? `telegram:group:${peerId}` : `telegram:${chatId}`,
     to: `telegram:${chatId}`,
     threadId: resolvedThreadId,
   };
@@ -587,12 +551,7 @@ function resolveMattermostSession(
   }
   trimmed = trimmed.replace(/^mattermost:/i, "").trim();
   const lower = trimmed.toLowerCase();
-  const resolvedKind = params.resolvedTarget?.kind;
-  const isUser =
-    resolvedKind === "user" ||
-    (resolvedKind !== "channel" &&
-      resolvedKind !== "group" &&
-      (lower.startsWith("user:") || trimmed.startsWith("@")));
+  const isUser = lower.startsWith("user:") || trimmed.startsWith("@");
   if (trimmed.startsWith("@")) {
     trimmed = trimmed.slice(1).trim();
   }
@@ -827,7 +786,7 @@ function resolveTlonSession(
 
 /**
  * Feishu ID formats:
- * - oc_xxx: chat_id (can be group or DM, use chat_mode to distinguish or explicit dm:/group: prefix)
+ * - oc_xxx: chat_id (group chat)
  * - ou_xxx: user open_id (DM)
  * - on_xxx: user union_id (DM)
  * - cli_xxx: app_id (not a valid send target)
@@ -843,27 +802,20 @@ function resolveFeishuSession(
 
   const lower = trimmed.toLowerCase();
   let isGroup = false;
-  let typeExplicit = false;
 
   if (lower.startsWith("group:") || lower.startsWith("chat:")) {
     trimmed = trimmed.replace(/^(group|chat):/i, "").trim();
     isGroup = true;
-    typeExplicit = true;
   } else if (lower.startsWith("user:") || lower.startsWith("dm:")) {
     trimmed = trimmed.replace(/^(user|dm):/i, "").trim();
     isGroup = false;
-    typeExplicit = true;
   }
 
   const idLower = trimmed.toLowerCase();
-  // Only infer type from ID prefix if not explicitly specified
-  // Note: oc_ is a chat_id and can be either group or DM (must check chat_mode from API)
-  // Only ou_/on_ can be reliably identified as user IDs (always DM)
-  if (!typeExplicit) {
-    if (idLower.startsWith("ou_") || idLower.startsWith("on_")) {
-      isGroup = false;
-    }
-    // oc_ requires explicit prefix: dm:oc_xxx or group:oc_xxx
+  if (idLower.startsWith("oc_")) {
+    isGroup = true;
+  } else if (idLower.startsWith("ou_") || idLower.startsWith("on_")) {
+    isGroup = false;
   }
 
   const peer: RoutePeer = {
@@ -925,29 +877,6 @@ function resolveFallbackSession(
   };
 }
 
-type OutboundSessionResolver = (
-  params: ResolveOutboundSessionRouteParams,
-) => OutboundSessionRoute | null | Promise<OutboundSessionRoute | null>;
-
-const OUTBOUND_SESSION_RESOLVERS: Partial<Record<ChannelId, OutboundSessionResolver>> = {
-  slack: resolveSlackSession,
-  discord: resolveDiscordSession,
-  telegram: resolveTelegramSession,
-  whatsapp: resolveWhatsAppSession,
-  signal: resolveSignalSession,
-  imessage: resolveIMessageSession,
-  matrix: resolveMatrixSession,
-  msteams: resolveMSTeamsSession,
-  mattermost: resolveMattermostSession,
-  bluebubbles: resolveBlueBubblesSession,
-  "nextcloud-talk": resolveNextcloudTalkSession,
-  zalo: resolveZaloSession,
-  zalouser: resolveZalouserSession,
-  nostr: resolveNostrSession,
-  tlon: resolveTlonSession,
-  feishu: resolveFeishuSession,
-};
-
 export async function resolveOutboundSessionRoute(
   params: ResolveOutboundSessionRouteParams,
 ): Promise<OutboundSessionRoute | null> {
@@ -955,16 +884,46 @@ export async function resolveOutboundSessionRoute(
   if (!target) {
     return null;
   }
-  const nextParams = { ...params, target };
-  const resolver = OUTBOUND_SESSION_RESOLVERS[params.channel];
-  if (!resolver) {
-    return resolveFallbackSession(nextParams);
+  switch (params.channel) {
+    case "slack":
+      return await resolveSlackSession({ ...params, target });
+    case "discord":
+      return resolveDiscordSession({ ...params, target });
+    case "telegram":
+      return resolveTelegramSession({ ...params, target });
+    case "whatsapp":
+      return resolveWhatsAppSession({ ...params, target });
+    case "signal":
+      return resolveSignalSession({ ...params, target });
+    case "imessage":
+      return resolveIMessageSession({ ...params, target });
+    case "matrix":
+      return resolveMatrixSession({ ...params, target });
+    case "msteams":
+      return resolveMSTeamsSession({ ...params, target });
+    case "mattermost":
+      return resolveMattermostSession({ ...params, target });
+    case "bluebubbles":
+      return resolveBlueBubblesSession({ ...params, target });
+    case "nextcloud-talk":
+      return resolveNextcloudTalkSession({ ...params, target });
+    case "zalo":
+      return resolveZaloSession({ ...params, target });
+    case "zalouser":
+      return resolveZalouserSession({ ...params, target });
+    case "nostr":
+      return resolveNostrSession({ ...params, target });
+    case "tlon":
+      return resolveTlonSession({ ...params, target });
+    case "feishu":
+      return resolveFeishuSession({ ...params, target });
+    default:
+      return resolveFallbackSession({ ...params, target });
   }
-  return await resolver(nextParams);
 }
 
 export async function ensureOutboundSessionEntry(params: {
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   agentId: string;
   channel: ChannelId;
   accountId?: string | null;

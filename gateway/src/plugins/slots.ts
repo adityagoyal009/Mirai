@@ -1,4 +1,4 @@
-import type { OpenClawConfig } from "../config/config.js";
+import type { MiraiConfig } from "../config/config.js";
 import type { PluginSlotsConfig } from "../config/types.plugins.js";
 import type { PluginKind } from "./types.js";
 
@@ -11,12 +11,10 @@ type SlotPluginRecord = {
 
 const SLOT_BY_KIND: Record<PluginKind, PluginSlotKey> = {
   memory: "memory",
-  "context-engine": "contextEngine",
 };
 
 const DEFAULT_SLOT_BY_KEY: Record<PluginSlotKey, string> = {
   memory: "memory-core",
-  contextEngine: "legacy",
 };
 
 export function slotKeyForPluginKind(kind?: PluginKind): PluginSlotKey | null {
@@ -31,13 +29,13 @@ export function defaultSlotIdForKey(slotKey: PluginSlotKey): string {
 }
 
 export type SlotSelectionResult = {
-  config: OpenClawConfig;
+  config: MiraiConfig;
   warnings: string[];
   changed: boolean;
 };
 
 export function applyExclusiveSlotSelection(params: {
-  config: OpenClawConfig;
+  config: MiraiConfig;
   selectedId: string;
   selectedKind?: PluginKind;
   registry?: { plugins: SlotPluginRecord[] };

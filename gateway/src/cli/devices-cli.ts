@@ -9,7 +9,7 @@ import {
 } from "../infra/device-pairing.js";
 import { formatTimeAgo } from "../infra/format-time/format-relative.ts";
 import { defaultRuntime } from "../runtime.js";
-import { getTerminalTableWidth, renderTable } from "../terminal/table.js";
+import { renderTable } from "../terminal/table.js";
 import { theme } from "../terminal/theme.js";
 import { GATEWAY_CLIENT_MODES, GATEWAY_CLIENT_NAMES } from "../utils/message-channel.js";
 import { withProgress } from "./progress.js";
@@ -39,8 +39,6 @@ type PendingDevice = {
   deviceId: string;
   displayName?: string;
   role?: string;
-  roles?: string[];
-  scopes?: string[];
   remoteIp?: string;
   isRepair?: boolean;
   ts?: number;
@@ -199,30 +197,6 @@ function formatTokenSummary(tokens: DeviceTokenSummary[] | undefined) {
   return parts.join(", ");
 }
 
-function formatPendingRoles(request: PendingDevice): string {
-  const role = typeof request.role === "string" ? request.role.trim() : "";
-  if (role) {
-    return role;
-  }
-  const roles = Array.isArray(request.roles)
-    ? request.roles.map((item) => item.trim()).filter((item) => item.length > 0)
-    : [];
-  if (roles.length === 0) {
-    return "";
-  }
-  return roles.join(", ");
-}
-
-function formatPendingScopes(request: PendingDevice): string {
-  const scopes = Array.isArray(request.scopes)
-    ? request.scopes.map((item) => item.trim()).filter((item) => item.length > 0)
-    : [];
-  if (scopes.length === 0) {
-    return "";
-  }
-  return scopes.join(", ");
-}
-
 function resolveRequiredDeviceRole(
   opts: DevicesRpcOpts,
 ): { deviceId: string; role: string } | null {
@@ -250,7 +224,7 @@ export function registerDevicesCli(program: Command) {
           return;
         }
         if (list.pending?.length) {
-          const tableWidth = getTerminalTableWidth();
+          const tableWidth = Math.max(60, (process.stdout.columns ?? 120) - 1);
           defaultRuntime.log(
             `${theme.heading("Pending")} ${theme.muted(`(${list.pending.length})`)}`,
           );
@@ -261,7 +235,6 @@ export function registerDevicesCli(program: Command) {
                 { key: "Request", header: "Request", minWidth: 10 },
                 { key: "Device", header: "Device", minWidth: 16, flex: true },
                 { key: "Role", header: "Role", minWidth: 8 },
-                { key: "Scopes", header: "Scopes", minWidth: 14, flex: true },
                 { key: "IP", header: "IP", minWidth: 12 },
                 { key: "Age", header: "Age", minWidth: 8 },
                 { key: "Flags", header: "Flags", minWidth: 8 },
@@ -269,8 +242,7 @@ export function registerDevicesCli(program: Command) {
               rows: list.pending.map((req) => ({
                 Request: req.requestId,
                 Device: req.displayName || req.deviceId,
-                Role: formatPendingRoles(req),
-                Scopes: formatPendingScopes(req),
+                Role: req.role ?? "",
                 IP: req.remoteIp ?? "",
                 Age: typeof req.ts === "number" ? formatTimeAgo(Date.now() - req.ts) : "",
                 Flags: req.isRepair ? "repair" : "",
@@ -279,7 +251,7 @@ export function registerDevicesCli(program: Command) {
           );
         }
         if (list.paired?.length) {
-          const tableWidth = getTerminalTableWidth();
+          const tableWidth = Math.max(60, (process.stdout.columns ?? 120) - 1);
           defaultRuntime.log(
             `${theme.heading("Paired")} ${theme.muted(`(${list.paired.length})`)}`,
           );

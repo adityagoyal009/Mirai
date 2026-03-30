@@ -1,6 +1,5 @@
-import { normalizeStringEntries } from "../../shared/string-normalization.js";
 import { normalizeSecretInput } from "../../utils/normalize-secret-input.js";
-import { normalizeProviderId, normalizeProviderIdForAuth } from "../provider-id.js";
+import { normalizeProviderId } from "../model-selection.js";
 import {
   ensureAuthProfileStore,
   saveAuthProfileStore,
@@ -19,7 +18,9 @@ export async function setAuthProfileOrder(params: {
 }): Promise<AuthProfileStore | null> {
   const providerKey = normalizeProviderId(params.provider);
   const sanitized =
-    params.order && Array.isArray(params.order) ? normalizeStringEntries(params.order) : [];
+    params.order && Array.isArray(params.order)
+      ? params.order.map((entry) => String(entry).trim()).filter(Boolean)
+      : [];
   const deduped = dedupeProfileIds(sanitized);
 
   return await updateAuthProfileStoreWithLock({
@@ -78,9 +79,9 @@ export async function upsertAuthProfileWithLock(params: {
 }
 
 export function listProfilesForProvider(store: AuthProfileStore, provider: string): string[] {
-  const providerKey = normalizeProviderIdForAuth(provider);
+  const providerKey = normalizeProviderId(provider);
   return Object.entries(store.profiles)
-    .filter(([, cred]) => normalizeProviderIdForAuth(cred.provider) === providerKey)
+    .filter(([, cred]) => normalizeProviderId(cred.provider) === providerKey)
     .map(([id]) => id);
 }
 

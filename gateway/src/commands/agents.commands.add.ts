@@ -266,7 +266,6 @@ export async function agentsAddCommand(
         prompter,
         store: authStore,
         includeSkip: true,
-        config: nextConfig,
       });
 
       const authResult = await applyAuthChoice({
@@ -335,7 +334,7 @@ export async function agentsAddCommand(
         await prompter.note(
           [
             "Routing unchanged. Add bindings when you're ready.",
-            "Docs: https://github.com/adityagoyal009/Mirai/tree/main/gateway/docs/concepts/multi-agent",
+            "Docs: https://docs.mirai.ai/concepts/multi-agent",
           ].join("\n"),
           "Routing",
         );

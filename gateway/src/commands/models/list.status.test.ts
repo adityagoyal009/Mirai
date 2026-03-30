@@ -9,14 +9,14 @@ const mocks = vi.hoisted(() => {
         type: "oauth",
         provider: "anthropic",
         access: "sk-ant-oat01-ACCESS-TOKEN-1234567890",
-        refresh: "sk-ant-ort01-REFRESH-TOKEN-1234567890", // pragma: allowlist secret
+        refresh: "sk-ant-ort01-REFRESH-TOKEN-1234567890",
         expires: Date.now() + 60_000,
         email: "peter@example.com",
       },
       "anthropic:work": {
         type: "api_key",
         provider: "anthropic",
-        key: "sk-ant-api-0123456789abcdefghijklmnopqrstuvwxyz", // pragma: allowlist secret
+        key: "sk-ant-api-0123456789abcdefghijklmnopqrstuvwxyz",
       },
       "openai-codex:default": {
         type: "oauth",
@@ -30,8 +30,8 @@ const mocks = vi.hoisted(() => {
 
   return {
     store,
-    resolveOpenClawAgentDir: vi.fn().mockReturnValue("/tmp/openclaw-agent"),
-    resolveAgentDir: vi.fn().mockReturnValue("/tmp/openclaw-agent"),
+    resolveMiraiAgentDir: vi.fn().mockReturnValue("/tmp/mirai-agent"),
+    resolveAgentDir: vi.fn().mockReturnValue("/tmp/mirai-agent"),
     resolveAgentExplicitModelPrimary: vi.fn().mockReturnValue(undefined),
     resolveAgentEffectiveModelPrimary: vi.fn().mockReturnValue(undefined),
     resolveAgentModelFallbacksOverride: vi.fn().mockReturnValue(undefined),
@@ -45,30 +45,25 @@ const mocks = vi.hoisted(() => {
     resolveAuthProfileDisplayLabel: vi.fn(({ profileId }: { profileId: string }) => profileId),
     resolveAuthStorePathForDisplay: vi
       .fn()
-      .mockReturnValue("/tmp/openclaw-agent/auth-profiles.json"),
+      .mockReturnValue("/tmp/mirai-agent/auth-profiles.json"),
     resolveEnvApiKey: vi.fn((provider: string) => {
       if (provider === "openai") {
         return {
-          apiKey: "sk-openai-0123456789abcdefghijklmnopqrstuvwxyz", // pragma: allowlist secret
+          apiKey: "sk-openai-0123456789abcdefghijklmnopqrstuvwxyz",
           source: "shell env: OPENAI_API_KEY",
         };
       }
       if (provider === "anthropic") {
         return {
-          apiKey: "sk-ant-oat01-ACCESS-TOKEN-1234567890", // pragma: allowlist secret
+          apiKey: "sk-ant-oat01-ACCESS-TOKEN-1234567890",
           source: "env: ANTHROPIC_OAUTH_TOKEN",
         };
       }
       return null;
     }),
-    hasUsableCustomProviderApiKey: vi.fn().mockReturnValue(false),
-    resolveUsableCustomProviderApiKey: vi.fn().mockReturnValue(null),
     getCustomProviderApiKey: vi.fn().mockReturnValue(undefined),
     getShellEnvAppliedKeys: vi.fn().mockReturnValue(["OPENAI_API_KEY", "ANTHROPIC_OAUTH_TOKEN"]),
     shouldEnableShellEnvFallback: vi.fn().mockReturnValue(true),
-    createConfigIO: vi.fn().mockReturnValue({
-      configPath: "/tmp/openclaw-dev/openclaw.json",
-    }),
     loadConfig: vi.fn().mockReturnValue({
       agents: {
         defaults: {
@@ -84,7 +79,7 @@ const mocks = vi.hoisted(() => {
 });
 
 vi.mock("../../agents/agent-paths.js", () => ({
-  resolveOpenClawAgentDir: mocks.resolveOpenClawAgentDir,
+  resolveMiraiAgentDir: mocks.resolveMiraiAgentDir,
 }));
 
 vi.mock("../../agents/agent-scope.js", () => ({
@@ -108,8 +103,6 @@ vi.mock("../../agents/auth-profiles.js", async (importOriginal) => {
 
 vi.mock("../../agents/model-auth.js", () => ({
   resolveEnvApiKey: mocks.resolveEnvApiKey,
-  hasUsableCustomProviderApiKey: mocks.hasUsableCustomProviderApiKey,
-  resolveUsableCustomProviderApiKey: mocks.resolveUsableCustomProviderApiKey,
   getCustomProviderApiKey: mocks.getCustomProviderApiKey,
 }));
 
@@ -122,7 +115,6 @@ vi.mock("../../config/config.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../config/config.js")>();
   return {
     ...actual,
-    createConfigIO: mocks.createConfigIO,
     loadConfig: mocks.loadConfig,
   };
 });
@@ -196,7 +188,7 @@ async function withAgentScopeOverrides<T>(
     if (originalAgentDir) {
       mocks.resolveAgentDir.mockImplementation(originalAgentDir);
     } else {
-      mocks.resolveAgentDir.mockReturnValue("/tmp/openclaw-agent");
+      mocks.resolveAgentDir.mockReturnValue("/tmp/mirai-agent");
     }
   }
 }
@@ -206,10 +198,9 @@ describe("modelsStatusCommand auth overview", () => {
     await modelsStatusCommand({ json: true }, runtime as never);
     const payload = JSON.parse(String((runtime.log as Mock).mock.calls[0]?.[0]));
 
-    expect(mocks.resolveOpenClawAgentDir).toHaveBeenCalled();
+    expect(mocks.resolveMiraiAgentDir).toHaveBeenCalled();
     expect(payload.defaultModel).toBe("anthropic/claude-opus-4-5");
-    expect(payload.configPath).toBe("/tmp/openclaw-dev/openclaw.json");
-    expect(payload.auth.storePath).toBe("/tmp/openclaw-agent/auth-profiles.json");
+    expect(payload.auth.storePath).toBe("/tmp/mirai-agent/auth-profiles.json");
     expect(payload.auth.shellEnvFallback.enabled).toBe(true);
     expect(payload.auth.shellEnvFallback.appliedKeys).toContain("OPENAI_API_KEY");
     expect(payload.auth.missingProvidersInUse).toEqual([]);
@@ -238,49 +229,20 @@ describe("modelsStatusCommand auth overview", () => {
     ).toBe(true);
   });
 
-  it("does not emit raw short api-key values in JSON labels", async () => {
-    const localRuntime = createRuntime();
-    const shortSecret = "abc123"; // pragma: allowlist secret
-    const originalProfiles = { ...mocks.store.profiles };
-    mocks.store.profiles = {
-      ...mocks.store.profiles,
-      "openai:default": {
-        type: "api_key",
-        provider: "openai",
-        key: shortSecret,
-      },
-    };
-
-    try {
-      await modelsStatusCommand({ json: true }, localRuntime as never);
-      const payload = JSON.parse(String((localRuntime.log as Mock).mock.calls[0]?.[0]));
-      const providers = payload.auth.providers as Array<{
-        provider: string;
-        profiles: { labels: string[] };
-      }>;
-      const openai = providers.find((p) => p.provider === "openai");
-      const labels = openai?.profiles.labels ?? [];
-      expect(labels.join(" ")).toContain("...");
-      expect(labels.join(" ")).not.toContain(shortSecret);
-    } finally {
-      mocks.store.profiles = originalProfiles;
-    }
-  });
-
   it("uses agent overrides and reports sources", async () => {
     const localRuntime = createRuntime();
     await withAgentScopeOverrides(
       {
         primary: "openai/gpt-4",
         fallbacks: ["openai/gpt-3.5"],
-        agentDir: "/tmp/openclaw-agent-custom",
+        agentDir: "/tmp/mirai-agent-custom",
       },
       async () => {
         await modelsStatusCommand({ json: true, agent: "Jeremiah" }, localRuntime as never);
         expect(mocks.resolveAgentDir).toHaveBeenCalledWith(expect.anything(), "jeremiah");
         const payload = JSON.parse(String((localRuntime.log as Mock).mock.calls[0]?.[0]));
         expect(payload.agentId).toBe("jeremiah");
-        expect(payload.agentDir).toBe("/tmp/openclaw-agent-custom");
+        expect(payload.agentDir).toBe("/tmp/mirai-agent-custom");
         expect(payload.defaultModel).toBe("openai/gpt-4");
         expect(payload.fallbacks).toEqual(["openai/gpt-3.5"]);
         expect(payload.modelConfig).toEqual({

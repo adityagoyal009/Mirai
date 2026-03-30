@@ -1,0 +1,106 @@
+[
+  {
+    "company": "Airbnb",
+    "expected": "success",
+    "actual_outcome": "IPO \u2014 $75B+ market cap",
+    "score": 7.4,
+    "verdict": "Likely Hit",
+    "confidence": 0.82,
+    "dimensions": [
+      {
+        "name": "market_timing",
+        "reasoning": "The global short-term rental market is large ($110-130B) and growing at 10-12% CAGR through 2030, which is healthy but not explosive. Post-pandemic tailwinds like remote work and longer stays are real but normalizing. The market is mature enough that Airbnb is no longer riding a wave \u2014 it IS the wave. Timing for a new entrant would be tough, but Airbnb as the incumbent benefits from steady secular growth. Slight drag from ADR compression in oversupplied markets and regulatory headwinds capping urban supply growth.",
+        "score": 7.0
+      },
+      {
+        "name": "competition_landscape",
+        "reasoning": "Competition is intensifying from multiple vectors: Booking.com has 7M+ alternative accommodation listings and massive distribution, Vrbo holds the family travel segment, hotel chains like Marriott are leveraging loyalty programs, and direct-booking tools threaten disintermediation over time. Airbnb has strong brand moat and network effects (supply attracts demand and vice versa), but these are eroding as multi-property managers list across platforms simultaneously. The professionalization trend actually weakens Airbnb's lock-in since professional hosts optimize across channels. Not a winner-take-all market.",
+        "score": 6.0
+      },
+      {
+        "name": "business_model_viability",
+        "reasoning": "Exceptional unit economics. The dual-sided commission model (3% host, up to 14.2% guest) yields ~80% gross margins with strong operating leverage at scale. $11.1B in revenue with robust free cash flow generation and active share buybacks signal a business that prints cash. Asset-light marketplace model means minimal capex relative to revenue. The take rate is high enough to fund growth but faces long-term pressure from professional hosts seeking lower-cost distribution channels. Still, this is one of the strongest marketplace business models in consumer tech.",
+        "score": 9.0
+      },
+      {
+        "name": "team_execution_signals",
+        "reasoning": "Strong execution evidence: consistent 12-18% YoY revenue growth at massive scale, disciplined capital allocation via buybacks, successful product cadence with two major launches per year, and strategic expansion into co-hosting tools and AI-powered features. The shift to professionalize supply via co-hosting tools shows the team recognizes and adapts to market evolution. Brian Chesky's hands-on product leadership and the company's ability to navigate post-pandemic normalization without significant stumbles are positive signals. Experiences category expansion shows ambition beyond core.",
+        "score": 8.0
+      },
+      {
+        "name": "regulatory_news_environment",
+        "reasoning": "This is Airbnb's biggest headwind. NYC's Local Law 18 devastated listings in the largest US city. Barcelona plans to phase out tourist apartments by 2028. Multiple cities globally are implementing registration requirements, occupancy caps, and tax collection mandates. The regulatory trend is clearly tightening, not loosening, and it constrains supply growth in the highest-value urban markets. While Airbnb has adapted by shifting toward suburban/rural inventory and cooperating on tax collection, this is a persistent structural risk that requires ongoing lobbying and compliance spend.",
+        "score": 4.0
+      },
+      {
+        "name": "social_proof_demand",
+        "reasoning": "450M+ nights and experiences booked annually is extraordinary demand validation. Airbnb is a verb \u2014 'let's Airbnb it' \u2014 which is the strongest possible social proof. The brand has cultural permanence. Longer-stay bookings at 17-18% of gross nights show demand diversification beyond leisure travel. The $75-85B market cap reflects sustained public market confidence. Guest-side demand remains robust even as ADRs normalize, suggesting price elasticity is working in Airbnb's favor to maintain volume growth.",
+        "score": 9.0
+      },
+      {
+        "name": "pattern_match",
+        "reasoning": "Airbnb pattern-matches to the most successful marketplace businesses: eBay, Uber, Amazon Marketplace. Two-sided marketplaces with strong network effects that achieve category dominance tend to sustain premium valuations and margins for extended periods. The closest analog is Booking Holdings, which has compounded value over decades. Risk patterns include regulatory disruption (similar to Uber in some cities) and disintermediation by power sellers (Amazon third-party sellers building DTC). Overall, dominant marketplace platforms at this scale rarely fail \u2014 they compress or plateau but sustain.",
+        "score": 8.0
+      }
+    ],
+    "contested": [],
+    "swarm_hit_pct": null,
+    "swarm_agents": 0,
+    "research_sources": 0,
+    "data_quality": 0.88,
+    "timestamp": "2026-03-22T04:58:42.750720",
+    "error": null
+  },
+  {
+    "company": "Dropbox",
+    "expected": "success",
+    "actual_outcome": "IPO \u2014 $10B+ market cap",
+    "score": 3.45,
+    "verdict": "Likely Miss",
+    "confidence": 0.82,
+    "dimensions": [
+      {
+        "name": "market_timing",
+        "reasoning": "Cloud storage is a $100B+ market growing at 20% CAGR, which sounds great on paper. But the timing for a standalone file-sync entrant is poor. The category matured years ago, and basic storage is now commoditized and bundled free by Big Tech. The growth is in AI-powered document intelligence and collaboration \u2014 not in the core sync-and-share value prop Dropbox offers at MVP stage. You're entering at the tail end of the adoption curve for this specific wedge.",
+        "score": 4.0
+      },
+      {
+        "name": "competition_landscape",
+        "reasoning": "This is one of the most brutal competitive landscapes in SaaS. Google Drive, OneDrive, and iCloud are bundled free with ecosystems that collectively cover nearly every device on Earth. Box owns the enterprise compliance niche. Privacy-focused players like pCloud offer lifetime plans. There is no obvious moat for a new standalone file-sync tool \u2014 no proprietary technology, no distribution advantage, no switching cost. Competing against companies that give away your core product for free is a death sentence without a radical differentiator.",
+        "score": 2.0
+      },
+      {
+        "name": "business_model_viability",
+        "reasoning": "Freemium SaaS at $10/mo is a proven model in general, but freemium conversion rates in cloud storage run 2-5%. When Google gives 15GB free and Microsoft bundles 1TB with Office 365, the willingness to pay for standalone storage is compressed. You need massive free-tier scale to generate meaningful revenue, and acquiring that scale against entrenched incumbents is extraordinarily expensive. The unit economics only work at enormous scale, which is hard to reach as a new entrant.",
+        "score": 4.0
+      },
+      {
+        "name": "team_execution_signals",
+        "reasoning": "No team information provided. No traction data, no growth metrics, no notable founders or domain expertise mentioned. At MVP stage in a hyper-competitive market, team is everything \u2014 and we have zero signal here. Cannot give credit where none is evidenced.",
+        "score": 3.0
+      },
+      {
+        "name": "regulatory_news_environment",
+        "reasoning": "Neutral. Cloud storage doesn't face significant regulatory headwinds, and data privacy regulations (GDPR, etc.) affect all players equally. The active IPO pipeline suggests a favorable exit environment for scaled SaaS, but that's irrelevant at MVP stage. The consolidation trend in SaaS (platformization, M&A) could be a mild tailwind for acqui-hire or tuck-in acquisition, but it also means incumbents are getting stronger and more integrated.",
+        "score": 5.0
+      },
+      {
+        "name": "social_proof_demand",
+        "reasoning": "No traction data provided \u2014 no users, no revenue, no pilots, no waitlist. The general demand for cloud storage is obvious and universal, but that demand is already being served effectively by free incumbent products. There's no evidence of unmet demand that this product uniquely addresses. Billions of people already use cloud storage daily \u2014 from providers they don't pay.",
+        "score": 3.0
+      },
+      {
+        "name": "pattern_match",
+        "reasoning": "The pattern of standalone point solutions competing against Big Tech bundling is historically brutal. Dropbox itself (the real company) is the cautionary tale \u2014 despite being a pioneer, it has struggled with slowing growth, compressed margins, and an existential threat from bundled competitors post-IPO. Companies that succeeded in similar positions did so by pivoting to platform plays (Slack \u2192 Salesforce acquisition, Box \u2192 enterprise governance). An MVP-stage file-sync tool in 2024-2025 without a clear platform or AI differentiation strategy maps to a failure pattern.",
+        "score": 3.0
+      }
+    ],
+    "contested": [],
+    "swarm_hit_pct": null,
+    "swarm_agents": 0,
+    "research_sources": 0,
+    "data_quality": 0.88,
+    "timestamp": "2026-03-22T05:04:17.476090",
+    "error": null
+  }
+]

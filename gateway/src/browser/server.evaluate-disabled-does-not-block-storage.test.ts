@@ -1,6 +1,6 @@
+import { createServer, type AddressInfo } from "node:net";
 import { fetch as realFetch } from "undici";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { getFreePort } from "./test-port.js";
 
 let testPort = 0;
 let prevGatewayPort: string | undefined;
@@ -43,9 +43,9 @@ vi.mock("../config/config.js", async (importOriginal) => {
       browser: {
         enabled: true,
         evaluateEnabled: false,
-        defaultProfile: "openclaw",
+        defaultProfile: "mirai",
         profiles: {
-          openclaw: { cdpPort: testPort + 1, color: "#FF4500" },
+          mirai: { cdpPort: testPort + 1, color: "#FF4500" },
         },
       },
     }),
@@ -68,15 +68,26 @@ vi.mock("./server-context.js", async (importOriginal) => {
 const { startBrowserControlServerFromConfig, stopBrowserControlServer } =
   await import("./server.js");
 
+async function getFreePort(): Promise<number> {
+  const probe = createServer();
+  await new Promise<void>((resolve, reject) => {
+    probe.once("error", reject);
+    probe.listen(0, "127.0.0.1", () => resolve());
+  });
+  const addr = probe.address() as AddressInfo;
+  await new Promise<void>((resolve) => probe.close(() => resolve()));
+  return addr.port;
+}
+
 describe("browser control evaluate gating", () => {
   beforeEach(async () => {
     testPort = await getFreePort();
-    prevGatewayPort = process.env.OPENCLAW_GATEWAY_PORT;
-    process.env.OPENCLAW_GATEWAY_PORT = String(testPort - 2);
-    prevGatewayToken = process.env.OPENCLAW_GATEWAY_TOKEN;
-    prevGatewayPassword = process.env.OPENCLAW_GATEWAY_PASSWORD;
-    delete process.env.OPENCLAW_GATEWAY_TOKEN;
-    delete process.env.OPENCLAW_GATEWAY_PASSWORD;
+    prevGatewayPort = process.env.MIRAI_GATEWAY_PORT;
+    process.env.MIRAI_GATEWAY_PORT = String(testPort - 2);
+    prevGatewayToken = process.env.MIRAI_GATEWAY_TOKEN;
+    prevGatewayPassword = process.env.MIRAI_GATEWAY_PASSWORD;
+    delete process.env.MIRAI_GATEWAY_TOKEN;
+    delete process.env.MIRAI_GATEWAY_PASSWORD;
 
     pwMocks.cookiesGetViaPlaywright.mockClear();
     pwMocks.storageGetViaPlaywright.mockClear();
@@ -88,19 +99,19 @@ describe("browser control evaluate gating", () => {
   afterEach(async () => {
     vi.restoreAllMocks();
     if (prevGatewayPort === undefined) {
-      delete process.env.OPENCLAW_GATEWAY_PORT;
+      delete process.env.MIRAI_GATEWAY_PORT;
     } else {
-      process.env.OPENCLAW_GATEWAY_PORT = prevGatewayPort;
+      process.env.MIRAI_GATEWAY_PORT = prevGatewayPort;
     }
     if (prevGatewayToken === undefined) {
-      delete process.env.OPENCLAW_GATEWAY_TOKEN;
+      delete process.env.MIRAI_GATEWAY_TOKEN;
     } else {
-      process.env.OPENCLAW_GATEWAY_TOKEN = prevGatewayToken;
+      process.env.MIRAI_GATEWAY_TOKEN = prevGatewayToken;
     }
     if (prevGatewayPassword === undefined) {
-      delete process.env.OPENCLAW_GATEWAY_PASSWORD;
+      delete process.env.MIRAI_GATEWAY_PASSWORD;
     } else {
-      process.env.OPENCLAW_GATEWAY_PASSWORD = prevGatewayPassword;
+      process.env.MIRAI_GATEWAY_PASSWORD = prevGatewayPassword;
     }
 
     await stopBrowserControlServer();

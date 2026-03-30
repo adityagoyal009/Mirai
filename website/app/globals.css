@@ -1,0 +1,74 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --ink: #0b1a2f;
+  --ink-soft: #485b77;
+  --ink-faint: #6e7f97;
+  --night: #0f2440;
+  --paper: #f5efe4;
+  --card: rgba(255, 255, 255, 0.88);
+  --line: rgba(11, 26, 47, 0.12);
+  --blue: #196cff;
+  --mint: #34c7a0;
+  --coral: #ff8357;
+  --amber: #f3b13f;
+  --sky: #9bd5ff;
+}
+
+body {
+  background:
+    radial-gradient(circle at 10% 0%, rgba(25, 108, 255, 0.09), transparent 24%),
+    radial-gradient(circle at 90% 10%, rgba(52, 199, 160, 0.1), transparent 18%),
+    linear-gradient(180deg, #faf4ea 0%, #f4eee4 52%, #faf7f1 100%);
+}
+
+.score-bar-fill {
+  background: linear-gradient(90deg, var(--coral), var(--amber), var(--mint));
+}
+
+.card-hover {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.card-hover:hover {
+  transform: translateY(-2px);
+}
+
+.hero-gradient {
+  background:
+    radial-gradient(circle at 14% 18%, rgba(155, 213, 255, 0.16), transparent 24%),
+    radial-gradient(circle at 84% 24%, rgba(52, 199, 160, 0.14), transparent 18%),
+    linear-gradient(135deg, #08182c 0%, #0f2440 42%, #17355f 100%);
+}
+
+.btn-primary {
+  @apply inline-flex items-center justify-center px-5 rounded-full font-bold text-white transition-all;
+  min-height: 52px;
+  background: linear-gradient(135deg, var(--blue), #4b95ff);
+  box-shadow: 0 18px 36px rgba(25, 108, 255, 0.22);
+}
+.btn-primary:hover { transform: translateY(-2px); }
+.btn-primary:disabled { opacity: 0.58; cursor: not-allowed; transform: none; box-shadow: none; }
+
+.btn-secondary {
+  @apply inline-flex items-center justify-center px-5 rounded-full font-bold transition-all;
+  min-height: 52px;
+  background: rgba(255, 255, 255, 0.84);
+  border: 1px solid var(--line);
+}
+.btn-secondary:hover { transform: translateY(-2px); }
+
+.chart-bar {
+  background: linear-gradient(180deg, var(--sky), var(--blue));
+  border-radius: 999px 999px 12px 12px;
+}
+
+.bar-track {
+  @apply relative h-2.5 rounded-full overflow-hidden;
+  background: #e7edf5;
+}
+.bar-track-fill {
+  @apply absolute inset-y-0 left-0 rounded-full;
+  background: linear-gradient(90deg, var(--coral), var(--amber), var(--mint));
+}

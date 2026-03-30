@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { OpenClawConfig } from "../config/config.js";
+import type { MiraiConfig } from "../config/config.js";
 import {
   resolveGatewayConnectionAuth,
   resolveGatewayConnectionAuthFromConfig,
@@ -10,14 +10,14 @@ type ResolvedAuth = { token?: string; password?: string };
 
 type ConnectionAuthCase = {
   name: string;
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   env: NodeJS.ProcessEnv;
   options?: Partial<Omit<GatewayConnectionAuthOptions, "config" | "env">>;
   expected: ResolvedAuth;
 };
 
-function cfg(input: Partial<OpenClawConfig>): OpenClawConfig {
-  return input as OpenClawConfig;
+function cfg(input: Partial<MiraiConfig>): MiraiConfig {
+  return input as MiraiConfig;
 }
 
 function createRemoteModeConfig() {
@@ -61,7 +61,7 @@ function createUnresolvedLocalAuthConfig(params: {
   });
 }
 
-async function expectFailClosedOnUnresolvedLocalAuth(config: OpenClawConfig, path: string) {
+async function expectFailClosedOnUnresolvedLocalAuth(config: MiraiConfig, path: string) {
   await expect(
     resolveGatewayConnectionAuth({
       config,
@@ -79,8 +79,8 @@ async function expectFailClosedOnUnresolvedLocalAuth(config: OpenClawConfig, pat
 }
 
 const DEFAULT_ENV = {
-  OPENCLAW_GATEWAY_TOKEN: "env-token",
-  OPENCLAW_GATEWAY_PASSWORD: "env-password", // pragma: allowlist secret
+  MIRAI_GATEWAY_TOKEN: "env-token",
+  MIRAI_GATEWAY_PASSWORD: "env-password", // pragma: allowlist secret
 } as NodeJS.ProcessEnv;
 
 describe("resolveGatewayConnectionAuth", () => {
@@ -232,8 +232,8 @@ describe("resolveGatewayConnectionAuth", () => {
         },
       }),
       env: {
-        CLAWDBOT_GATEWAY_TOKEN: "legacy-token",
-        CLAWDBOT_GATEWAY_PASSWORD: "legacy-password", // pragma: allowlist secret
+        MIRAI_LEGACY_GATEWAY_TOKEN: "legacy-token",
+        MIRAI_LEGACY_GATEWAY_PASSWORD: "legacy-password", // pragma: allowlist secret
       } as NodeJS.ProcessEnv,
       options: {
         includeLegacyEnv: true,
@@ -268,8 +268,8 @@ describe("resolveGatewayConnectionAuth", () => {
       },
     });
     const env = {
-      CLAWDBOT_GATEWAY_TOKEN: "legacy-token",
-      CLAWDBOT_GATEWAY_PASSWORD: "legacy-password", // pragma: allowlist secret
+      MIRAI_LEGACY_GATEWAY_TOKEN: "legacy-token",
+      MIRAI_LEGACY_GATEWAY_PASSWORD: "legacy-password", // pragma: allowlist secret
     } as NodeJS.ProcessEnv;
 
     const resolved = await resolveGatewayConnectionAuth({
@@ -298,7 +298,7 @@ describe("resolveGatewayConnectionAuth", () => {
       },
     });
     const env = {
-      CLAWDBOT_GATEWAY_TOKEN: "legacy-token",
+      MIRAI_LEGACY_GATEWAY_TOKEN: "legacy-token",
       LOCAL_SECRET_TOKEN: "resolved-from-secretref", // pragma: allowlist secret
     } as NodeJS.ProcessEnv;
 
@@ -313,7 +313,7 @@ describe("resolveGatewayConnectionAuth", () => {
     });
   });
 
-  it("resolves config-first token SecretRef even when OPENCLAW env token exists", async () => {
+  it("resolves config-first token SecretRef even when MIRAI env token exists", async () => {
     const config = cfg({
       gateway: {
         mode: "local",
@@ -328,7 +328,7 @@ describe("resolveGatewayConnectionAuth", () => {
       },
     });
     const env = {
-      OPENCLAW_GATEWAY_TOKEN: "env-token",
+      MIRAI_GATEWAY_TOKEN: "env-token",
       CONFIG_FIRST_TOKEN: "config-first-token",
     } as NodeJS.ProcessEnv;
 
@@ -344,7 +344,7 @@ describe("resolveGatewayConnectionAuth", () => {
     });
   });
 
-  it("resolves config-first password SecretRef even when OPENCLAW env password exists", async () => {
+  it("resolves config-first password SecretRef even when MIRAI env password exists", async () => {
     const config = cfg({
       gateway: {
         mode: "local",
@@ -360,7 +360,7 @@ describe("resolveGatewayConnectionAuth", () => {
       },
     });
     const env = {
-      OPENCLAW_GATEWAY_PASSWORD: "env-password", // pragma: allowlist secret
+      MIRAI_GATEWAY_PASSWORD: "env-password", // pragma: allowlist secret
       CONFIG_FIRST_PASSWORD: "config-first-password", // pragma: allowlist secret
     } as NodeJS.ProcessEnv;
 
@@ -391,7 +391,7 @@ describe("resolveGatewayConnectionAuth", () => {
       },
     });
     const env = {
-      OPENCLAW_GATEWAY_TOKEN: "env-token",
+      MIRAI_GATEWAY_TOKEN: "env-token",
     } as NodeJS.ProcessEnv;
 
     await expect(
@@ -428,7 +428,7 @@ describe("resolveGatewayConnectionAuth", () => {
       },
     });
     const env = {
-      OPENCLAW_GATEWAY_PASSWORD: "env-password", // pragma: allowlist secret
+      MIRAI_GATEWAY_PASSWORD: "env-password", // pragma: allowlist secret
     } as NodeJS.ProcessEnv;
 
     await expect(

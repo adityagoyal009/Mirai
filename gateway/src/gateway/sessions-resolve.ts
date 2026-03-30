@@ -1,4 +1,4 @@
-import type { OpenClawConfig } from "../config/config.js";
+import type { MiraiConfig } from "../config/config.js";
 import { loadSessionStore, updateSessionStore } from "../config/sessions.js";
 import { parseSessionLabel } from "../sessions/session-label.js";
 import {
@@ -10,14 +10,14 @@ import {
 import {
   listSessionsFromStore,
   loadCombinedSessionStoreForGateway,
-  migrateAndPruneGatewaySessionStoreKey,
+  pruneLegacyStoreKeys,
   resolveGatewaySessionStoreTarget,
 } from "./session-utils.js";
 
 export type SessionsResolveResult = { ok: true; key: string } | { ok: false; error: ErrorShape };
 
 export async function resolveSessionKeyFromResolveParams(params: {
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   p: SessionsResolveParams;
 }): Promise<SessionsResolveResult> {
   const { cfg, p } = params;
@@ -58,10 +58,13 @@ export async function resolveSessionKeyFromResolveParams(params: {
       };
     }
     await updateSessionStore(target.storePath, (s) => {
-      const { primaryKey } = migrateAndPruneGatewaySessionStoreKey({ cfg, key, store: s });
-      if (!s[primaryKey] && s[legacyKey]) {
-        s[primaryKey] = s[legacyKey];
+      const liveTarget = resolveGatewaySessionStoreTarget({ cfg, key, store: s });
+      const canonicalKey = liveTarget.canonicalKey;
+      // Migrate the first legacy entry to the canonical key.
+      if (!s[canonicalKey] && s[legacyKey]) {
+        s[canonicalKey] = s[legacyKey];
       }
+      pruneLegacyStoreKeys({ store: s, canonicalKey, candidates: liveTarget.storeKeys });
     });
     return { ok: true, key: target.canonicalKey };
   }

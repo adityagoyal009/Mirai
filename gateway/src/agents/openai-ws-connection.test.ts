@@ -234,15 +234,15 @@ describe("OpenAIWebSocketManager", () => {
       await connectPromise;
     });
 
-    it("adds OpenClaw attribution headers on the native OpenAI websocket", async () => {
+    it("adds Mirai attribution headers on the native OpenAI websocket", async () => {
       const manager = buildManager();
       const connectPromise = manager.connect("sk-test-key");
 
       const sock = lastSocket();
       expect(sock.options).toMatchObject({
         headers: expect.objectContaining({
-          originator: "openclaw",
-          "User-Agent": expect.stringMatching(/^openclaw\//),
+          originator: "mirai",
+          "User-Agent": expect.stringMatching(/^mirai\//),
         }),
       });
 

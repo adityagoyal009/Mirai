@@ -1,11 +1,11 @@
 """
 Simulation IPC Communication Module
-Inter-process communication between Flask backend and simulation scripts
+Inter-process communication between backend and simulation scripts
 
 Simple command/response pattern via filesystem:
-1. Flask writes commands to commands/ directory
+1. Backend writes commands to commands/ directory
 2. Simulation script polls command directory, executes and writes responses to responses/ directory
-3. Flask polls response directory for results
+3. Backend polls response directory for results
 """
 
 import os
@@ -94,7 +94,7 @@ class IPCResponse:
 
 class SimulationIPCClient:
     """
-    Simulation IPC Client (used by Flask)
+    Simulation IPC Client
     
     Sends commands to simulation process and waits for responses
     """

@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import { resolveUserTimezone } from "../../agents/date-time.js";
 import { buildWorkspaceSkillSnapshot } from "../../agents/skills.js";
 import { ensureSkillsWatcher, getSkillsSnapshotVersion } from "../../agents/skills/refresh.js";
-import type { OpenClawConfig } from "../../config/config.js";
+import type { MiraiConfig } from "../../config/config.js";
 import { type SessionEntry, updateSessionStore } from "../../config/sessions.js";
 import { buildChannelSummary } from "../../infra/channel-summary.js";
 import {
@@ -13,13 +13,13 @@ import {
 import { getRemoteSkillEligibility } from "../../infra/skills-remote.js";
 import { drainSystemEventEntries } from "../../infra/system-events.js";
 
-/** Drain queued system events, format as `System:` lines, return the block (or undefined). */
-export async function drainFormattedSystemEvents(params: {
-  cfg: OpenClawConfig;
+export async function prependSystemEvents(params: {
+  cfg: MiraiConfig;
   sessionKey: string;
   isMainSession: boolean;
   isNewSession: boolean;
-}): Promise<string | undefined> {
+  prefixedBodyBase: string;
+}): Promise<string> {
   const compactSystemEvent = (line: string): string | null => {
     const trimmed = line.trim();
     if (!trimmed) {
@@ -44,7 +44,7 @@ export async function drainFormattedSystemEvents(params: {
     return trimmed;
   };
 
-  const resolveSystemEventTimezone = (cfg: OpenClawConfig) => {
+  const resolveSystemEventTimezone = (cfg: MiraiConfig) => {
     const raw = cfg.agents?.defaults?.envelopeTimezone?.trim();
     if (!raw) {
       return { mode: "local" as const };
@@ -66,7 +66,7 @@ export async function drainFormattedSystemEvents(params: {
     return explicit ? { mode: "iana" as const, timeZone: explicit } : { mode: "local" as const };
   };
 
-  const formatSystemEventTimestamp = (ts: number, cfg: OpenClawConfig) => {
+  const formatSystemEventTimestamp = (ts: number, cfg: MiraiConfig) => {
     const date = new Date(ts);
     if (Number.isNaN(date.getTime())) {
       return "unknown-time";
@@ -104,38 +104,11 @@ export async function drainFormattedSystemEvents(params: {
     }
   }
   if (systemLines.length === 0) {
-    return undefined;
+    return params.prefixedBodyBase;
   }
 
-  // Format events as trusted System: lines for the message timeline.
-  // Inbound sanitization rewrites any user-supplied "System:" to "System (untrusted):",
-  // so these gateway-originated lines are distinguishable by the model.
-  // Each sub-line of a multi-line event gets its own System: prefix so continuation
-  // lines can't be mistaken for user content.
-  return systemLines
-    .flatMap((line) => line.split("\n").map((subline) => `System: ${subline}`))
-    .join("\n");
-}
-
-async function persistSessionEntryUpdate(params: {
-  sessionStore?: Record<string, SessionEntry>;
-  sessionKey?: string;
-  storePath?: string;
-  nextEntry: SessionEntry;
-}) {
-  if (!params.sessionStore || !params.sessionKey) {
-    return;
-  }
-  params.sessionStore[params.sessionKey] = {
-    ...params.sessionStore[params.sessionKey],
-    ...params.nextEntry,
-  };
-  if (!params.storePath) {
-    return;
-  }
-  await updateSessionStore(params.storePath, (store) => {
-    store[params.sessionKey!] = { ...store[params.sessionKey!], ...params.nextEntry };
-  });
+  const block = systemLines.map((l) => `System: ${l}`).join("\n");
+  return `${block}\n\n${params.prefixedBodyBase}`;
 }
 
 export async function ensureSkillSnapshot(params: {
@@ -146,7 +119,7 @@ export async function ensureSkillSnapshot(params: {
   sessionId?: string;
   isFirstTurnInSession: boolean;
   workspaceDir: string;
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   /** If provided, only load skills with these names (for per-channel skill filtering) */
   skillFilter?: string[];
 }): Promise<{
@@ -154,7 +127,7 @@ export async function ensureSkillSnapshot(params: {
   skillsSnapshot?: SessionEntry["skillsSnapshot"];
   systemSent: boolean;
 }> {
-  if (process.env.OPENCLAW_TEST_FAST === "1") {
+  if (process.env.MIRAI_TEST_FAST === "1") {
     // In fast unit-test runs we skip filesystem scanning, watchers, and session-store writes.
     // Dedicated skills tests cover snapshot generation behavior.
     return {
@@ -206,7 +179,12 @@ export async function ensureSkillSnapshot(params: {
       systemSent: true,
       skillsSnapshot: skillSnapshot,
     };
-    await persistSessionEntryUpdate({ sessionStore, sessionKey, storePath, nextEntry });
+    sessionStore[sessionKey] = { ...sessionStore[sessionKey], ...nextEntry };
+    if (storePath) {
+      await updateSessionStore(storePath, (store) => {
+        store[sessionKey] = { ...store[sessionKey], ...nextEntry };
+      });
+    }
     systemSent = true;
   }
 
@@ -243,7 +221,12 @@ export async function ensureSkillSnapshot(params: {
       updatedAt: Date.now(),
       skillsSnapshot,
     };
-    await persistSessionEntryUpdate({ sessionStore, sessionKey, storePath, nextEntry });
+    sessionStore[sessionKey] = { ...sessionStore[sessionKey], ...nextEntry };
+    if (storePath) {
+      await updateSessionStore(storePath, (store) => {
+        store[sessionKey] = { ...store[sessionKey], ...nextEntry };
+      });
+    }
   }
 
   return { sessionEntry: nextEntry, skillsSnapshot, systemSent };
@@ -255,7 +238,6 @@ export async function incrementCompactionCount(params: {
   sessionKey?: string;
   storePath?: string;
   now?: number;
-  amount?: number;
   /** Token count after compaction - if provided, updates session token counts */
   tokensAfter?: number;
 }): Promise<number | undefined> {
@@ -265,7 +247,6 @@ export async function incrementCompactionCount(params: {
     sessionKey,
     storePath,
     now = Date.now(),
-    amount = 1,
     tokensAfter,
   } = params;
   if (!sessionStore || !sessionKey) {
@@ -275,8 +256,7 @@ export async function incrementCompactionCount(params: {
   if (!entry) {
     return undefined;
   }
-  const incrementBy = Math.max(0, amount);
-  const nextCount = (entry.compactionCount ?? 0) + incrementBy;
+  const nextCount = (entry.compactionCount ?? 0) + 1;
   // Build update payload with compaction count and optionally updated token counts
   const updates: Partial<SessionEntry> = {
     compactionCount: nextCount,

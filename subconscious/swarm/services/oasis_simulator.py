@@ -6,18 +6,27 @@ Unlike the swarm (independent one-shot votes), OASIS runs interactive rounds whe
 - Market events are injected between rounds
 - Opinions evolve incrementally based on new information
 - Final output: sentiment trajectory over time
+
+When swarm agents are provided, OASIS selects 12 diverse panelists from the actual
+swarm and seeds their scores from the swarm's evaluation — making OASIS a continuation
+of the swarm rather than a disconnected simulation.
 """
 
-from typing import Dict, Any, List, Optional
+import random
+import statistics
+from typing import Dict, Any, List, Optional, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from ..utils.llm_client import LLMClient
 from ..utils.logger import get_logger
 from ..config import Config
+# Brave Search + SearXNG removed — OASIS generates events via LLM web search
 
 logger = get_logger('mirofish.oasis')
 
-SIMULATION_ROUNDS = 6  # 6 months
+_NO_EVENT = "No significant market event this month."
+
+SIMULATION_ROUNDS = 4  # 4 months (reduced from 6 — trajectory stable by month 3-4)
 AGENTS_PER_ROUND = 12  # Small focused group
 
 
@@ -28,29 +37,55 @@ class OasisSimulator:
         self.llm = LLMClient()
 
     def simulate(self, exec_summary: str, research_context: str,
-                 council_verdict: str, on_round_complete=None) -> Dict[str, Any]:
+                 council_verdict: str, on_round_complete=None,
+                 swarm_agents: Optional[List] = None,
+                 stage: str = "") -> Dict[str, Any]:
         """
         Simulate market reaction over 6 months.
 
+        Args:
+            swarm_agents: Optional list of SwarmAgent objects from the swarm predictor.
+                          When provided, 12 diverse panelists are selected from the swarm
+                          and their swarm scores seed the OASIS starting scores.
+
         Returns timeline of sentiment + key events per month.
         """
-        agents = self._create_panel()
+        if swarm_agents and len(swarm_agents) >= 12:
+            agents = self._select_panelists_from_swarm(swarm_agents)
+            logger.info(f"[OASIS] Selected {len(agents)} panelists from {len(swarm_agents)}-agent swarm")
+        else:
+            agents = self._create_panel(stage=stage)
+            if swarm_agents is not None:
+                logger.info(f"[OASIS] Swarm too small ({len(swarm_agents) if swarm_agents else 0} agents), "
+                           f"falling back to hardcoded panel")
+
+        # Extract company name and industry once for all rounds
+        company_name, industry = self._extract_company_and_industry(exec_summary)
+        logger.info(f"[OASIS] Extracted company='{company_name}', industry='{industry}'")
 
         timeline = []
         previous_events = []
         previous_sentiment = 50  # Start neutral
         previous_panel_summary = ""  # Fed into next round's agent prompts
 
-        # Track each agent's running sentiment score (1-10 scale, start at 5)
-        agent_scores = {a['id']: 5.0 for a in agents}
+        # Track each agent's running sentiment score (1-10 scale).
+        # When sourced from swarm, seed with the agent's swarm overall score;
+        # otherwise start at neutral 5.0.
+        agent_scores = {}
+        for a in agents:
+            if a.get('swarm_score') is not None:
+                agent_scores[a['id']] = float(a['swarm_score'])
+            else:
+                agent_scores[a['id']] = 5.0
 
         for round_num in range(1, SIMULATION_ROUNDS + 1):
             month = round_num
             logger.info(f"[OASIS] Round {round_num}/6 (Month {month})")
 
-            # Generate market event for this month
-            event = self._generate_event(
-                exec_summary, month, previous_events, previous_sentiment
+            # Source real market event for this month
+            event = self._source_real_event(
+                exec_summary, month, previous_events, previous_sentiment,
+                company_name=company_name, industry=industry,
             )
             previous_events.append(event)
 
@@ -67,7 +102,8 @@ class OasisSimulator:
             if previous_panel_summary:
                 round_context += f"\n{previous_panel_summary}\n"
 
-            votes = self._run_round(agents, exec_summary, round_context, agent_scores)
+            scores_snapshot = dict(agent_scores)  # Immutable copy for this round
+            votes = self._run_round(agents, exec_summary, round_context, scores_snapshot)
 
             # Update agent scores with adjustments (clamped 1-10)
             for v in votes:
@@ -77,14 +113,23 @@ class OasisSimulator:
                 agent_scores[aid] = new_score
 
             # Sentiment = average of all agent scores, mapped to 0-100%
-            avg_score = sum(agent_scores.values()) / len(agent_scores)
+            scores_list = list(agent_scores.values())
+            avg_score = sum(scores_list) / len(scores_list)
             sentiment_pct = round((avg_score - 1) / 9 * 100)  # 1->0%, 5.5->50%, 10->100%
             sentiment_pct = max(0, min(100, sentiment_pct))
+
+            # Uncertainty quantification based on agent score variance
+            std_dev = statistics.pstdev(scores_list) if len(scores_list) > 1 else 0.0
+            confidence_low = max(0, sentiment_pct - std_dev * 15)
+            confidence_high = min(100, sentiment_pct + std_dev * 15)
 
             round_result = {
                 "month": month,
                 "event": event,
                 "sentiment_pct": sentiment_pct,
+                "confidence_low": round(confidence_low, 1),
+                "confidence_high": round(confidence_high, 1),
+                "std_dev": round(std_dev, 4),
                 "sentiment_change": sentiment_pct - previous_sentiment,
                 "key_quote": votes[0]['reasoning'][:150] if votes else "",
                 "votes": len(votes),
@@ -101,56 +146,355 @@ class OasisSimulator:
         end = timeline[-1]['sentiment_pct'] if timeline else 50
         trajectory = "improving" if end > start + 10 else "declining" if end < start - 10 else "stable"
 
+        # Compute overall uncertainty summary across all rounds
+        uncertainty_band = {}
+        if timeline:
+            uncertainty_band = {
+                "low": min(r["confidence_low"] for r in timeline),
+                "high": max(r["confidence_high"] for r in timeline),
+                "avg_std": round(statistics.mean(r["std_dev"] for r in timeline), 4),
+            }
+
         return {
             "timeline": timeline,
             "trajectory": trajectory,
             "start_sentiment": start,
-            "end_sentiment": end,
+            "final_sentiment": end,
+            "uncertainty_band": uncertainty_band,
             "total_rounds": len(timeline),
         }
 
-    def _create_panel(self) -> List[Dict]:
-        """Create a diverse panel of 12 agents for multi-round simulation."""
-        roles = [
-            "Seed VC evaluating this deal",
-            "Potential enterprise customer in the target market",
-            "Industry analyst covering this sector",
-            "Competitor product manager watching this space",
-            "Regulatory expert in this industry",
-            "Serial entrepreneur who built similar products",
-            "Target end-user who would use this product",
-            "Growth investor looking at Series A candidates",
-            "Tech journalist covering this market",
-            "Domain expert with 20 years in this field",
-            "Skeptical PE partner focused on unit economics",
-            "Impact investor evaluating social/environmental return",
-        ]
+    def _create_panel(self, stage: str = "") -> List[Dict]:
+        """Create a diverse panel of 12 agents for multi-round simulation,
+        calibrated for the startup's stage."""
+        s = (stage or "").lower().strip()
+
+        if s in ("idea", "pre-seed", "pre seed", "preseed", "seed", "mvp"):
+            roles = [
+                "Pre-seed/seed VC evaluating early-stage deals",
+                "Potential early adopter in the target market",
+                "Industry analyst covering emerging startups in this sector",
+                "Competitor product manager watching this space",
+                "Regulatory expert in this industry",
+                "Serial entrepreneur who bootstrapped similar products",
+                "Target end-user who would pilot this product",
+                "Angel investor evaluating founder-market fit",
+                "Tech journalist covering startup launches",
+                "Domain expert with 20 years in this field",
+                "Accelerator partner evaluating cohort candidates",
+                "Impact investor evaluating early-stage social/environmental return",
+            ]
+        elif s in ("series a", "series-a", "revenue"):
+            roles = [
+                "Series A VC evaluating product-market fit",
+                "Potential enterprise customer in the target market",
+                "Industry analyst covering this sector",
+                "Competitor product manager watching this space",
+                "Regulatory expert in this industry",
+                "Serial entrepreneur who scaled similar products to $5M ARR",
+                "Target end-user who would use this product",
+                "Growth investor evaluating Series A to B trajectory",
+                "Tech journalist covering this market",
+                "Domain expert with 20 years in this field",
+                "Skeptical seed-stage VC questioning if Series A metrics are met",
+                "Impact investor evaluating social/environmental return",
+            ]
+        elif s in ("series b", "series-b"):
+            roles = [
+                "Series B VC evaluating scaling efficiency",
+                "Enterprise customer evaluating long-term vendor commitment",
+                "Industry analyst covering growth-stage companies in this sector",
+                "Competitor VP Product watching this space",
+                "Regulatory expert in this industry",
+                "Operating partner at a growth fund focused on unit economics",
+                "Power user dependent on this product for daily operations",
+                "Late-stage investor evaluating Series B to C trajectory",
+                "Business journalist covering the competitive landscape",
+                "Domain expert with 20 years in this field",
+                "Skeptical PE partner focused on margin sustainability",
+                "Impact investor evaluating governance and team scalability",
+            ]
+        elif s in ("series c", "series c+", "growth", "pre-ipo", "late stage", "series-c", "scaling"):
+            roles = [
+                "Late-stage growth equity investor",
+                "Enterprise customer evaluating vendor stability",
+                "Industry analyst covering market leaders in this sector",
+                "Competitor VP Strategy watching this space",
+                "Regulatory expert in this industry",
+                "Public markets analyst evaluating IPO readiness",
+                "Large enterprise end-user dependent on this product",
+                "Crossover hedge fund evaluating pre-IPO opportunities",
+                "Business journalist covering the competitive landscape",
+                "Domain expert with 20 years in this field",
+                "Skeptical PE partner focused on unit economics at scale",
+                "ESG analyst evaluating governance and sustainability",
+            ]
+        else:
+            # Default: early stage (safest default, avoids penalizing young startups)
+            roles = [
+                "Pre-seed/seed VC evaluating early-stage deals",
+                "Potential early adopter in the target market",
+                "Industry analyst covering emerging startups in this sector",
+                "Competitor product manager watching this space",
+                "Regulatory expert in this industry",
+                "Serial entrepreneur who bootstrapped similar products",
+                "Target end-user who would pilot this product",
+                "Angel investor evaluating founder-market fit",
+                "Tech journalist covering startup launches",
+                "Domain expert with 20 years in this field",
+                "Accelerator partner evaluating cohort candidates",
+                "Impact investor evaluating early-stage social/environmental return",
+            ]
+
         return [{"id": i, "role": role} for i, role in enumerate(roles)]
 
-    def _generate_event(self, exec_summary: str, month: int,
-                        previous_events: List[str], current_sentiment: int) -> str:
-        """LLM generates a realistic market event for this month."""
+    def _select_panelists_from_swarm(self, swarm_agents: List) -> List[Dict]:
+        """Select 12 diverse panelists from the actual swarm agents.
+
+        Selection strategy:
+          1. Strongest bull (highest overall score)
+          2. Strongest bear (lowest overall score)
+          3-4. Two from Investor zone (random)
+          5-6. Two from Analyst zone (random)
+          7. One from Customer zone
+          8. One from Operator zone
+          9. One from Contrarian zone
+          10. One from Wild Card zone
+          11. Most internally conflicted (highest per-dimension score variance)
+          12. One random remaining agent
+
+        Each panelist dict carries:
+          - id: sequential int for OASIS tracking
+          - role: the agent's persona description from the swarm
+          - swarm_score: the agent's overall score from the swarm (seeds OASIS)
+          - zone: the agent's zone from the swarm
+          - swarm_agent_id: original swarm agent_id for traceability
+        """
+        used_ids = set()
+        selected = []
+
+        def _pick(agent):
+            """Add an agent to the panel if not already picked."""
+            aid = getattr(agent, 'agent_id', None) or id(agent)
+            if aid in used_ids:
+                return False
+            used_ids.add(aid)
+            selected.append(agent)
+            return True
+
+        def _agents_in_zone(zone: str):
+            return [a for a in swarm_agents
+                    if getattr(a, 'zone', 'wildcard') == zone
+                    and (getattr(a, 'agent_id', None) or id(a)) not in used_ids]
+
+        def _pick_random_from_zone(zone: str, count: int):
+            pool = _agents_in_zone(zone)
+            for a in random.sample(pool, min(count, len(pool))):
+                _pick(a)
+
+        # 1. Strongest bull (highest overall score)
+        sorted_by_score = sorted(swarm_agents, key=lambda a: getattr(a, 'overall', 5.0), reverse=True)
+        _pick(sorted_by_score[0])
+
+        # 2. Strongest bear (lowest overall score)
+        _pick(sorted_by_score[-1])
+
+        # 3-4. Two from Investor zone
+        _pick_random_from_zone('investor', 2)
+
+        # 5-6. Two from Analyst zone
+        _pick_random_from_zone('analyst', 2)
+
+        # 7. One from Customer zone
+        _pick_random_from_zone('customer', 1)
+
+        # 8. One from Operator zone
+        _pick_random_from_zone('operator', 1)
+
+        # 9. One from Contrarian zone
+        _pick_random_from_zone('contrarian', 1)
+
+        # 10. One from Wild Card zone
+        _pick_random_from_zone('wildcard', 1)
+
+        # 11. Most internally conflicted (highest per-dimension score variance)
+        remaining = [a for a in swarm_agents
+                     if (getattr(a, 'agent_id', None) or id(a)) not in used_ids]
+        if remaining:
+            def _dim_variance(agent):
+                scores = getattr(agent, 'scores', {})
+                dims = [v for k, v in scores.items() if k != 'overall' and isinstance(v, (int, float))]
+                if len(dims) < 2:
+                    return 0.0
+                mean = sum(dims) / len(dims)
+                return sum((d - mean) ** 2 for d in dims) / len(dims)
+
+            most_conflicted = max(remaining, key=_dim_variance)
+            _pick(most_conflicted)
+
+        # 12. One random remaining agent
+        remaining = [a for a in swarm_agents
+                     if (getattr(a, 'agent_id', None) or id(a)) not in used_ids]
+        if remaining:
+            _pick(random.choice(remaining))
+
+        # If any zone was empty and we have fewer than 12, backfill from remaining
+        remaining = [a for a in swarm_agents
+                     if (getattr(a, 'agent_id', None) or id(a)) not in used_ids]
+        while len(selected) < AGENTS_PER_ROUND and remaining:
+            agent = random.choice(remaining)
+            _pick(agent)
+            remaining = [a for a in remaining
+                         if (getattr(a, 'agent_id', None) or id(a)) not in used_ids]
+
+        # Convert SwarmAgent objects to OASIS panel dicts
+        panel = []
+        for i, agent in enumerate(selected):
+            panel.append({
+                "id": i,
+                "role": getattr(agent, 'persona', f"Swarm Agent #{getattr(agent, 'agent_id', i)}"),
+                "swarm_score": getattr(agent, 'overall', 5.0),
+                "zone": getattr(agent, 'zone', 'wildcard'),
+                "swarm_agent_id": getattr(agent, 'agent_id', i),
+            })
+
+        return panel
+
+    # ── company / industry extraction ────────────────────────────
+
+    def _extract_company_and_industry(self, exec_summary: str) -> Tuple[str, str]:
+        """Use the LLM to pull a company name and industry from the exec summary.
+
+        Returns (company_name, industry) — both short strings suitable for
+        search queries.  Falls back to generic terms if extraction fails.
+        """
         prompt = (
-            f"You are simulating market dynamics for a startup.\n\n"
-            f"STARTUP: {exec_summary[:300]}\n\n"
+            "Extract the company name and industry from this startup summary. "
+            "Reply with EXACTLY two lines — nothing else:\n"
+            "COMPANY: <name>\n"
+            "INDUSTRY: <industry>\n\n"
+            f"Summary:\n{exec_summary[:500]}"
+        )
+        response = (
+            self.llm.chat([{"role": "user", "content": prompt}], max_tokens=60) or ""
+        ).strip()
+
+        company = ""
+        industry = ""
+        for line in response.splitlines():
+            line_upper = line.strip().upper()
+            if line_upper.startswith("COMPANY:"):
+                company = line.strip()[len("COMPANY:"):].strip()
+            elif line_upper.startswith("INDUSTRY:"):
+                industry = line.strip()[len("INDUSTRY:"):].strip()
+
+        # OA-1 FIX: log when falling back to generic terms — OASIS will simulate
+        # generic industry trends instead of the actual company.
+        if not company:
+            logger.warning(
+                "[OASIS] Could not extract company name from exec summary — "
+                "falling back to generic 'startup'. OASIS web searches will NOT be company-specific."
+            )
+            company = "startup"
+        if not industry:
+            logger.warning(
+                "[OASIS] Could not extract industry from exec summary — "
+                "falling back to generic 'technology'. OASIS market simulation will use generic tech trends."
+            )
+            industry = "technology"
+
+        return company, industry
+
+    # ── real headline sourcing ────────────────────────────────────
+
+    def _fetch_real_headlines(
+        self, company_name: str, industry: str, max_headlines: int = 5,
+    ) -> List[str]:
+        """Fetch real news headlines via LLM web search (Claude CLI).
+
+        Returns a list of headline strings (may be empty if search unavailable).
+        """
+        # Use LLM with web search to find recent news
+        try:
+            from ..utils.gateway_client import web_search
+            query = f"{company_name} {industry} news"
+            results = web_search(query, count=max_headlines)
+            headlines = [r.get("title", "") for r in results if r.get("title")]
+            if headlines:
+                logger.info(f"[OASIS] Web search returned {len(headlines)} headlines for '{query[:60]}'")
+                return headlines[:max_headlines]
+        except Exception as e:
+            logger.warning(f"[OASIS] Web search for headlines failed (non-fatal): {e}")
+
+        return []
+
+    # ── grounded event generation (replaces _generate_event) ─────
+
+    def _source_real_event(
+        self,
+        exec_summary: str,
+        month: int,
+        previous_events: List[str],
+        current_sentiment: int,
+        *,
+        company_name: str,
+        industry: str,
+    ) -> str:
+        """Source a market event grounded in REAL news data.
+
+        Pipeline:
+        1. Fetch real headlines via Brave Search / SearXNG.
+        2. Ask the LLM to summarize the most impactful headline into a
+           single event sentence.
+        3. If no headlines are found, return a "no event" marker — never
+           fabricate.
+
+        Accepts the same positional parameters as the old _generate_event()
+        plus company_name and industry as keyword arguments.
+        """
+        headlines = self._fetch_real_headlines(company_name, industry)
+
+        # --- No headlines → no fabrication ---
+        if not headlines:
+            logger.info(
+                f"[OASIS] Month {month}: no real headlines found — "
+                "returning 'no event' (NOT fabricating)"
+            )
+            return _NO_EVENT
+
+        # --- LLM summarization grounded in real data ---
+        headline_block = "\n".join(f"  - {h}" for h in headlines)
+        prompt = (
+            f"You are summarizing real market news for a startup simulation.\n\n"
+            f"STARTUP: {exec_summary[:300]}\n"
+            f"COMPANY: {company_name}\n"
+            f"INDUSTRY: {industry}\n"
             f"MONTH: {month} of 6\n"
             f"CURRENT MARKET SENTIMENT: {current_sentiment}%\n"
             f"PREVIOUS EVENTS:\n"
             + "\n".join(f"  Month {i+1}: {e}" for i, e in enumerate(previous_events))
             + "\n\n"
-            f"Generate ONE realistic market event for month {month} that would affect this startup. "
-            f"Examples: competitor raises funding, new regulation passed, key hire joins, pilot customer churns, "
-            f"market report published, partnership announced.\n\n"
+            f"REAL NEWS HEADLINES (sourced just now):\n{headline_block}\n\n"
+            f"Given these REAL news headlines about {company_name}/{industry}, "
+            f"summarize the single most impactful event for this startup's trajectory. "
+            f"If none are directly relevant, say '{_NO_EVENT}'\n\n"
             f"RULES:\n"
-            f"- Be specific to this startup's industry\n"
-            f"- Events should be plausible and incremental, not dramatic or catastrophic\n"
-            f"- Most events should be moderately positive or moderately negative, not extreme\n"
-            f"- Avoid alternating wildly between very good and very bad events\n"
-            f"- One sentence only\n\n"
+            f"- One sentence only\n"
+            f"- Must be grounded in the headlines above — do NOT invent facts\n"
+            f"- Reference the actual news when possible\n\n"
             f"Event for month {month}:"
         )
-        response = self.llm.chat([{"role": "user", "content": prompt}], max_tokens=100)
-        return (response or "No significant market event this month.").strip()
+        response = self.llm.chat(
+            [{"role": "user", "content": prompt}], max_tokens=120,
+        )
+        event = (response or _NO_EVENT).strip()
+
+        source_tag = "real-data-grounded"
+        if event == _NO_EVENT:
+            source_tag = "no-event"
+        logger.info(f"[OASIS] Month {month} event [{source_tag}]: {event[:120]}")
+
+        return event
 
     def _run_round(self, agents: List[Dict], exec_summary: str,
                    context: str, agent_scores: Dict[int, float]) -> List[Dict]:

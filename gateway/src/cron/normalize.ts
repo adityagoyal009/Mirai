@@ -1,6 +1,10 @@
 import { sanitizeAgentId } from "../routing/session-key.js";
 import { isRecord } from "../utils.js";
-import { normalizeLegacyDeliveryInput } from "./legacy-delivery.js";
+import {
+  buildDeliveryFromLegacyPayload,
+  hasLegacyDeliveryHints,
+  stripLegacyDeliveryFields,
+} from "./legacy-delivery.js";
 import { parseAbsoluteTimeMs } from "./parse.js";
 import { migrateLegacyCronPayload } from "./payload-migration.js";
 import { inferLegacyName } from "./service/normalize.js";
@@ -11,8 +15,6 @@ type UnknownRecord = Record<string, unknown>;
 
 type NormalizeOptions = {
   applyDefaults?: boolean;
-  /** Session context for resolving "current" sessionTarget or auto-binding when not specified */
-  sessionContext?: { sessionKey?: string };
 };
 
 const DEFAULT_OPTIONS: NormalizeOptions = {
@@ -23,9 +25,6 @@ function coerceSchedule(schedule: UnknownRecord) {
   const next: UnknownRecord = { ...schedule };
   const rawKind = typeof schedule.kind === "string" ? schedule.kind.trim().toLowerCase() : "";
   const kind = rawKind === "at" || rawKind === "every" || rawKind === "cron" ? rawKind : undefined;
-  const exprRaw = typeof schedule.expr === "string" ? schedule.expr.trim() : "";
-  const legacyCronRaw = typeof schedule.cron === "string" ? schedule.cron.trim() : "";
-  const normalizedExpr = exprRaw || legacyCronRaw;
   const atMsRaw = schedule.atMs;
   const atRaw = schedule.at;
   const atString = typeof atRaw === "string" ? atRaw.trim() : "";
@@ -49,7 +48,7 @@ function coerceSchedule(schedule: UnknownRecord) {
       next.kind = "at";
     } else if (typeof schedule.everyMs === "number") {
       next.kind = "every";
-    } else if (normalizedExpr) {
+    } else if (typeof schedule.expr === "string") {
       next.kind = "cron";
     }
   }
@@ -61,15 +60,6 @@ function coerceSchedule(schedule: UnknownRecord) {
   }
   if ("atMs" in next) {
     delete next.atMs;
-  }
-
-  if (normalizedExpr) {
-    next.expr = normalizedExpr;
-  } else if ("expr" in next) {
-    delete next.expr;
-  }
-  if ("cron" in next) {
-    delete next.cron;
   }
 
   const staggerMs = normalizeCronStaggerMs(schedule.staggerMs);
@@ -193,16 +183,6 @@ function coerceDelivery(delivery: UnknownRecord) {
       delete next.to;
     }
   }
-  if (typeof delivery.accountId === "string") {
-    const trimmed = delivery.accountId.trim();
-    if (trimmed) {
-      next.accountId = trimmed;
-    } else {
-      delete next.accountId;
-    }
-  } else if ("accountId" in next && typeof next.accountId !== "string") {
-    delete next.accountId;
-  }
   return next;
 }
 
@@ -220,17 +200,9 @@ function normalizeSessionTarget(raw: unknown) {
   if (typeof raw !== "string") {
     return undefined;
   }
-  const trimmed = raw.trim();
-  const lower = trimmed.toLowerCase();
-  if (lower === "main" || lower === "isolated" || lower === "current") {
-    return lower;
-  }
-  // Support custom session IDs with "session:" prefix
-  if (lower.startsWith("session:")) {
-    const sessionId = trimmed.slice(8).trim();
-    if (sessionId) {
-      return `session:${sessionId}`;
-    }
+  const trimmed = raw.trim().toLowerCase();
+  if (trimmed === "main" || trimmed === "isolated") {
+    return trimmed;
   }
   return undefined;
 }
@@ -441,37 +413,10 @@ export function normalizeCronJobInput(
     }
     if (!next.sessionTarget && isRecord(next.payload)) {
       const kind = typeof next.payload.kind === "string" ? next.payload.kind : "";
-      // Keep default behavior unchanged for backward compatibility:
-      // - systemEvent defaults to "main"
-      // - agentTurn defaults to "isolated" (NOT "current", to avoid token accumulation)
-      // Users must explicitly specify "current" or "session:xxx" for custom session binding
       if (kind === "systemEvent") {
         next.sessionTarget = "main";
-      } else if (kind === "agentTurn") {
-        next.sessionTarget = "isolated";
       }
-    }
-
-    // Resolve "current" sessionTarget to the actual sessionKey from context
-    if (next.sessionTarget === "current") {
-      if (options.sessionContext?.sessionKey) {
-        const sessionKey = options.sessionContext.sessionKey.trim();
-        if (sessionKey) {
-          // Store as session:customId format for persistence
-          next.sessionTarget = `session:${sessionKey}`;
-        }
-      }
-      // If "current" wasn't resolved, fall back to "isolated" behavior
-      // This handles CLI/headless usage where no session context exists
-      if (next.sessionTarget === "current") {
-        next.sessionTarget = "isolated";
-      }
-    }
-    if (next.sessionTarget === "current") {
-      const sessionKey = options.sessionContext?.sessionKey?.trim();
-      if (sessionKey) {
-        next.sessionTarget = `session:${sessionKey}`;
-      } else {
+      if (kind === "agentTurn") {
         next.sessionTarget = "isolated";
       }
     }
@@ -499,27 +444,17 @@ export function normalizeCronJobInput(
     const payload = isRecord(next.payload) ? next.payload : null;
     const payloadKind = payload && typeof payload.kind === "string" ? payload.kind : "";
     const sessionTarget = typeof next.sessionTarget === "string" ? next.sessionTarget : "";
-    // Support "isolated", custom session IDs (session:xxx), and resolved "current" as isolated-like targets
     const isIsolatedAgentTurn =
-      sessionTarget === "isolated" ||
-      sessionTarget === "current" ||
-      sessionTarget.startsWith("session:") ||
-      (sessionTarget === "" && payloadKind === "agentTurn");
+      sessionTarget === "isolated" || (sessionTarget === "" && payloadKind === "agentTurn");
     const hasDelivery = "delivery" in next && next.delivery !== undefined;
-    const normalizedLegacy = normalizeLegacyDeliveryInput({
-      delivery: isRecord(next.delivery) ? next.delivery : null,
-      payload,
-    });
-    if (normalizedLegacy.mutated && normalizedLegacy.delivery) {
-      next.delivery = normalizedLegacy.delivery;
-    }
-    if (
-      !hasDelivery &&
-      !normalizedLegacy.delivery &&
-      isIsolatedAgentTurn &&
-      payloadKind === "agentTurn"
-    ) {
-      next.delivery = { mode: "announce" };
+    const hasLegacyDelivery = payload ? hasLegacyDeliveryHints(payload) : false;
+    if (!hasDelivery && isIsolatedAgentTurn && payloadKind === "agentTurn") {
+      if (payload && hasLegacyDelivery) {
+        next.delivery = buildDeliveryFromLegacyPayload(payload);
+        stripLegacyDeliveryFields(payload);
+      } else {
+        next.delivery = { mode: "announce" };
+      }
     }
   }
 
@@ -528,7 +463,7 @@ export function normalizeCronJobInput(
 
 export function normalizeCronJobCreate(
   raw: unknown,
-  options?: Omit<NormalizeOptions, "applyDefaults">,
+  options?: NormalizeOptions,
 ): CronJobCreate | null {
   return normalizeCronJobInput(raw, {
     applyDefaults: true,

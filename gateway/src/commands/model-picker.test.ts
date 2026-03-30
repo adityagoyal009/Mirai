@@ -1,12 +1,12 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { OpenClawConfig } from "../config/config.js";
+import { describe, expect, it, vi } from "vitest";
+import type { MiraiConfig } from "../config/config.js";
 import {
   applyModelAllowlist,
   applyModelFallbacksFromSelection,
   promptDefaultModel,
   promptModelAllowlist,
 } from "./model-picker.js";
-import { makePrompter } from "./setup/__tests__/test-utils.js";
+import { makePrompter } from "./onboarding/__tests__/test-utils.js";
 
 const loadModelCatalog = vi.hoisted(() => vi.fn());
 vi.mock("../agents/model-catalog.js", () => ({
@@ -21,32 +21,19 @@ const ensureAuthProfileStore = vi.hoisted(() =>
 );
 const listProfilesForProvider = vi.hoisted(() => vi.fn(() => []));
 const upsertAuthProfile = vi.hoisted(() => vi.fn());
+const upsertAuthProfileWithLock = vi.hoisted(() => vi.fn(async () => {}));
 vi.mock("../agents/auth-profiles.js", () => ({
   ensureAuthProfileStore,
   listProfilesForProvider,
   upsertAuthProfile,
+  upsertAuthProfileWithLock,
 }));
 
 const resolveEnvApiKey = vi.hoisted(() => vi.fn(() => undefined));
-const hasUsableCustomProviderApiKey = vi.hoisted(() => vi.fn(() => false));
+const getCustomProviderApiKey = vi.hoisted(() => vi.fn(() => undefined));
 vi.mock("../agents/model-auth.js", () => ({
   resolveEnvApiKey,
-  hasUsableCustomProviderApiKey,
-}));
-
-const resolveProviderModelPickerEntries = vi.hoisted(() => vi.fn(() => []));
-const resolveProviderPluginChoice = vi.hoisted(() => vi.fn());
-const runProviderModelSelectedHook = vi.hoisted(() => vi.fn(async () => {}));
-const resolvePluginProviders = vi.hoisted(() => vi.fn(() => []));
-const runProviderPluginAuthMethod = vi.hoisted(() => vi.fn());
-vi.mock("./model-picker.runtime.js", () => ({
-  modelPickerRuntime: {
-    resolveProviderModelPickerEntries,
-    resolveProviderPluginChoice,
-    runProviderModelSelectedHook,
-    resolvePluginProviders,
-    runProviderPluginAuthMethod,
-  },
+  getCustomProviderApiKey,
 }));
 
 const OPENROUTER_CATALOG = [
@@ -73,12 +60,8 @@ function createSelectAllMultiselect() {
   return vi.fn(async (params) => params.options.map((option: { value: string }) => option.value));
 }
 
-beforeEach(() => {
-  vi.clearAllMocks();
-});
-
 describe("promptDefaultModel", () => {
-  it("supports configuring vLLM during setup", async () => {
+  it("supports configuring vLLM during onboarding", async () => {
     loadModelCatalog.mockResolvedValue([
       {
         provider: "anthropic",
@@ -86,59 +69,40 @@ describe("promptDefaultModel", () => {
         name: "Claude Sonnet 4.5",
       },
     ]);
-    resolveProviderModelPickerEntries.mockReturnValue([
-      { value: "vllm", label: "vLLM (custom)", hint: "Enter vLLM URL + API key + model" },
-    ] as never);
-    resolvePluginProviders.mockReturnValue([{ id: "vllm" }] as never);
-    resolveProviderPluginChoice.mockReturnValue({
-      provider: { id: "vllm", label: "vLLM", auth: [] },
-      method: { id: "custom", label: "vLLM", kind: "custom" },
-    });
-    runProviderPluginAuthMethod.mockResolvedValue({
-      config: {
-        models: {
-          providers: {
-            vllm: {
-              baseUrl: "http://127.0.0.1:8000/v1",
-              api: "openai-completions",
-              apiKey: "VLLM_API_KEY",
-              models: [
-                {
-                  id: "meta-llama/Meta-Llama-3-8B-Instruct",
-                  name: "meta-llama/Meta-Llama-3-8B-Instruct",
-                },
-              ],
-            },
-          },
-        },
-      },
-      defaultModel: "vllm/meta-llama/Meta-Llama-3-8B-Instruct",
-    });
 
     const select = vi.fn(async (params) => {
-      const vllm = params.options.find((opt: { value: string }) => opt.value === "vllm");
+      const vllm = params.options.find((opt: { value: string }) => opt.value === "__vllm__");
       return (vllm?.value ?? "") as never;
     });
-    const prompter = makePrompter({ select });
-    const config = { agents: { defaults: {} } } as OpenClawConfig;
+    const text = vi
+      .fn()
+      .mockResolvedValueOnce("http://127.0.0.1:8000/v1")
+      .mockResolvedValueOnce("sk-vllm-test")
+      .mockResolvedValueOnce("meta-llama/Meta-Llama-3-8B-Instruct");
+    const prompter = makePrompter({ select, text: text as never });
+    const config = { agents: { defaults: {} } } as MiraiConfig;
 
     const result = await promptDefaultModel({
       config,
       prompter,
       allowKeep: false,
       includeManual: false,
-      includeProviderPluginSetups: true,
+      includeVllm: true,
       ignoreAllowlist: true,
-      agentDir: "/tmp/openclaw-agent",
-      runtime: {} as never,
+      agentDir: "/tmp/mirai-agent",
     });
 
-    expect(runProviderPluginAuthMethod).toHaveBeenCalledOnce();
+    expect(upsertAuthProfileWithLock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        profileId: "vllm:default",
+        credential: expect.objectContaining({ provider: "vllm" }),
+      }),
+    );
     expect(result.model).toBe("vllm/meta-llama/Meta-Llama-3-8B-Instruct");
     expect(result.config?.models?.providers?.vllm).toMatchObject({
       baseUrl: "http://127.0.0.1:8000/v1",
       api: "openai-completions",
-      apiKey: "VLLM_API_KEY", // pragma: allowlist secret
+      apiKey: "VLLM_API_KEY",
       models: [
         { id: "meta-llama/Meta-Llama-3-8B-Instruct", name: "meta-llama/Meta-Llama-3-8B-Instruct" },
       ],
@@ -168,7 +132,7 @@ describe("promptModelAllowlist", () => {
 
     const multiselect = createSelectAllMultiselect();
     const prompter = makePrompter({ multiselect });
-    const config = { agents: { defaults: {} } } as OpenClawConfig;
+    const config = { agents: { defaults: {} } } as MiraiConfig;
 
     await promptModelAllowlist({
       config,
@@ -194,7 +158,7 @@ describe("router model filtering", () => {
     const multiselect = createSelectAllMultiselect();
     const defaultPrompter = makePrompter({ select });
     const allowlistPrompter = makePrompter({ multiselect });
-    const config = { agents: { defaults: {} } } as OpenClawConfig;
+    const config = { agents: { defaults: {} } } as MiraiConfig;
 
     await promptDefaultModel({
       config,
@@ -211,7 +175,6 @@ describe("router model filtering", () => {
     const allowlistCall = multiselect.mock.calls[0]?.[0];
     expectRouterModelFiltering(allowlistCall?.options as Array<{ value: string }>);
     expect(allowlistCall?.searchable).toBe(true);
-    expect(runProviderPluginAuthMethod).not.toHaveBeenCalled();
   });
 });
 
@@ -226,7 +189,7 @@ describe("applyModelAllowlist", () => {
           },
         },
       },
-    } as OpenClawConfig;
+    } as MiraiConfig;
 
     const next = applyModelAllowlist(config, ["openai/gpt-5.2"]);
     expect(next.agents?.defaults?.models).toEqual({
@@ -243,7 +206,7 @@ describe("applyModelAllowlist", () => {
           },
         },
       },
-    } as OpenClawConfig;
+    } as MiraiConfig;
 
     const next = applyModelAllowlist(config, []);
     expect(next.agents?.defaults?.models).toBeUndefined();
@@ -258,7 +221,7 @@ describe("applyModelFallbacksFromSelection", () => {
           model: { primary: "anthropic/claude-opus-4-5" },
         },
       },
-    } as OpenClawConfig;
+    } as MiraiConfig;
 
     const next = applyModelFallbacksFromSelection(config, [
       "anthropic/claude-opus-4-5",
@@ -277,7 +240,7 @@ describe("applyModelFallbacksFromSelection", () => {
           model: { primary: "anthropic/claude-opus-4-5", fallbacks: ["openai/gpt-5.2"] },
         },
       },
-    } as OpenClawConfig;
+    } as MiraiConfig;
 
     const next = applyModelFallbacksFromSelection(config, ["openai/gpt-5.2"]);
     expect(next.agents?.defaults?.model).toEqual({

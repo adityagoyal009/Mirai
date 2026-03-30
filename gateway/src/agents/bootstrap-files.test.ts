@@ -1,4 +1,3 @@
-import fs from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
@@ -59,7 +58,7 @@ describe("resolveBootstrapFilesForRun", () => {
   it("applies bootstrap hook overrides", async () => {
     registerExtraBootstrapFileHook();
 
-    const workspaceDir = await makeTempWorkspace("openclaw-bootstrap-");
+    const workspaceDir = await makeTempWorkspace("mirai-bootstrap-");
     const files = await resolveBootstrapFilesForRun({ workspaceDir });
 
     expect(files.some((file) => file.path === path.join(workspaceDir, "EXTRA.md"))).toBe(true);
@@ -68,7 +67,7 @@ describe("resolveBootstrapFilesForRun", () => {
   it("drops malformed hook files with missing/invalid paths", async () => {
     registerMalformedBootstrapFileHook();
 
-    const workspaceDir = await makeTempWorkspace("openclaw-bootstrap-");
+    const workspaceDir = await makeTempWorkspace("mirai-bootstrap-");
     const warnings: string[] = [];
     const files = await resolveBootstrapFilesForRun({
       workspaceDir,
@@ -90,40 +89,12 @@ describe("resolveBootstrapContextForRun", () => {
   it("returns context files for hook-adjusted bootstrap files", async () => {
     registerExtraBootstrapFileHook();
 
-    const workspaceDir = await makeTempWorkspace("openclaw-bootstrap-");
+    const workspaceDir = await makeTempWorkspace("mirai-bootstrap-");
     const result = await resolveBootstrapContextForRun({ workspaceDir });
     const extra = result.contextFiles.find(
       (file) => file.path === path.join(workspaceDir, "EXTRA.md"),
     );
 
     expect(extra?.content).toBe("extra");
-  });
-
-  it("uses heartbeat-only bootstrap files in lightweight heartbeat mode", async () => {
-    const workspaceDir = await makeTempWorkspace("openclaw-bootstrap-");
-    await fs.writeFile(path.join(workspaceDir, "HEARTBEAT.md"), "check inbox", "utf8");
-    await fs.writeFile(path.join(workspaceDir, "SOUL.md"), "persona", "utf8");
-
-    const files = await resolveBootstrapFilesForRun({
-      workspaceDir,
-      contextMode: "lightweight",
-      runKind: "heartbeat",
-    });
-
-    expect(files.length).toBeGreaterThan(0);
-    expect(files.every((file) => file.name === "HEARTBEAT.md")).toBe(true);
-  });
-
-  it("keeps bootstrap context empty in lightweight cron mode", async () => {
-    const workspaceDir = await makeTempWorkspace("openclaw-bootstrap-");
-    await fs.writeFile(path.join(workspaceDir, "HEARTBEAT.md"), "check inbox", "utf8");
-
-    const files = await resolveBootstrapFilesForRun({
-      workspaceDir,
-      contextMode: "lightweight",
-      runKind: "cron",
-    });
-
-    expect(files).toEqual([]);
   });
 });

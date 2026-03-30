@@ -1,10 +1,9 @@
 import { collectTextContentBlocks } from "../../agents/content-blocks.js";
-import { createOpenClawTools } from "../../agents/openclaw-tools.js";
-import type { BlockReplyChunking } from "../../agents/pi-embedded-block-chunker.js";
+import { createMiraiTools } from "../../agents/mirai-tools.js";
 import type { SkillCommandSpec } from "../../agents/skills.js";
 import { applyOwnerOnlyToolPolicy } from "../../agents/tool-policy.js";
-import { getChannelPlugin } from "../../channels/plugins/index.js";
-import type { OpenClawConfig } from "../../config/config.js";
+import { getChannelDock } from "../../channels/dock.js";
+import type { MiraiConfig } from "../../config/config.js";
 import type { SessionEntry } from "../../config/sessions.js";
 import { logVerbose } from "../../globals.js";
 import { generateSecureToken } from "../../infra/secure-random.js";
@@ -17,13 +16,7 @@ import {
 import type { MsgContext, TemplateContext } from "../templating.js";
 import type { ElevatedLevel, ReasoningLevel, ThinkLevel, VerboseLevel } from "../thinking.js";
 import type { GetReplyOptions, ReplyPayload } from "../types.js";
-import {
-  clearAbortCutoffInSession,
-  readAbortCutoffFromSessionEntry,
-  resolveAbortCutoffFromContext,
-  shouldSkipMessageByAbortCutoff,
-} from "./abort-cutoff.js";
-import { getAbortMemory, isAbortRequestText } from "./abort.js";
+import { getAbortMemory } from "./abort.js";
 import { buildStatusReply, handleCommands } from "./commands.js";
 import type { InlineDirectives } from "./directive-handling.js";
 import { isDirectiveOnly } from "./directive-handling.js";
@@ -31,14 +24,8 @@ import type { createModelSelectionState } from "./model-selection.js";
 import { extractInlineSimpleCommand } from "./reply-inline.js";
 import type { TypingController } from "./typing.js";
 
-let builtinSlashCommands: Set<string> | null = null;
-
-function getBuiltinSlashCommands(): Set<string> {
-  if (builtinSlashCommands) {
-    return builtinSlashCommands;
-  }
-  builtinSlashCommands = listReservedChatSlashCommandNames([
-    "btw",
+const builtinSlashCommands = (() => {
+  return listReservedChatSlashCommandNames([
     "think",
     "verbose",
     "reasoning",
@@ -48,8 +35,7 @@ function getBuiltinSlashCommands(): Set<string> {
     "status",
     "queue",
   ]);
-  return builtinSlashCommands;
-}
+})();
 
 function resolveSlashCommandName(commandBodyNormalized: string): string | null {
   const trimmed = commandBodyNormalized.trim();
@@ -88,7 +74,7 @@ function extractTextFromToolResult(result: any): string | null {
 export async function handleInlineActions(params: {
   ctx: MsgContext;
   sessionCtx: TemplateContext;
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   agentId: string;
   agentDir?: string;
   sessionEntry?: SessionEntry;
@@ -115,8 +101,6 @@ export async function handleInlineActions(params: {
   resolvedVerboseLevel: VerboseLevel | undefined;
   resolvedReasoningLevel: ReasoningLevel;
   resolvedElevatedLevel: ElevatedLevel;
-  blockReplyChunking?: BlockReplyChunking;
-  resolvedBlockStreamingBreak?: "text_end" | "message_end";
   resolveDefaultThinkingLevel: Awaited<
     ReturnType<typeof createModelSelectionState>
   >["resolveDefaultThinkingLevel"];
@@ -156,8 +140,6 @@ export async function handleInlineActions(params: {
     resolvedVerboseLevel,
     resolvedReasoningLevel,
     resolvedElevatedLevel,
-    blockReplyChunking,
-    resolvedBlockStreamingBreak,
     resolveDefaultThinkingLevel,
     provider,
     model,
@@ -175,7 +157,7 @@ export async function handleInlineActions(params: {
     allowTextCommands &&
     slashCommandName !== null &&
     // `/skill …` needs the full skill command list.
-    (slashCommandName === "skill" || !getBuiltinSlashCommands().has(slashCommandName));
+    (slashCommandName === "skill" || !builtinSlashCommands.has(slashCommandName));
   const skillCommands =
     shouldLoadSkillCommands && params.skillCommands
       ? params.skillCommands
@@ -211,7 +193,7 @@ export async function handleInlineActions(params: {
         resolveGatewayMessageChannel(ctx.Provider) ??
         undefined;
 
-      const tools = createOpenClawTools({
+      const tools = createMiraiTools({
         agentSessionKey: sessionKey,
         agentChannel: channel,
         agentAccountId: (ctx as { AccountId?: string }).AccountId,
@@ -220,7 +202,6 @@ export async function handleInlineActions(params: {
         agentDir,
         workspaceDir,
         config: cfg,
-        allowGatewaySubagentBinding: true,
       });
       const authorizedTools = applyOwnerOnlyToolPolicy(tools, command.senderIsOwner);
 
@@ -271,32 +252,6 @@ export async function handleInlineActions(params: {
     await opts.onBlockReply(reply);
   };
 
-  const isStopLikeInbound = isAbortRequestText(command.rawBodyNormalized);
-  if (!isStopLikeInbound && sessionEntry) {
-    const cutoff = readAbortCutoffFromSessionEntry(sessionEntry);
-    const incoming = resolveAbortCutoffFromContext(ctx);
-    const shouldSkip = cutoff
-      ? shouldSkipMessageByAbortCutoff({
-          cutoffMessageSid: cutoff.messageSid,
-          cutoffTimestamp: cutoff.timestamp,
-          messageSid: incoming?.messageSid,
-          timestamp: incoming?.timestamp,
-        })
-      : false;
-    if (shouldSkip) {
-      typing.cleanup();
-      return { kind: "reply", reply: undefined };
-    }
-    if (cutoff) {
-      await clearAbortCutoffInSession({
-        sessionEntry,
-        sessionStore,
-        sessionKey,
-        storePath,
-      });
-    }
-  }
-
   const inlineCommand =
     allowTextCommands && command.isAuthorizedSender
       ? extractInlineSimpleCommand(cleanedBody)
@@ -343,10 +298,7 @@ export async function handleInlineActions(params: {
 
   const runCommands = (commandInput: typeof command) =>
     handleCommands({
-      // Pass sessionCtx so command handlers can mutate stripped body for same-turn continuation.
-      ctx: sessionCtx,
-      // Keep original finalized context in sync when command handlers need outer-dispatch side effects.
-      rootCtx: ctx,
+      ctx,
       cfg,
       command: commandInput,
       agentId,
@@ -364,21 +316,17 @@ export async function handleInlineActions(params: {
       storePath,
       sessionScope,
       workspaceDir,
-      opts,
       defaultGroupActivation: defaultActivation,
       resolvedThinkLevel,
       resolvedVerboseLevel: resolvedVerboseLevel ?? "off",
       resolvedReasoningLevel,
       resolvedElevatedLevel,
-      blockReplyChunking,
-      resolvedBlockStreamingBreak,
       resolveDefaultThinkingLevel,
       provider,
       model,
       contextTokens,
       isGroup,
       skillCommands,
-      typing,
     });
 
   if (inlineCommand) {
@@ -403,7 +351,7 @@ export async function handleInlineActions(params: {
 
   const isEmptyConfig = Object.keys(cfg).length === 0;
   const skipWhenConfigEmpty = command.channelId
-    ? Boolean(getChannelPlugin(command.channelId)?.commands?.skipWhenConfigEmpty)
+    ? Boolean(getChannelDock(command.channelId)?.commands?.skipWhenConfigEmpty)
     : false;
   if (
     skipWhenConfigEmpty &&

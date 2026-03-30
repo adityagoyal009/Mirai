@@ -7,7 +7,6 @@ import {
   archiveSessionTranscripts,
   readFirstUserMessageFromTranscript,
   readLastMessagePreviewFromTranscript,
-  readLatestSessionUsageFromTranscript,
   readSessionMessages,
   readSessionTitleFieldsFromTranscript,
   readSessionPreviewItemsFromTranscript,
@@ -52,7 +51,7 @@ describe("readFirstUserMessageFromTranscript", () => {
   let tmpDir: string;
   let storePath: string;
 
-  registerTempSessionStore("openclaw-session-fs-test-", (nextTmpDir, nextStorePath) => {
+  registerTempSessionStore("mirai-session-fs-test-", (nextTmpDir, nextStorePath) => {
     tmpDir = nextTmpDir;
     storePath = nextStorePath;
   });
@@ -184,7 +183,7 @@ describe("readLastMessagePreviewFromTranscript", () => {
   let tmpDir: string;
   let storePath: string;
 
-  registerTempSessionStore("openclaw-session-fs-test-", (nextTmpDir, nextStorePath) => {
+  registerTempSessionStore("mirai-session-fs-test-", (nextTmpDir, nextStorePath) => {
     tmpDir = nextTmpDir;
     storePath = nextStorePath;
   });
@@ -355,7 +354,7 @@ describe("shared transcript read behaviors", () => {
   let tmpDir: string;
   let storePath: string;
 
-  registerTempSessionStore("openclaw-session-fs-test-", (nextTmpDir, nextStorePath) => {
+  registerTempSessionStore("mirai-session-fs-test-", (nextTmpDir, nextStorePath) => {
     tmpDir = nextTmpDir;
     storePath = nextStorePath;
   });
@@ -416,7 +415,7 @@ describe("readSessionTitleFieldsFromTranscript cache", () => {
   let tmpDir: string;
   let storePath: string;
 
-  registerTempSessionStore("openclaw-session-fs-test-", (nextTmpDir, nextStorePath) => {
+  registerTempSessionStore("mirai-session-fs-test-", (nextTmpDir, nextStorePath) => {
     tmpDir = nextTmpDir;
     storePath = nextStorePath;
   });
@@ -468,7 +467,7 @@ describe("readSessionMessages", () => {
   let tmpDir: string;
   let storePath: string;
 
-  registerTempSessionStore("openclaw-session-fs-test-", (nextTmpDir, nextStorePath) => {
+  registerTempSessionStore("mirai-session-fs-test-", (nextTmpDir, nextStorePath) => {
     tmpDir = nextTmpDir;
     storePath = nextStorePath;
   });
@@ -496,13 +495,13 @@ describe("readSessionMessages", () => {
     const marker = out[1] as {
       role: string;
       content?: Array<{ text?: string }>;
-      __openclaw?: { kind?: string; id?: string };
+      __mirai?: { kind?: string; id?: string };
       timestamp?: number;
     };
     expect(marker.role).toBe("system");
     expect(marker.content?.[0]?.text).toBe("Compaction");
-    expect(marker.__openclaw?.kind).toBe("compaction");
-    expect(marker.__openclaw?.id).toBe("comp-1");
+    expect(marker.__mirai?.kind).toBe("compaction");
+    expect(marker.__mirai?.id).toBe("comp-1");
     expect(typeof marker.timestamp).toBe("number");
   });
 
@@ -551,9 +550,7 @@ describe("readSessionMessages", () => {
         testCase.wrongStorePath,
         testCase.sessionFile,
       );
-      expect(out).toHaveLength(1);
-      expect(out[0]).toMatchObject(testCase.message);
-      expect((out[0] as { __openclaw?: { seq?: number } }).__openclaw?.seq).toBe(1);
+      expect(out).toEqual([testCase.message]);
     }
   });
 });
@@ -562,7 +559,7 @@ describe("readSessionPreviewItemsFromTranscript", () => {
   let tmpDir: string;
   let storePath: string;
 
-  registerTempSessionStore("openclaw-session-preview-test-", (nextTmpDir, nextStorePath) => {
+  registerTempSessionStore("mirai-session-preview-test-", (nextTmpDir, nextStorePath) => {
     tmpDir = nextTmpDir;
     storePath = nextStorePath;
   });
@@ -651,169 +648,19 @@ describe("readSessionPreviewItemsFromTranscript", () => {
   });
 });
 
-describe("readLatestSessionUsageFromTranscript", () => {
-  let tmpDir: string;
-  let storePath: string;
-
-  registerTempSessionStore("openclaw-session-usage-test-", (nextTmpDir, nextStorePath) => {
-    tmpDir = nextTmpDir;
-    storePath = nextStorePath;
-  });
-
-  test("returns the latest assistant usage snapshot and skips delivery mirrors", () => {
-    const sessionId = "usage-session";
-    writeTranscript(tmpDir, sessionId, [
-      { type: "session", version: 1, id: sessionId },
-      {
-        message: {
-          role: "assistant",
-          provider: "openai",
-          model: "gpt-5.4",
-          usage: {
-            input: 1200,
-            output: 300,
-            cacheRead: 50,
-            cost: { total: 0.0042 },
-          },
-        },
-      },
-      {
-        message: {
-          role: "assistant",
-          provider: "openclaw",
-          model: "delivery-mirror",
-          usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-        },
-      },
-    ]);
-
-    expect(readLatestSessionUsageFromTranscript(sessionId, storePath)).toEqual({
-      modelProvider: "openai",
-      model: "gpt-5.4",
-      inputTokens: 1200,
-      outputTokens: 300,
-      cacheRead: 50,
-      totalTokens: 1250,
-      totalTokensFresh: true,
-      costUsd: 0.0042,
-    });
-  });
-
-  test("aggregates assistant usage across the full transcript and keeps the latest context snapshot", () => {
-    const sessionId = "usage-aggregate";
-    writeTranscript(tmpDir, sessionId, [
-      { type: "session", version: 1, id: sessionId },
-      {
-        message: {
-          role: "assistant",
-          provider: "anthropic",
-          model: "claude-sonnet-4-6",
-          usage: {
-            input: 1_800,
-            output: 400,
-            cacheRead: 600,
-            cost: { total: 0.0055 },
-          },
-        },
-      },
-      {
-        message: {
-          role: "assistant",
-          usage: {
-            input: 2_400,
-            output: 250,
-            cacheRead: 900,
-            cost: { total: 0.006 },
-          },
-        },
-      },
-    ]);
-
-    const snapshot = readLatestSessionUsageFromTranscript(sessionId, storePath);
-    expect(snapshot).toMatchObject({
-      modelProvider: "anthropic",
-      model: "claude-sonnet-4-6",
-      inputTokens: 4200,
-      outputTokens: 650,
-      cacheRead: 1500,
-      totalTokens: 3300,
-      totalTokensFresh: true,
-    });
-    expect(snapshot?.costUsd).toBeCloseTo(0.0115, 8);
-  });
-
-  test("reads earlier assistant usage outside the old tail window", () => {
-    const sessionId = "usage-full-transcript";
-    const filler = "x".repeat(20_000);
-    writeTranscript(tmpDir, sessionId, [
-      { type: "session", version: 1, id: sessionId },
-      {
-        message: {
-          role: "assistant",
-          provider: "openai",
-          model: "gpt-5.4",
-          usage: {
-            input: 1_000,
-            output: 200,
-            cacheRead: 100,
-            cost: { total: 0.0042 },
-          },
-        },
-      },
-      ...Array.from({ length: 80 }, () => ({ message: { role: "user", content: filler } })),
-      {
-        message: {
-          role: "assistant",
-          provider: "openai",
-          model: "gpt-5.4",
-          usage: {
-            input: 500,
-            output: 150,
-            cacheRead: 50,
-            cost: { total: 0.0021 },
-          },
-        },
-      },
-    ]);
-
-    const snapshot = readLatestSessionUsageFromTranscript(sessionId, storePath);
-    expect(snapshot).toMatchObject({
-      modelProvider: "openai",
-      model: "gpt-5.4",
-      inputTokens: 1500,
-      outputTokens: 350,
-      cacheRead: 150,
-      totalTokens: 550,
-      totalTokensFresh: true,
-    });
-    expect(snapshot?.costUsd).toBeCloseTo(0.0063, 8);
-  });
-
-  test("returns null when the transcript has no assistant usage snapshot", () => {
-    const sessionId = "usage-empty";
-    writeTranscript(tmpDir, sessionId, [
-      { type: "session", version: 1, id: sessionId },
-      { message: { role: "user", content: "hello" } },
-      { message: { role: "assistant", content: "hi" } },
-    ]);
-
-    expect(readLatestSessionUsageFromTranscript(sessionId, storePath)).toBeNull();
-  });
-});
-
 describe("resolveSessionTranscriptCandidates", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
   });
 
-  test("fallback candidate uses OPENCLAW_HOME instead of os.homedir()", () => {
-    vi.stubEnv("OPENCLAW_HOME", "/srv/openclaw-home");
+  test("fallback candidate uses MIRAI_HOME instead of os.homedir()", () => {
+    vi.stubEnv("MIRAI_HOME", "/srv/mirai-home");
     vi.stubEnv("HOME", "/home/other");
 
     const candidates = resolveSessionTranscriptCandidates("sess-1", undefined);
     const fallback = candidates[candidates.length - 1];
     expect(fallback).toBe(
-      path.join(path.resolve("/srv/openclaw-home"), ".openclaw", "sessions", "sess-1.jsonl"),
+      path.join(path.resolve("/srv/mirai-home"), ".mirai", "sessions", "sess-1.jsonl"),
     );
   });
 });
@@ -822,8 +669,8 @@ describe("resolveSessionTranscriptCandidates safety", () => {
   test("keeps cross-agent absolute sessionFile for standard and custom store roots", () => {
     const cases = [
       {
-        storePath: "/tmp/openclaw/agents/main/sessions/sessions.json",
-        sessionFile: "/tmp/openclaw/agents/ops/sessions/sess-safe.jsonl",
+        storePath: "/tmp/mirai/agents/main/sessions/sessions.json",
+        sessionFile: "/tmp/mirai/agents/ops/sessions/sess-safe.jsonl",
       },
       {
         storePath: "/srv/custom/agents/main/sessions/sessions.json",
@@ -846,14 +693,14 @@ describe("resolveSessionTranscriptCandidates safety", () => {
   test("drops unsafe session IDs instead of producing traversal paths", () => {
     const candidates = resolveSessionTranscriptCandidates(
       "../etc/passwd",
-      "/tmp/openclaw/agents/main/sessions/sessions.json",
+      "/tmp/mirai/agents/main/sessions/sessions.json",
     );
 
     expect(candidates).toEqual([]);
   });
 
   test("drops unsafe sessionFile candidates and keeps safe fallbacks", () => {
-    const storePath = "/tmp/openclaw/agents/main/sessions/sessions.json";
+    const storePath = "/tmp/mirai/agents/main/sessions/sessions.json";
     const candidates = resolveSessionTranscriptCandidates(
       "sess-safe",
       storePath,
@@ -871,13 +718,13 @@ describe("archiveSessionTranscripts", () => {
   let tmpDir: string;
   let storePath: string;
 
-  registerTempSessionStore("openclaw-archive-test-", (nextTmpDir, nextStorePath) => {
+  registerTempSessionStore("mirai-archive-test-", (nextTmpDir, nextStorePath) => {
     tmpDir = nextTmpDir;
     storePath = nextStorePath;
   });
 
   beforeAll(() => {
-    vi.stubEnv("OPENCLAW_HOME", tmpDir);
+    vi.stubEnv("MIRAI_HOME", tmpDir);
   });
 
   afterAll(() => {

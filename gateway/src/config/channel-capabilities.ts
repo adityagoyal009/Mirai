@@ -1,11 +1,10 @@
 import { normalizeChannelId } from "../channels/plugins/index.js";
 import { resolveAccountEntry } from "../routing/account-lookup.js";
 import { normalizeAccountId } from "../routing/session-key.js";
-import type { OpenClawConfig } from "./config.js";
-import type { SlackCapabilitiesConfig } from "./types.slack.js";
+import type { MiraiConfig } from "./config.js";
 import type { TelegramCapabilitiesConfig } from "./types.telegram.js";
 
-type CapabilitiesConfig = TelegramCapabilitiesConfig | SlackCapabilitiesConfig;
+type CapabilitiesConfig = TelegramCapabilitiesConfig;
 
 const isStringArray = (value: unknown): value is string[] =>
   Array.isArray(value) && value.every((entry) => typeof entry === "string");
@@ -44,7 +43,7 @@ function resolveAccountCapabilities(params: {
 }
 
 export function resolveChannelCapabilities(params: {
-  cfg?: Partial<OpenClawConfig>;
+  cfg?: Partial<MiraiConfig>;
   channel?: string | null;
   accountId?: string | null;
 }): string[] | undefined {

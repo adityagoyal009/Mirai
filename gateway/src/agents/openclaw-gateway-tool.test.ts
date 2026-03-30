@@ -4,33 +4,12 @@ import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { withEnvAsync } from "../test-utils/env.js";
 import "./test-helpers/fast-core-tools.js";
-import { createOpenClawTools } from "./openclaw-tools.js";
+import { createMiraiTools } from "./mirai-tools.js";
 
 vi.mock("./tools/gateway.js", () => ({
   callGatewayTool: vi.fn(async (method: string) => {
     if (method === "config.get") {
       return { hash: "hash-1" };
-    }
-    if (method === "config.schema.lookup") {
-      return {
-        path: "gateway.auth",
-        schema: {
-          type: "object",
-        },
-        hint: { label: "Gateway Auth" },
-        hintPath: "gateway.auth",
-        children: [
-          {
-            key: "token",
-            path: "gateway.auth.token",
-            type: "string",
-            required: true,
-            hasChildren: false,
-            hint: { label: "Token", sensitive: true },
-            hintPath: "gateway.auth.token",
-          },
-        ],
-      };
     }
     return { ok: true };
   }),
@@ -38,7 +17,7 @@ vi.mock("./tools/gateway.js", () => ({
 }));
 
 function requireGatewayTool(agentSessionKey?: string) {
-  const tool = createOpenClawTools({
+  const tool = createMiraiTools({
     ...(agentSessionKey ? { agentSessionKey } : {}),
     config: { commands: { restart: true } },
   }).find((candidate) => candidate.name === "gateway");
@@ -80,11 +59,11 @@ describe("gateway tool", () => {
   it("schedules SIGUSR1 restart", async () => {
     vi.useFakeTimers();
     const kill = vi.spyOn(process, "kill").mockImplementation(() => true);
-    const stateDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-test-"));
+    const stateDir = await fs.mkdtemp(path.join(os.tmpdir(), "mirai-test-"));
 
     try {
       await withEnvAsync(
-        { OPENCLAW_STATE_DIR: stateDir, OPENCLAW_PROFILE: "isolated" },
+        { MIRAI_STATE_DIR: stateDir, MIRAI_PROFILE: "isolated" },
         async () => {
           const tool = requireGatewayTool();
 
@@ -106,7 +85,7 @@ describe("gateway tool", () => {
           };
           expect(parsed.payload?.kind).toBe("restart");
           expect(parsed.payload?.doctorHint).toBe(
-            "Run: openclaw --profile isolated doctor --non-interactive",
+            "Run: mirai --profile isolated doctor --non-interactive",
           );
 
           expect(kill).not.toHaveBeenCalled();
@@ -126,7 +105,7 @@ describe("gateway tool", () => {
     const sessionKey = "agent:main:whatsapp:dm:+15555550123";
     const tool = requireGatewayTool(sessionKey);
 
-    const raw = '{\n  agents: { defaults: { workspace: "~/openclaw" } }\n}\n';
+    const raw = '{\n  agents: { defaults: { workspace: "~/mirai" } }\n}\n';
     await tool.execute("call2", {
       action: "config.apply",
       raw,
@@ -186,37 +165,5 @@ describe("gateway tool", () => {
       expect(opts).toMatchObject({ timeoutMs: 20 * 60_000 });
       expect(params).toMatchObject({ timeoutMs: 20 * 60_000 });
     }
-  });
-
-  it("returns a path-scoped schema lookup result", async () => {
-    const { callGatewayTool } = await import("./tools/gateway.js");
-    const tool = requireGatewayTool();
-
-    const result = await tool.execute("call5", {
-      action: "config.schema.lookup",
-      path: "gateway.auth",
-    });
-
-    expect(callGatewayTool).toHaveBeenCalledWith("config.schema.lookup", expect.any(Object), {
-      path: "gateway.auth",
-    });
-    expect(result.details).toMatchObject({
-      ok: true,
-      result: {
-        path: "gateway.auth",
-        hintPath: "gateway.auth",
-        children: [
-          expect.objectContaining({
-            key: "token",
-            path: "gateway.auth.token",
-            required: true,
-            hintPath: "gateway.auth.token",
-          }),
-        ],
-      },
-    });
-    const schema = (result.details as { result?: { schema?: { properties?: unknown } } }).result
-      ?.schema;
-    expect(schema?.properties).toBeUndefined();
   });
 });

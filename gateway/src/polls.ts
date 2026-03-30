@@ -26,13 +26,6 @@ type NormalizePollOptions = {
   maxOptions?: number;
 };
 
-export function resolvePollMaxSelections(
-  optionCount: number,
-  allowMultiselect: boolean | undefined,
-): number {
-  return allowMultiselect ? Math.max(2, optionCount) : 1;
-}
-
 export function normalizePollInput(
   input: PollInput,
   options: NormalizePollOptions = {},

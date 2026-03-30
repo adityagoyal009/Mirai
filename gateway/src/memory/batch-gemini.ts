@@ -4,15 +4,15 @@ import {
   type EmbeddingBatchExecutionParams,
 } from "./batch-runner.js";
 import { buildBatchHeaders, normalizeBatchBaseUrl } from "./batch-utils.js";
-import { sanitizeAndNormalizeEmbedding } from "./embedding-vectors.js";
 import { debugEmbeddingsLog } from "./embeddings-debug.js";
-import type { GeminiEmbeddingClient, GeminiTextEmbeddingRequest } from "./embeddings-gemini.js";
+import type { GeminiEmbeddingClient } from "./embeddings-gemini.js";
 import { hashText } from "./internal.js";
 import { withRemoteHttpResponse } from "./remote-http.js";
 
 export type GeminiBatchRequest = {
   custom_id: string;
-  request: GeminiTextEmbeddingRequest;
+  content: { parts: Array<{ text: string }> };
+  taskType: "RETRIEVAL_DOCUMENT" | "RETRIEVAL_QUERY";
 };
 
 export type GeminiBatchStatus = {
@@ -51,7 +51,7 @@ function buildGeminiUploadBody(params: { jsonl: string; displayName: string }): 
   body: Blob;
   contentType: string;
 } {
-  const boundary = `openclaw-${hashText(params.displayName)}`;
+  const boundary = `mirai-${hashText(params.displayName)}`;
   const jsonPart = JSON.stringify({
     file: {
       displayName: params.displayName,
@@ -82,7 +82,10 @@ async function submitGeminiBatch(params: {
     .map((request) =>
       JSON.stringify({
         key: request.custom_id,
-        request: request.request,
+        request: {
+          content: request.content,
+          task_type: request.taskType,
+        },
       }),
     )
     .join("\n");
@@ -347,9 +350,7 @@ export async function runGeminiEmbeddingBatches(
           errors.push(`${customId}: ${line.response.error.message}`);
           continue;
         }
-        const embedding = sanitizeAndNormalizeEmbedding(
-          line.embedding?.values ?? line.response?.embedding?.values ?? [],
-        );
+        const embedding = line.embedding?.values ?? line.response?.embedding?.values ?? [];
         if (embedding.length === 0) {
           errors.push(`${customId}: empty embedding`);
           continue;

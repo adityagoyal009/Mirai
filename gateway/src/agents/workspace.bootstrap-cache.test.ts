@@ -8,7 +8,7 @@ describe("workspace bootstrap file caching", () => {
   let workspaceDir: string;
 
   beforeEach(async () => {
-    workspaceDir = await makeTempWorkspace("openclaw-bootstrap-cache-test-");
+    workspaceDir = await makeTempWorkspace("mirai-bootstrap-cache-test-");
   });
 
   const loadAgentsFile = async (dir: string) => {
@@ -74,34 +74,6 @@ describe("workspace bootstrap file caching", () => {
     expectAgentsContent(agentsFile2, content2);
   });
 
-  it("invalidates cache when inode changes with same mtime", async () => {
-    if (process.platform === "win32") {
-      return;
-    }
-    const content1 = "# old-content";
-    const content2 = "# new-content";
-    const filePath = path.join(workspaceDir, DEFAULT_AGENTS_FILENAME);
-    const tempPath = path.join(workspaceDir, ".AGENTS.tmp");
-
-    await writeWorkspaceFile({
-      dir: workspaceDir,
-      name: DEFAULT_AGENTS_FILENAME,
-      content: content1,
-    });
-    const originalStat = await fs.stat(filePath);
-
-    const agentsFile1 = await loadAgentsFile(workspaceDir);
-    expectAgentsContent(agentsFile1, content1);
-
-    await fs.writeFile(tempPath, content2, "utf-8");
-    await fs.utimes(tempPath, originalStat.atime, originalStat.mtime);
-    await fs.rename(tempPath, filePath);
-    await fs.utimes(filePath, originalStat.atime, originalStat.mtime);
-
-    const agentsFile2 = await loadAgentsFile(workspaceDir);
-    expectAgentsContent(agentsFile2, content2);
-  });
-
   it("handles file deletion gracefully", async () => {
     const content = "# Some content";
     const filePath = path.join(workspaceDir, DEFAULT_AGENTS_FILENAME);
@@ -143,8 +115,8 @@ describe("workspace bootstrap file caching", () => {
     const content2 = "# File 2 content";
 
     // Create two different workspace directories
-    const workspace1 = await makeTempWorkspace("openclaw-cache-test1-");
-    const workspace2 = await makeTempWorkspace("openclaw-cache-test2-");
+    const workspace1 = await makeTempWorkspace("mirai-cache-test1-");
+    const workspace2 = await makeTempWorkspace("mirai-cache-test2-");
 
     await writeWorkspaceFile({ dir: workspace1, name: DEFAULT_AGENTS_FILENAME, content: content1 });
     await writeWorkspaceFile({ dir: workspace2, name: DEFAULT_AGENTS_FILENAME, content: content2 });

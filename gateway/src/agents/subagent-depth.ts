@@ -1,8 +1,8 @@
 import fs from "node:fs";
-import type { OpenClawConfig } from "../config/config.js";
+import JSON5 from "json5";
+import type { MiraiConfig } from "../config/config.js";
 import { resolveStorePath } from "../config/sessions/paths.js";
 import { getSubagentDepth, parseAgentSessionKey } from "../sessions/session-key-utils.js";
-import { parseJsonWithJson5Fallback } from "../utils/parse-json-compat.js";
 import { resolveDefaultAgentId } from "./agent-scope.js";
 
 type SessionDepthEntry = {
@@ -37,7 +37,7 @@ function normalizeSessionKey(value: unknown): string | undefined {
 function readSessionStore(storePath: string): Record<string, SessionDepthEntry> {
   try {
     const raw = fs.readFileSync(storePath, "utf-8");
-    const parsed = parseJsonWithJson5Fallback(raw);
+    const parsed = JSON5.parse(raw);
     if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
       return parsed as Record<string, SessionDepthEntry>;
     }
@@ -47,7 +47,7 @@ function readSessionStore(storePath: string): Record<string, SessionDepthEntry> 
   return {};
 }
 
-function buildKeyCandidates(rawKey: string, cfg?: OpenClawConfig): string[] {
+function buildKeyCandidates(rawKey: string, cfg?: MiraiConfig): string[] {
   if (!cfg) {
     return [rawKey];
   }
@@ -81,7 +81,7 @@ function findEntryBySessionId(
 
 function resolveEntryForSessionKey(params: {
   sessionKey: string;
-  cfg?: OpenClawConfig;
+  cfg?: MiraiConfig;
   store?: Record<string, SessionDepthEntry>;
   cache: Map<string, Record<string, SessionDepthEntry>>;
 }): SessionDepthEntry | undefined {
@@ -124,7 +124,7 @@ function resolveEntryForSessionKey(params: {
 export function getSubagentDepthFromSessionStore(
   sessionKey: string | undefined | null,
   opts?: {
-    cfg?: OpenClawConfig;
+    cfg?: MiraiConfig;
     store?: Record<string, SessionDepthEntry>;
   },
 ): number {

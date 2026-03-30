@@ -1,6 +1,6 @@
 import { ensureAuthProfileStore, listProfilesForProvider } from "../agents/auth-profiles.js";
 import { DEFAULT_MODEL, DEFAULT_PROVIDER } from "../agents/defaults.js";
-import { hasUsableCustomProviderApiKey, resolveEnvApiKey } from "../agents/model-auth.js";
+import { getCustomProviderApiKey, resolveEnvApiKey } from "../agents/model-auth.js";
 import { loadModelCatalog } from "../agents/model-catalog.js";
 import {
   buildAllowedModelSet,
@@ -9,18 +9,16 @@ import {
   normalizeProviderId,
   resolveConfiguredModelRef,
 } from "../agents/model-selection.js";
-import type { OpenClawConfig } from "../config/config.js";
+import type { MiraiConfig } from "../config/config.js";
 import { resolveAgentModelPrimaryValue } from "../config/model-input.js";
-import { applyPrimaryModel } from "../plugins/provider-model-primary.js";
-import type { ProviderPlugin } from "../plugins/types.js";
-import { createLazyRuntimeSurface } from "../shared/lazy-runtime.js";
 import type { WizardPrompter, WizardSelectOption } from "../wizard/prompts.js";
 import { formatTokenK } from "./models/shared.js";
-
-export { applyPrimaryModel } from "../plugins/provider-model-primary.js";
+import { OPENAI_CODEX_DEFAULT_MODEL } from "./openai-codex-model-default.js";
+import { promptAndConfigureVllm } from "./vllm-setup.js";
 
 const KEEP_VALUE = "__keep__";
 const MANUAL_VALUE = "__manual__";
+const VLLM_VALUE = "__vllm__";
 const PROVIDER_FILTER_THRESHOLD = 30;
 
 // Models that are internal routing features and should not be shown in selection lists.
@@ -29,35 +27,23 @@ const PROVIDER_FILTER_THRESHOLD = 30;
 const HIDDEN_ROUTER_MODELS = new Set(["openrouter/auto"]);
 
 type PromptDefaultModelParams = {
-  config: OpenClawConfig;
+  config: MiraiConfig;
   prompter: WizardPrompter;
   allowKeep?: boolean;
   includeManual?: boolean;
-  includeProviderPluginSetups?: boolean;
+  includeVllm?: boolean;
   ignoreAllowlist?: boolean;
   preferredProvider?: string;
   agentDir?: string;
-  workspaceDir?: string;
-  env?: NodeJS.ProcessEnv;
-  runtime?: import("../runtime.js").RuntimeEnv;
   message?: string;
 };
 
-type PromptDefaultModelResult = { model?: string; config?: OpenClawConfig };
+type PromptDefaultModelResult = { model?: string; config?: MiraiConfig };
 type PromptModelAllowlistResult = { models?: string[] };
-
-async function loadModelPickerRuntime() {
-  return import("./model-picker.runtime.js");
-}
-
-const loadResolvedModelPickerRuntime = createLazyRuntimeSurface(
-  loadModelPickerRuntime,
-  ({ modelPickerRuntime }) => modelPickerRuntime,
-);
 
 function hasAuthForProvider(
   provider: string,
-  cfg: OpenClawConfig,
+  cfg: MiraiConfig,
   store: ReturnType<typeof ensureAuthProfileStore>,
 ) {
   if (listProfilesForProvider(store, provider).length > 0) {
@@ -66,14 +52,14 @@ function hasAuthForProvider(
   if (resolveEnvApiKey(provider)) {
     return true;
   }
-  if (hasUsableCustomProviderApiKey(cfg, provider)) {
+  if (getCustomProviderApiKey(cfg, provider)) {
     return true;
   }
   return false;
 }
 
 function createProviderAuthChecker(params: {
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   agentDir?: string;
 }): (provider: string) => boolean {
   const authStore = ensureAuthProfileStore(params.agentDir, {
@@ -91,11 +77,11 @@ function createProviderAuthChecker(params: {
   };
 }
 
-function resolveConfiguredModelRaw(cfg: OpenClawConfig): string {
+function resolveConfiguredModelRaw(cfg: MiraiConfig): string {
   return resolveAgentModelPrimaryValue(cfg.agents?.defaults?.model) ?? "";
 }
 
-function resolveConfiguredModelKeys(cfg: OpenClawConfig): string[] {
+function resolveConfiguredModelKeys(cfg: MiraiConfig): string[] {
   const models = cfg.agents?.defaults?.models ?? {};
   return Object.keys(models)
     .map((key) => String(key ?? "").trim())
@@ -162,6 +148,14 @@ function addModelSelectOption(params: {
   params.seen.add(key);
 }
 
+function isAnthropicLegacyModel(entry: { provider: string; id: string }): boolean {
+  return (
+    entry.provider === "anthropic" &&
+    typeof entry.id === "string" &&
+    entry.id.toLowerCase().startsWith("claude-3")
+  );
+}
+
 async function promptManualModel(params: {
   prompter: WizardPrompter;
   allowBlank: boolean;
@@ -186,7 +180,7 @@ export async function promptDefaultModel(
   const cfg = params.config;
   const allowKeep = params.allowKeep ?? true;
   const includeManual = params.includeManual ?? true;
-  const includeProviderPluginSetups = params.includeProviderPluginSetups ?? false;
+  const includeVllm = params.includeVllm ?? false;
   const ignoreAllowlist = params.ignoreAllowlist ?? false;
   const preferredProviderRaw = params.preferredProvider?.trim();
   const preferredProvider = preferredProviderRaw
@@ -233,19 +227,19 @@ export async function promptDefaultModel(
     });
   }
 
-  const providerIds = Array.from(new Set(models.map((entry) => entry.provider))).toSorted((a, b) =>
+  const providers = Array.from(new Set(models.map((entry) => entry.provider))).toSorted((a, b) =>
     a.localeCompare(b),
   );
 
-  const hasPreferredProvider = preferredProvider ? providerIds.includes(preferredProvider) : false;
+  const hasPreferredProvider = preferredProvider ? providers.includes(preferredProvider) : false;
   const shouldPromptProvider =
-    !hasPreferredProvider && providerIds.length > 1 && models.length > PROVIDER_FILTER_THRESHOLD;
+    !hasPreferredProvider && providers.length > 1 && models.length > PROVIDER_FILTER_THRESHOLD;
   if (shouldPromptProvider) {
     const selection = await params.prompter.select({
       message: "Filter models by provider",
       options: [
         { value: "*", label: "All providers" },
-        ...providerIds.map((provider) => {
+        ...providers.map((provider) => {
           const count = models.filter((entry) => entry.provider === provider).length;
           return {
             value: provider,
@@ -270,6 +264,9 @@ export async function promptDefaultModel(
       }
       return entry.provider === preferredProvider;
     });
+    if (preferredProvider === "anthropic") {
+      models = models.filter((entry) => !isAnthropicLegacyModel(entry));
+    }
   }
 
   const agentDir = params.agentDir;
@@ -289,15 +286,12 @@ export async function promptDefaultModel(
   if (includeManual) {
     options.push({ value: MANUAL_VALUE, label: "Enter model manually" });
   }
-  if (includeProviderPluginSetups && agentDir) {
-    const { resolveProviderModelPickerEntries } = await loadResolvedModelPickerRuntime();
-    options.push(
-      ...resolveProviderModelPickerEntries({
-        config: cfg,
-        workspaceDir: params.workspaceDir,
-        env: params.env,
-      }),
-    );
+  if (includeVllm && agentDir) {
+    options.push({
+      value: VLLM_VALUE,
+      label: "vLLM (custom)",
+      hint: "Enter vLLM URL + API key + model",
+    });
   }
 
   const seen = new Set<string>();
@@ -343,87 +337,27 @@ export async function promptDefaultModel(
       initialValue: configuredRaw || resolvedKey || undefined,
     });
   }
-
-  let pluginResolution: string | null = null;
-  let pluginProviders: ProviderPlugin[] = [];
-  if (selection.startsWith("provider-plugin:")) {
-    pluginResolution = selection;
-  } else if (!selection.includes("/")) {
-    const { resolvePluginProviders } = await loadResolvedModelPickerRuntime();
-    pluginProviders = resolvePluginProviders({
-      config: cfg,
-      workspaceDir: params.workspaceDir,
-      env: params.env,
-    });
-    pluginResolution = pluginProviders.some(
-      (provider) => normalizeProviderId(provider.id) === normalizeProviderId(selection),
-    )
-      ? selection
-      : null;
-  }
-  if (pluginResolution) {
-    if (!agentDir || !params.runtime) {
+  if (selection === VLLM_VALUE) {
+    if (!agentDir) {
       await params.prompter.note(
-        "Provider setup requires agent and runtime context.",
-        "Provider setup unavailable",
+        "vLLM setup requires an agent directory context.",
+        "vLLM not available",
       );
       return {};
     }
-    const {
-      resolvePluginProviders,
-      resolveProviderPluginChoice,
-      runProviderModelSelectedHook,
-      runProviderPluginAuthMethod,
-    } = await loadResolvedModelPickerRuntime();
-    if (pluginProviders.length === 0) {
-      pluginProviders = resolvePluginProviders({
-        config: cfg,
-        workspaceDir: params.workspaceDir,
-        env: params.env,
-      });
-    }
-    const resolved = resolveProviderPluginChoice({
-      providers: pluginProviders,
-      choice: pluginResolution,
-    });
-    if (!resolved) {
-      return {};
-    }
-    const applied = await runProviderPluginAuthMethod({
-      config: cfg,
-      runtime: params.runtime,
+    const { config: nextConfig, modelRef } = await promptAndConfigureVllm({
+      cfg,
       prompter: params.prompter,
-      method: resolved.method,
       agentDir,
-      workspaceDir: params.workspaceDir,
     });
-    if (applied.defaultModel) {
-      await runProviderModelSelectedHook({
-        config: applied.config,
-        model: applied.defaultModel,
-        prompter: params.prompter,
-        agentDir,
-        workspaceDir: params.workspaceDir,
-        env: params.env,
-      });
-    }
-    return { model: applied.defaultModel, config: applied.config };
+
+    return { model: modelRef, config: nextConfig };
   }
-  const model = String(selection);
-  const { runProviderModelSelectedHook } = await loadResolvedModelPickerRuntime();
-  await runProviderModelSelectedHook({
-    config: cfg,
-    model,
-    prompter: params.prompter,
-    agentDir,
-    workspaceDir: params.workspaceDir,
-    env: params.env,
-  });
-  return { model };
+  return { model: String(selection) };
 }
 
 export async function promptModelAllowlist(params: {
-  config: OpenClawConfig;
+  config: MiraiConfig;
   prompter: WizardPrompter;
   message?: string;
   agentDir?: string;
@@ -456,7 +390,7 @@ export async function promptModelAllowlist(params: {
         params.message ??
         "Allowlist models (comma-separated provider/model; blank to keep current)",
       initialValue: existingKeys.join(", "),
-      placeholder: "provider/model, other-provider/model",
+      placeholder: `${OPENAI_CODEX_DEFAULT_MODEL}, anthropic/claude-opus-4-6`,
     });
     const parsed = String(raw ?? "")
       .split(",")
@@ -525,7 +459,34 @@ export async function promptModelAllowlist(params: {
   return { models: [] };
 }
 
-export function applyModelAllowlist(cfg: OpenClawConfig, models: string[]): OpenClawConfig {
+export function applyPrimaryModel(cfg: MiraiConfig, model: string): MiraiConfig {
+  const defaults = cfg.agents?.defaults;
+  const existingModel = defaults?.model;
+  const existingModels = defaults?.models;
+  const fallbacks =
+    typeof existingModel === "object" && existingModel !== null && "fallbacks" in existingModel
+      ? (existingModel as { fallbacks?: string[] }).fallbacks
+      : undefined;
+  return {
+    ...cfg,
+    agents: {
+      ...cfg.agents,
+      defaults: {
+        ...defaults,
+        model: {
+          ...(fallbacks ? { fallbacks } : undefined),
+          primary: model,
+        },
+        models: {
+          ...existingModels,
+          [model]: existingModels?.[model] ?? {},
+        },
+      },
+    },
+  };
+}
+
+export function applyModelAllowlist(cfg: MiraiConfig, models: string[]): MiraiConfig {
   const defaults = cfg.agents?.defaults;
   const normalized = normalizeModelKeys(models);
   if (normalized.length === 0) {
@@ -561,9 +522,9 @@ export function applyModelAllowlist(cfg: OpenClawConfig, models: string[]): Open
 }
 
 export function applyModelFallbacksFromSelection(
-  cfg: OpenClawConfig,
+  cfg: MiraiConfig,
   selection: string[],
-): OpenClawConfig {
+): MiraiConfig {
   const normalized = normalizeModelKeys(selection);
   if (normalized.length <= 1) {
     return cfg;

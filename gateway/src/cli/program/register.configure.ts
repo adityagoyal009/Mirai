@@ -11,11 +11,11 @@ import { runCommandWithRuntime } from "../cli-utils.js";
 export function registerConfigureCommand(program: Command) {
   program
     .command("configure")
-    .description("Interactive configuration for credentials, channels, gateway, and agent defaults")
+    .description("Interactive setup wizard for credentials, channels, gateway, and agent defaults")
     .addHelpText(
       "after",
       () =>
-        `\n${theme.muted("Docs:")} ${formatDocsLink("/cli/configure", "github.com/adityagoyal009/Mirai/tree/main/gateway/docs/cli/configure")}\n`,
+        `\n${theme.muted("Docs:")} ${formatDocsLink("/cli/configure", "docs.mirai.ai/cli/configure")}\n`,
     )
     .option(
       "--section <section>",

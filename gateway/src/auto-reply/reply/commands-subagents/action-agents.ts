@@ -1,55 +1,23 @@
-import { getSessionBindingService } from "../../../infra/outbound/session-binding-service.js";
+import { getThreadBindingManager } from "../../../discord/monitor/thread-bindings.js";
 import type { CommandHandlerResult } from "../commands-types.js";
 import { formatRunLabel, sortSubagentRuns } from "../subagents-utils.js";
 import {
   type SubagentsCommandContext,
-  resolveChannelAccountId,
-  resolveCommandSurfaceChannel,
+  isDiscordSurface,
+  resolveDiscordAccountId,
   stopWithText,
 } from "./shared.js";
 
-function formatConversationBindingText(params: {
-  channel: string;
-  conversationId: string;
-}): string {
-  if (params.channel === "discord") {
-    return `thread:${params.conversationId}`;
-  }
-  if (params.channel === "telegram") {
-    return `conversation:${params.conversationId}`;
-  }
-  return `binding:${params.conversationId}`;
-}
-
 export function handleSubagentsAgentsAction(ctx: SubagentsCommandContext): CommandHandlerResult {
   const { params, requesterKey, runs } = ctx;
-  const channel = resolveCommandSurfaceChannel(params);
-  const accountId = resolveChannelAccountId(params);
-  const bindingService = getSessionBindingService();
-  const bindingsBySession = new Map<string, ReturnType<typeof bindingService.listBySession>>();
-
-  const resolveSessionBindings = (sessionKey: string) => {
-    const cached = bindingsBySession.get(sessionKey);
-    if (cached) {
-      return cached;
-    }
-    const resolved = bindingService
-      .listBySession(sessionKey)
-      .filter(
-        (entry) =>
-          entry.status === "active" &&
-          entry.conversation.channel === channel &&
-          entry.conversation.accountId === accountId,
-      );
-    bindingsBySession.set(sessionKey, resolved);
-    return resolved;
-  };
-
+  const isDiscord = isDiscordSurface(params);
+  const accountId = isDiscord ? resolveDiscordAccountId(params) : undefined;
+  const threadBindings = accountId ? getThreadBindingManager(accountId) : null;
   const visibleRuns = sortSubagentRuns(runs).filter((entry) => {
     if (!entry.endedAt) {
       return true;
     }
-    return resolveSessionBindings(entry.childSessionKey).length > 0;
+    return Boolean(threadBindings?.listBySessionKey(entry.childSessionKey)[0]);
   });
 
   const lines = ["agents:", "-----"];
@@ -58,36 +26,28 @@ export function handleSubagentsAgentsAction(ctx: SubagentsCommandContext): Comma
   } else {
     let index = 1;
     for (const entry of visibleRuns) {
-      const binding = resolveSessionBindings(entry.childSessionKey)[0];
-      const bindingText = binding
-        ? formatConversationBindingText({
-            channel,
-            conversationId: binding.conversation.conversationId,
-          })
-        : channel === "discord" || channel === "telegram"
+      const threadBinding = threadBindings?.listBySessionKey(entry.childSessionKey)[0];
+      const bindingText = threadBinding
+        ? `thread:${threadBinding.threadId}`
+        : isDiscord
           ? "unbound"
-          : "bindings available on discord/telegram";
+          : "bindings available on discord";
       lines.push(`${index}. ${formatRunLabel(entry)} (${bindingText})`);
       index += 1;
     }
   }
 
-  const requesterBindings = resolveSessionBindings(requesterKey).filter(
-    (entry) => entry.targetKind === "session",
-  );
-  if (requesterBindings.length > 0) {
-    lines.push("", "acp/session bindings:", "-----");
-    for (const binding of requesterBindings) {
-      const label =
-        typeof binding.metadata?.label === "string" && binding.metadata.label.trim()
-          ? binding.metadata.label.trim()
-          : binding.targetSessionKey;
-      lines.push(
-        `- ${label} (${formatConversationBindingText({
-          channel,
-          conversationId: binding.conversation.conversationId,
-        })}, session:${binding.targetSessionKey})`,
-      );
+  if (threadBindings) {
+    const acpBindings = threadBindings
+      .listBindings()
+      .filter((entry) => entry.targetKind === "acp" && entry.targetSessionKey === requesterKey);
+    if (acpBindings.length > 0) {
+      lines.push("", "acp/session bindings:", "-----");
+      for (const binding of acpBindings) {
+        lines.push(
+          `- ${binding.label ?? binding.targetSessionKey} (thread:${binding.threadId}, session:${binding.targetSessionKey})`,
+        );
+      }
     }
   }
 

@@ -630,18 +630,6 @@ const STOP_WORDS_ZH = new Set([
   "告诉",
 ]);
 
-export function isQueryStopWordToken(token: string): boolean {
-  return (
-    STOP_WORDS_EN.has(token) ||
-    STOP_WORDS_ES.has(token) ||
-    STOP_WORDS_PT.has(token) ||
-    STOP_WORDS_AR.has(token) ||
-    STOP_WORDS_ZH.has(token) ||
-    STOP_WORDS_KO.has(token) ||
-    STOP_WORDS_JA.has(token)
-  );
-}
-
 /**
  * Check if a token looks like a meaningful keyword.
  * Returns false for short tokens, numbers-only, etc.
@@ -739,7 +727,15 @@ export function extractKeywords(query: string): string[] {
 
   for (const token of tokens) {
     // Skip stop words
-    if (isQueryStopWordToken(token)) {
+    if (
+      STOP_WORDS_EN.has(token) ||
+      STOP_WORDS_ES.has(token) ||
+      STOP_WORDS_PT.has(token) ||
+      STOP_WORDS_AR.has(token) ||
+      STOP_WORDS_ZH.has(token) ||
+      STOP_WORDS_KO.has(token) ||
+      STOP_WORDS_JA.has(token)
+    ) {
       continue;
     }
     // Skip invalid keywords

@@ -2,11 +2,10 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { parseTelegramTarget } from "../../extensions/telegram/src/targets.js";
-import { whatsappOutbound } from "../../test/channel-outbounds.js";
 import { HEARTBEAT_PROMPT } from "../auto-reply/heartbeat.js";
 import * as replyModule from "../auto-reply/reply.js";
-import type { OpenClawConfig } from "../config/config.js";
+import { whatsappOutbound } from "../channels/plugins/outbound/whatsapp.js";
+import type { MiraiConfig } from "../config/config.js";
 import {
   resolveAgentIdFromSessionKey,
   resolveAgentMainSessionKey,
@@ -39,9 +38,12 @@ let testRegistry: ReturnType<typeof getActivePluginRegistry> | null = null;
 let fixtureRoot = "";
 let fixtureCount = 0;
 
-const createCaseDir = async (prefix: string) => {
+const createCaseDir = async (prefix: string, { skipHeartbeatFile = false } = {}) => {
   const dir = path.join(fixtureRoot, `${prefix}-${fixtureCount++}`);
   await fs.mkdir(dir, { recursive: true });
+  if (!skipHeartbeatFile) {
+    await fs.writeFile(path.join(dir, "HEARTBEAT.md"), "- Check status\n", "utf-8");
+  }
   return dir;
 };
 
@@ -60,39 +62,25 @@ beforeAll(async () => {
     outbound: {
       deliveryMode: "direct",
       sendText: async ({ to, text, deps, accountId }) => {
-        if (!deps?.["telegram"]) {
+        if (!deps?.sendTelegram) {
           throw new Error("sendTelegram missing");
         }
-        const res = await (deps["telegram"] as Function)(to, text, {
+        const res = await deps.sendTelegram(to, text, {
           verbose: false,
           accountId: accountId ?? undefined,
         });
         return { channel: "telegram", messageId: res.messageId, chatId: res.chatId };
       },
       sendMedia: async ({ to, text, mediaUrl, deps, accountId }) => {
-        if (!deps?.["telegram"]) {
+        if (!deps?.sendTelegram) {
           throw new Error("sendTelegram missing");
         }
-        const res = await (deps["telegram"] as Function)(to, text, {
+        const res = await deps.sendTelegram(to, text, {
           verbose: false,
           accountId: accountId ?? undefined,
           mediaUrl,
         });
         return { channel: "telegram", messageId: res.messageId, chatId: res.chatId };
-      },
-    },
-    messaging: {
-      parseExplicitTarget: ({ raw }) => {
-        const target = parseTelegramTarget(raw);
-        return {
-          to: target.chatId,
-          threadId: target.messageThreadId,
-          chatType: target.chatType === "unknown" ? undefined : target.chatType,
-        };
-      },
-      inferTargetChatType: ({ to }) => {
-        const target = parseTelegramTarget(to);
-        return target.chatType === "unknown" ? undefined : target.chatType;
       },
     },
   });
@@ -115,7 +103,7 @@ beforeAll(async () => {
   ]);
   setActivePluginRegistry(testRegistry);
 
-  fixtureRoot = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-heartbeat-suite-"));
+  fixtureRoot = await fs.mkdtemp(path.join(os.tmpdir(), "mirai-heartbeat-suite-"));
 });
 
 beforeEach(() => {
@@ -184,11 +172,11 @@ describe("resolveHeartbeatIntervalMs", () => {
 describe("resolveHeartbeatPrompt", () => {
   it("uses default or trimmed override prompts", () => {
     const cases = [
-      { cfg: {} as OpenClawConfig, expected: HEARTBEAT_PROMPT },
+      { cfg: {} as MiraiConfig, expected: HEARTBEAT_PROMPT },
       {
         cfg: {
           agents: { defaults: { heartbeat: { prompt: "  ping  " } } },
-        } as OpenClawConfig,
+        } as MiraiConfig,
         expected: "ping",
       },
     ] as const;
@@ -200,7 +188,7 @@ describe("resolveHeartbeatPrompt", () => {
 
 describe("isHeartbeatEnabledForAgent", () => {
   it("enables only explicit heartbeat agents when configured", () => {
-    const cfg: OpenClawConfig = {
+    const cfg: MiraiConfig = {
       agents: {
         defaults: { heartbeat: { every: "30m" } },
         list: [{ id: "main" }, { id: "ops", heartbeat: { every: "1h" } }],
@@ -211,7 +199,7 @@ describe("isHeartbeatEnabledForAgent", () => {
   });
 
   it("falls back to default agent when no explicit heartbeat entries", () => {
-    const cfg: OpenClawConfig = {
+    const cfg: MiraiConfig = {
       agents: {
         defaults: { heartbeat: { every: "30m" } },
         list: [{ id: "main" }, { id: "ops" }],
@@ -231,7 +219,7 @@ describe("resolveHeartbeatDeliveryTarget", () => {
   it("resolves target variants across route and allowlist rules", () => {
     const cases: Array<{
       name: string;
-      cfg: OpenClawConfig;
+      cfg: MiraiConfig;
       entry: typeof baseEntry & {
         lastChannel?: "whatsapp" | "telegram" | "webchat";
         lastTo?: string;
@@ -376,7 +364,7 @@ describe("resolveHeartbeatDeliveryTarget", () => {
       { to: "-100111", expectedTo: "-100111", expectedThreadId: undefined },
     ] as const;
     for (const testCase of cases) {
-      const cfg: OpenClawConfig = {
+      const cfg: MiraiConfig = {
         agents: {
           defaults: {
             heartbeat: { target: "telegram", to: testCase.to },
@@ -415,7 +403,7 @@ describe("resolveHeartbeatDeliveryTarget", () => {
     ] as const;
 
     for (const testCase of cases) {
-      const cfg: OpenClawConfig = {
+      const cfg: MiraiConfig = {
         agents: {
           defaults: {
             heartbeat: { target: "telegram", to: "-100123", accountId: testCase.accountId },
@@ -428,7 +416,7 @@ describe("resolveHeartbeatDeliveryTarget", () => {
   });
 
   it("prefers per-agent heartbeat overrides when provided", () => {
-    const cfg: OpenClawConfig = {
+    const cfg: MiraiConfig = {
       agents: { defaults: { heartbeat: { target: "telegram", to: "-100123" } } },
     };
     const heartbeat = { target: "whatsapp", to: "120363401234567890@g.us" } as const;
@@ -450,7 +438,7 @@ describe("resolveHeartbeatDeliveryTarget", () => {
 
 describe("resolveHeartbeatSenderContext", () => {
   it("prefers delivery accountId for allowFrom resolution", () => {
-    const cfg: OpenClawConfig = {
+    const cfg: MiraiConfig = {
       channels: {
         telegram: {
           allowFrom: ["111"],
@@ -483,14 +471,10 @@ describe("resolveHeartbeatSenderContext", () => {
 
 describe("runHeartbeatOnce", () => {
   const createHeartbeatDeps = (
-    sendWhatsApp: (
-      to: string,
-      text: string,
-      opts?: unknown,
-    ) => Promise<{ messageId: string; toJid: string }>,
+    sendWhatsApp: NonNullable<HeartbeatDeps["sendWhatsApp"]>,
     nowMs = 0,
   ): HeartbeatDeps => ({
-    whatsapp: sendWhatsApp,
+    sendWhatsApp,
     getQueueSize: () => 0,
     nowMs: () => nowMs,
     webAuthExists: async () => true,
@@ -498,7 +482,7 @@ describe("runHeartbeatOnce", () => {
   });
 
   it("skips when agent heartbeat is not enabled", async () => {
-    const cfg: OpenClawConfig = {
+    const cfg: MiraiConfig = {
       agents: {
         defaults: { heartbeat: { every: "30m" } },
         list: [{ id: "main" }, { id: "ops", heartbeat: { every: "1h" } }],
@@ -513,7 +497,7 @@ describe("runHeartbeatOnce", () => {
   });
 
   it("skips outside active hours", async () => {
-    const cfg: OpenClawConfig = {
+    const cfg: MiraiConfig = {
       agents: {
         defaults: {
           userTimezone: "UTC",
@@ -541,7 +525,7 @@ describe("runHeartbeatOnce", () => {
     const storePath = path.join(tmpDir, "sessions.json");
     const replySpy = vi.spyOn(replyModule, "getReplyFromConfig");
     try {
-      const cfg: OpenClawConfig = {
+      const cfg: MiraiConfig = {
         agents: {
           defaults: {
             workspace: tmpDir,
@@ -566,18 +550,10 @@ describe("runHeartbeatOnce", () => {
       );
 
       replySpy.mockResolvedValue([{ text: "Let me check..." }, { text: "Final alert" }]);
-      const sendWhatsApp = vi
-        .fn<
-          (
-            to: string,
-            text: string,
-            opts?: unknown,
-          ) => Promise<{ messageId: string; toJid: string }>
-        >()
-        .mockResolvedValue({
-          messageId: "m1",
-          toJid: "jid",
-        });
+      const sendWhatsApp = vi.fn<NonNullable<HeartbeatDeps["sendWhatsApp"]>>().mockResolvedValue({
+        messageId: "m1",
+        toJid: "jid",
+      });
 
       await runHeartbeatOnce({
         cfg,
@@ -600,7 +576,7 @@ describe("runHeartbeatOnce", () => {
     const storePath = path.join(tmpDir, "sessions.json");
     const replySpy = vi.spyOn(replyModule, "getReplyFromConfig");
     try {
-      const cfg: OpenClawConfig = {
+      const cfg: MiraiConfig = {
         agents: {
           defaults: {
             heartbeat: { every: "30m", prompt: "Default prompt" },
@@ -631,18 +607,10 @@ describe("runHeartbeatOnce", () => {
         }),
       );
       replySpy.mockResolvedValue([{ text: "Final alert" }]);
-      const sendWhatsApp = vi
-        .fn<
-          (
-            to: string,
-            text: string,
-            opts?: unknown,
-          ) => Promise<{ messageId: string; toJid: string }>
-        >()
-        .mockResolvedValue({
-          messageId: "m1",
-          toJid: "jid",
-        });
+      const sendWhatsApp = vi.fn<NonNullable<HeartbeatDeps["sendWhatsApp"]>>().mockResolvedValue({
+        messageId: "m1",
+        toJid: "jid",
+      });
       await runHeartbeatOnce({
         cfg,
         agentId: "ops",
@@ -678,7 +646,7 @@ describe("runHeartbeatOnce", () => {
     const replySpy = vi.spyOn(replyModule, "getReplyFromConfig");
     const agentId = "ops";
     try {
-      const cfg: OpenClawConfig = {
+      const cfg: MiraiConfig = {
         agents: {
           defaults: {
             heartbeat: { every: "30m", prompt: "Default prompt" },
@@ -717,18 +685,10 @@ describe("runHeartbeatOnce", () => {
       );
 
       replySpy.mockResolvedValue([{ text: "Final alert" }]);
-      const sendWhatsApp = vi
-        .fn<
-          (
-            to: string,
-            text: string,
-            opts?: unknown,
-          ) => Promise<{ messageId: string; toJid: string }>
-        >()
-        .mockResolvedValue({
-          messageId: "m1",
-          toJid: "jid",
-        });
+      const sendWhatsApp = vi.fn<NonNullable<HeartbeatDeps["sendWhatsApp"]>>().mockResolvedValue({
+        messageId: "m1",
+        toJid: "jid",
+      });
       const result = await runHeartbeatOnce({
         cfg,
         agentId,
@@ -766,7 +726,7 @@ describe("runHeartbeatOnce", () => {
         peerKind: "group" | "direct";
         peerId: string;
         message: string;
-        applyOverride: (params: { cfg: OpenClawConfig; sessionKey: string }) => void;
+        applyOverride: (params: { cfg: MiraiConfig; sessionKey: string }) => void;
         runOptions: (params: { sessionKey: string }) => { sessionKey?: string };
       }>([
         {
@@ -775,7 +735,7 @@ describe("runHeartbeatOnce", () => {
           peerKind: "group" as const,
           peerId: "120363401234567890@g.us",
           message: "Group alert",
-          applyOverride: ({ cfg, sessionKey }: { cfg: OpenClawConfig; sessionKey: string }) => {
+          applyOverride: ({ cfg, sessionKey }: { cfg: MiraiConfig; sessionKey: string }) => {
             if (cfg.agents?.defaults?.heartbeat) {
               cfg.agents.defaults.heartbeat.session = sessionKey;
             }
@@ -798,7 +758,7 @@ describe("runHeartbeatOnce", () => {
       for (const testCase of cases) {
         const tmpDir = await createCaseDir(testCase.caseDir);
         const storePath = path.join(tmpDir, "sessions.json");
-        const cfg: OpenClawConfig = {
+        const cfg: MiraiConfig = {
           agents: {
             defaults: {
               workspace: tmpDir,
@@ -842,13 +802,7 @@ describe("runHeartbeatOnce", () => {
         replySpy.mockClear();
         replySpy.mockResolvedValue([{ text: testCase.message }]);
         const sendWhatsApp = vi
-          .fn<
-            (
-              to: string,
-              text: string,
-              opts?: unknown,
-            ) => Promise<{ messageId: string; toJid: string }>
-          >()
+          .fn<NonNullable<HeartbeatDeps["sendWhatsApp"]>>()
           .mockResolvedValue({ messageId: "m1", toJid: "jid" });
 
         await runHeartbeatOnce({
@@ -884,7 +838,7 @@ describe("runHeartbeatOnce", () => {
     const storePath = path.join(tmpDir, "sessions.json");
     const replySpy = vi.spyOn(replyModule, "getReplyFromConfig");
     try {
-      const cfg: OpenClawConfig = {
+      const cfg: MiraiConfig = {
         agents: {
           defaults: {
             workspace: tmpDir,
@@ -912,13 +866,7 @@ describe("runHeartbeatOnce", () => {
 
       replySpy.mockResolvedValue([{ text: "Final alert" }]);
       const sendWhatsApp = vi
-        .fn<
-          (
-            to: string,
-            text: string,
-            opts?: unknown,
-          ) => Promise<{ messageId: string; toJid: string }>
-        >()
+        .fn<NonNullable<HeartbeatDeps["sendWhatsApp"]>>()
         .mockResolvedValue({ messageId: "m1", toJid: "jid" });
 
       await runHeartbeatOnce({
@@ -958,7 +906,7 @@ describe("runHeartbeatOnce", () => {
       for (const testCase of cases) {
         const tmpDir = await createCaseDir(testCase.caseDir);
         const storePath = path.join(tmpDir, "sessions.json");
-        const cfg: OpenClawConfig = {
+        const cfg: MiraiConfig = {
           agents: {
             defaults: {
               workspace: tmpDir,
@@ -990,13 +938,7 @@ describe("runHeartbeatOnce", () => {
         replySpy.mockClear();
         replySpy.mockResolvedValue(testCase.replies);
         const sendWhatsApp = vi
-          .fn<
-            (
-              to: string,
-              text: string,
-              opts?: unknown,
-            ) => Promise<{ messageId: string; toJid: string }>
-          >()
+          .fn<NonNullable<HeartbeatDeps["sendWhatsApp"]>>()
           .mockResolvedValue({ messageId: "m1", toJid: "jid" });
 
         await runHeartbeatOnce({
@@ -1020,11 +962,11 @@ describe("runHeartbeatOnce", () => {
   });
 
   it("loads the default agent session from templated stores", async () => {
-    const tmpDir = await createCaseDir("openclaw-hb");
+    const tmpDir = await createCaseDir("mirai-hb");
     const storeTemplate = path.join(tmpDir, "agents", "{agentId}", "sessions.json");
     const replySpy = vi.spyOn(replyModule, "getReplyFromConfig");
     try {
-      const cfg: OpenClawConfig = {
+      const cfg: MiraiConfig = {
         agents: {
           defaults: { workspace: tmpDir, heartbeat: { every: "5m", target: "whatsapp" } },
           list: [{ id: "work", default: true }],
@@ -1051,18 +993,10 @@ describe("runHeartbeatOnce", () => {
       );
 
       replySpy.mockResolvedValue({ text: "Hello from heartbeat" });
-      const sendWhatsApp = vi
-        .fn<
-          (
-            to: string,
-            text: string,
-            opts?: unknown,
-          ) => Promise<{ messageId: string; toJid: string }>
-        >()
-        .mockResolvedValue({
-          messageId: "m1",
-          toJid: "jid",
-        });
+      const sendWhatsApp = vi.fn<NonNullable<HeartbeatDeps["sendWhatsApp"]>>().mockResolvedValue({
+        messageId: "m1",
+        toJid: "jid",
+      });
 
       await runHeartbeatOnce({
         cfg,
@@ -1088,7 +1022,7 @@ describe("runHeartbeatOnce", () => {
     queueCronEvent?: boolean;
     replyText?: string;
   }) {
-    const tmpDir = await createCaseDir("openclaw-hb");
+    const tmpDir = await createCaseDir("mirai-hb");
     const storePath = path.join(tmpDir, "sessions.json");
     const workspaceDir = path.join(tmpDir, "workspace");
     await fs.mkdir(workspaceDir, { recursive: true });
@@ -1110,7 +1044,7 @@ describe("runHeartbeatOnce", () => {
       await fs.mkdir(path.join(workspaceDir, "HEARTBEAT.md"), { recursive: true });
     }
 
-    const cfg: OpenClawConfig = {
+    const cfg: MiraiConfig = {
       agents: {
         defaults: {
           workspace: workspaceDir,
@@ -1142,36 +1076,15 @@ describe("runHeartbeatOnce", () => {
     const replySpy = vi.spyOn(replyModule, "getReplyFromConfig");
     replySpy.mockResolvedValue({ text: params.replyText ?? "Checked logs and PRs" });
     const sendWhatsApp = vi
-      .fn<
-        (to: string, text: string, opts?: unknown) => Promise<{ messageId: string; toJid: string }>
-      >()
+      .fn<NonNullable<HeartbeatDeps["sendWhatsApp"]>>()
       .mockResolvedValue({ messageId: "m1", toJid: "jid" });
     const res = await runHeartbeatOnce({
       cfg,
       reason: params.reason,
       deps: createHeartbeatDeps(sendWhatsApp),
     });
-    return { res, replySpy, sendWhatsApp, workspaceDir };
+    return { res, replySpy, sendWhatsApp };
   }
-
-  it("adds explicit workspace HEARTBEAT.md path guidance to heartbeat prompts", async () => {
-    const { res, replySpy, sendWhatsApp, workspaceDir } = await runHeartbeatFileScenario({
-      fileState: "actionable",
-      reason: "interval",
-      replyText: "Checked logs and PRs",
-    });
-    try {
-      expect(res.status).toBe("ran");
-      expect(sendWhatsApp).toHaveBeenCalledTimes(1);
-      expect(replySpy).toHaveBeenCalledTimes(1);
-      const calledCtx = replySpy.mock.calls[0]?.[0] as { Body?: string };
-      const expectedPath = path.join(workspaceDir, "HEARTBEAT.md").replace(/\\/g, "/");
-      expect(calledCtx.Body).toContain(`use workspace file ${expectedPath} (exact case)`);
-      expect(calledCtx.Body).toContain("Do not read docs/heartbeat.md.");
-    } finally {
-      replySpy.mockRestore();
-    }
-  });
 
   it("applies HEARTBEAT.md gating rules across file states and triggers", async () => {
     const cases: Array<{
@@ -1280,7 +1193,7 @@ describe("runHeartbeatOnce", () => {
   it("uses an internal-only cron prompt when heartbeat delivery target is none", async () => {
     const tmpDir = await createCaseDir("hb-cron-target-none");
     const storePath = path.join(tmpDir, "sessions.json");
-    const cfg: OpenClawConfig = {
+    const cfg: MiraiConfig = {
       agents: {
         defaults: {
           workspace: tmpDir,
@@ -1310,9 +1223,7 @@ describe("runHeartbeatOnce", () => {
     const replySpy = vi.spyOn(replyModule, "getReplyFromConfig");
     replySpy.mockResolvedValue({ text: "Handled internally" });
     const sendWhatsApp = vi
-      .fn<
-        (to: string, text: string, opts?: unknown) => Promise<{ messageId: string; toJid: string }>
-      >()
+      .fn<NonNullable<HeartbeatDeps["sendWhatsApp"]>>()
       .mockResolvedValue({ messageId: "m1", toJid: "jid" });
 
     try {
@@ -1335,7 +1246,7 @@ describe("runHeartbeatOnce", () => {
   it("uses an internal-only exec prompt when heartbeat delivery target is none", async () => {
     const tmpDir = await createCaseDir("hb-exec-target-none");
     const storePath = path.join(tmpDir, "sessions.json");
-    const cfg: OpenClawConfig = {
+    const cfg: MiraiConfig = {
       agents: {
         defaults: {
           workspace: tmpDir,
@@ -1365,9 +1276,7 @@ describe("runHeartbeatOnce", () => {
     const replySpy = vi.spyOn(replyModule, "getReplyFromConfig");
     replySpy.mockResolvedValue({ text: "Handled internally" });
     const sendWhatsApp = vi
-      .fn<
-        (to: string, text: string, opts?: unknown) => Promise<{ messageId: string; toJid: string }>
-      >()
+      .fn<NonNullable<HeartbeatDeps["sendWhatsApp"]>>()
       .mockResolvedValue({ messageId: "m1", toJid: "jid" });
 
     try {

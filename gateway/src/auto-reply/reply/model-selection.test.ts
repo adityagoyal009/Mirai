@@ -1,16 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
-import type { OpenClawConfig } from "../../config/config.js";
+import type { MiraiConfig } from "../../config/config.js";
 import { createModelSelectionState } from "./model-selection.js";
 
 vi.mock("../../agents/model-catalog.js", () => ({
   loadModelCatalog: vi.fn(async () => [
     { provider: "anthropic", id: "claude-opus-4-5", name: "Claude Opus 4.5" },
     { provider: "inferencer", id: "deepseek-v3-4bit-mlx", name: "DeepSeek V3" },
-    { provider: "kimi", id: "kimi-code", name: "Kimi Code" },
+    { provider: "kimi-coding", id: "k2p5", name: "Kimi K2.5" },
     { provider: "openai", id: "gpt-4o-mini", name: "GPT-4o mini" },
     { provider: "openai", id: "gpt-4o", name: "GPT-4o" },
-    { provider: "xai", id: "grok-4", name: "Grok 4" },
-    { provider: "xai", id: "grok-4.20-reasoning", name: "Grok 4.20 (Reasoning)" },
   ]),
 }));
 
@@ -25,7 +23,7 @@ describe("createModelSelectionState parent inheritance", () => {
   const defaultModel = "gpt-4o-mini";
 
   async function resolveState(params: {
-    cfg: OpenClawConfig;
+    cfg: MiraiConfig;
     sessionEntry: ReturnType<typeof makeEntry>;
     sessionStore: Record<string, ReturnType<typeof makeEntry>>;
     sessionKey: string;
@@ -47,7 +45,7 @@ describe("createModelSelectionState parent inheritance", () => {
   }
 
   async function resolveHeartbeatStoredOverrideState(hasResolvedHeartbeatModelOverride: boolean) {
-    const cfg = {} as OpenClawConfig;
+    const cfg = {} as MiraiConfig;
     const sessionKey = "agent:main:discord:channel:c1";
     const sessionEntry = makeEntry({
       providerOverride: "openai",
@@ -70,41 +68,25 @@ describe("createModelSelectionState parent inheritance", () => {
     });
   }
 
-  async function resolveStateWithParent(params: {
-    cfg: OpenClawConfig;
-    parentKey: string;
-    sessionKey: string;
-    parentEntry: ReturnType<typeof makeEntry>;
-    sessionEntry?: ReturnType<typeof makeEntry>;
-    parentSessionKey?: string;
-  }) {
-    const sessionEntry = params.sessionEntry ?? makeEntry();
-    const sessionStore = {
-      [params.parentKey]: params.parentEntry,
-      [params.sessionKey]: sessionEntry,
-    };
-    return resolveState({
-      cfg: params.cfg,
-      sessionEntry,
-      sessionStore,
-      sessionKey: params.sessionKey,
-      parentSessionKey: params.parentSessionKey,
-    });
-  }
-
   it("inherits parent override from explicit parentSessionKey", async () => {
-    const cfg = {} as OpenClawConfig;
+    const cfg = {} as MiraiConfig;
     const parentKey = "agent:main:discord:channel:c1";
     const sessionKey = "agent:main:discord:channel:c1:thread:123";
     const parentEntry = makeEntry({
       providerOverride: "openai",
       modelOverride: "gpt-4o",
     });
-    const state = await resolveStateWithParent({
+    const sessionEntry = makeEntry();
+    const sessionStore = {
+      [parentKey]: parentEntry,
+      [sessionKey]: sessionEntry,
+    };
+
+    const state = await resolveState({
       cfg,
-      parentKey,
+      sessionEntry,
+      sessionStore,
       sessionKey,
-      parentEntry,
       parentSessionKey: parentKey,
     });
 
@@ -113,18 +95,24 @@ describe("createModelSelectionState parent inheritance", () => {
   });
 
   it("derives parent key from topic session suffix", async () => {
-    const cfg = {} as OpenClawConfig;
+    const cfg = {} as MiraiConfig;
     const parentKey = "agent:main:telegram:group:123";
     const sessionKey = "agent:main:telegram:group:123:topic:99";
     const parentEntry = makeEntry({
       providerOverride: "openai",
       modelOverride: "gpt-4o",
     });
-    const state = await resolveStateWithParent({
+    const sessionEntry = makeEntry();
+    const sessionStore = {
+      [parentKey]: parentEntry,
+      [sessionKey]: sessionEntry,
+    };
+
+    const state = await resolveState({
       cfg,
-      parentKey,
+      sessionEntry,
+      sessionStore,
       sessionKey,
-      parentEntry,
     });
 
     expect(state.provider).toBe("openai");
@@ -132,7 +120,7 @@ describe("createModelSelectionState parent inheritance", () => {
   });
 
   it("prefers child override over parent", async () => {
-    const cfg = {} as OpenClawConfig;
+    const cfg = {} as MiraiConfig;
     const parentKey = "agent:main:telegram:group:123";
     const sessionKey = "agent:main:telegram:group:123:topic:99";
     const parentEntry = makeEntry({
@@ -143,11 +131,15 @@ describe("createModelSelectionState parent inheritance", () => {
       providerOverride: "anthropic",
       modelOverride: "claude-opus-4-5",
     });
-    const state = await resolveStateWithParent({
+    const sessionStore = {
+      [parentKey]: parentEntry,
+      [sessionKey]: sessionEntry,
+    };
+
+    const state = await resolveState({
       cfg,
-      parentKey,
-      parentEntry,
       sessionEntry,
+      sessionStore,
       sessionKey,
     });
 
@@ -164,18 +156,24 @@ describe("createModelSelectionState parent inheritance", () => {
           },
         },
       },
-    } as OpenClawConfig;
+    } as MiraiConfig;
     const parentKey = "agent:main:slack:channel:c1";
     const sessionKey = "agent:main:slack:channel:c1:thread:123";
     const parentEntry = makeEntry({
       providerOverride: "anthropic",
       modelOverride: "claude-opus-4-5",
     });
-    const state = await resolveStateWithParent({
+    const sessionEntry = makeEntry();
+    const sessionStore = {
+      [parentKey]: parentEntry,
+      [sessionKey]: sessionEntry,
+    };
+
+    const state = await resolveState({
       cfg,
-      parentKey,
+      sessionEntry,
+      sessionStore,
       sessionKey,
-      parentEntry,
     });
 
     expect(state.provider).toBe(defaultProvider);
@@ -202,7 +200,7 @@ describe("createModelSelectionState respects session model override", () => {
   const defaultModel = "deepseek-v3-4bit-mlx";
 
   async function resolveState(sessionEntry: ReturnType<typeof makeEntry>) {
-    const cfg = {} as OpenClawConfig;
+    const cfg = {} as MiraiConfig;
     const sessionKey = "agent:main:main";
     const sessionStore = { [sessionKey]: sessionEntry };
 
@@ -224,12 +222,12 @@ describe("createModelSelectionState respects session model override", () => {
     const state = await resolveState(
       makeEntry({
         providerOverride: "kimi-coding",
-        modelOverride: "kimi-code",
+        modelOverride: "k2p5",
       }),
     );
 
-    expect(state.provider).toBe("kimi");
-    expect(state.model).toBe("kimi-code");
+    expect(state.provider).toBe("kimi-coding");
+    expect(state.model).toBe("k2p5");
   });
 
   it("falls back to default when no modelOverride is set", async () => {
@@ -243,8 +241,8 @@ describe("createModelSelectionState respects session model override", () => {
     // From issue #14783: stored override should beat last-used fallback model.
     const state = await resolveState(
       makeEntry({
-        model: "kimi-code",
-        modelProvider: "kimi",
+        model: "k2p5",
+        modelProvider: "kimi-coding",
         contextTokens: 262_000,
         providerOverride: "anthropic",
         modelOverride: "claude-opus-4-5",
@@ -265,45 +263,6 @@ describe("createModelSelectionState respects session model override", () => {
     expect(state.provider).toBe(defaultProvider);
     expect(state.model).toBe("deepseek-v3-4bit-mlx");
   });
-
-  it("normalizes deprecated xai beta session overrides before allowlist checks", async () => {
-    const cfg = {
-      agents: {
-        defaults: {
-          model: {
-            primary: "xai/grok-4",
-          },
-          models: {
-            "xai/grok-4": {},
-            "xai/grok-4.20-experimental-beta-0304-reasoning": {},
-          },
-        },
-      },
-    } as OpenClawConfig;
-    const sessionKey = "agent:main:telegram:group:123:topic:99";
-    const sessionEntry = makeEntry({
-      providerOverride: "xai",
-      modelOverride: "grok-4.20-experimental-beta-0304-reasoning",
-    });
-    const sessionStore = { [sessionKey]: sessionEntry };
-
-    const state = await createModelSelectionState({
-      cfg,
-      agentCfg: cfg.agents?.defaults,
-      sessionEntry,
-      sessionStore,
-      sessionKey,
-      defaultProvider: "xai",
-      defaultModel: "grok-4",
-      provider: "xai",
-      model: "grok-4",
-      hasModelDirective: false,
-    });
-
-    expect(state.provider).toBe("xai");
-    expect(state.model).toBe("grok-4.20-reasoning");
-    expect(state.resetModelOverride).toBe(false);
-  });
 });
 
 describe("createModelSelectionState resolveDefaultReasoningLevel", () => {
@@ -313,7 +272,7 @@ describe("createModelSelectionState resolveDefaultReasoningLevel", () => {
       { provider: "openrouter", id: "x-ai/grok-4.1-fast", name: "Grok", reasoning: true },
     ]);
     const state = await createModelSelectionState({
-      cfg: {} as OpenClawConfig,
+      cfg: {} as MiraiConfig,
       agentCfg: undefined,
       defaultProvider: "openrouter",
       defaultModel: "x-ai/grok-4.1-fast",
@@ -326,7 +285,7 @@ describe("createModelSelectionState resolveDefaultReasoningLevel", () => {
 
   it("returns off when catalog model has no reasoning", async () => {
     const state = await createModelSelectionState({
-      cfg: {} as OpenClawConfig,
+      cfg: {} as MiraiConfig,
       agentCfg: undefined,
       defaultProvider: "openai",
       defaultModel: "gpt-4o-mini",

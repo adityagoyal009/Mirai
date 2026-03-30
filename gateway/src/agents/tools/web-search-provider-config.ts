@@ -1,11 +1,11 @@
-import type { OpenClawConfig } from "../../config/config.js";
+import type { MiraiConfig } from "../../config/config.js";
 import { resolvePluginWebSearchConfig } from "../../config/legacy-web-search.js";
 
 type ConfiguredWebSearchProvider = NonNullable<
-  NonNullable<NonNullable<OpenClawConfig["tools"]>["web"]>["search"]
+  NonNullable<NonNullable<MiraiConfig["tools"]>["web"]>["search"]
 >["provider"];
 
-export type WebSearchConfig = NonNullable<OpenClawConfig["tools"]>["web"] extends infer Web
+export type WebSearchConfig = NonNullable<MiraiConfig["tools"]>["web"] extends infer Web
   ? Web extends { search?: infer Search }
     ? Search
     : undefined
@@ -20,9 +20,9 @@ function cloneWithDescriptors<T extends object>(value: T | undefined): T {
 }
 
 export function withForcedProvider(
-  config: OpenClawConfig | undefined,
+  config: MiraiConfig | undefined,
   provider: ConfiguredWebSearchProvider,
-): OpenClawConfig {
+): MiraiConfig {
   const next = cloneWithDescriptors(config ?? {});
   const tools = cloneWithDescriptors(next.tools ?? {});
   const web = cloneWithDescriptors(tools.web ?? {});
@@ -102,7 +102,7 @@ export function mergeScopedSearchConfig(
   return next;
 }
 
-export function resolveSearchConfig(cfg?: OpenClawConfig): WebSearchConfig {
+export function resolveSearchConfig(cfg?: MiraiConfig): WebSearchConfig {
   const search = cfg?.tools?.web?.search;
   if (!search || typeof search !== "object") {
     return undefined;
@@ -111,7 +111,7 @@ export function resolveSearchConfig(cfg?: OpenClawConfig): WebSearchConfig {
 }
 
 export function resolveProviderWebSearchPluginConfig(
-  config: OpenClawConfig | undefined,
+  config: MiraiConfig | undefined,
   pluginId: string,
 ): Record<string, unknown> | undefined {
   return resolvePluginWebSearchConfig(config, pluginId);
@@ -128,7 +128,7 @@ function ensureObject(target: Record<string, unknown>, key: string): Record<stri
 }
 
 export function setProviderWebSearchPluginConfigValue(
-  configTarget: OpenClawConfig,
+  configTarget: MiraiConfig,
   pluginId: string,
   key: string,
   value: unknown,

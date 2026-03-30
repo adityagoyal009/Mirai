@@ -1,5 +1,227 @@
 # Mirai Changelog
 
+## [0.11.0] — 2026-03-30
+
+### Added — Professional Form, Pipeline Bias Fixes, Full REST Parity
+
+**Website Form Upgrade**
+- 122 searchable industries (from 9), 789 keyword tags (max 15), 195 searchable countries
+- 7 new fields: country, industry priority areas, keywords, has customers, generating revenue, currently fundraising, referral source
+- New components: SearchableSelect (filterable dropdown), MultiSelect (searchable checkboxes with tags), RadioGroup (styled radio buttons)
+- Accessibility: htmlFor/id labels, ARIA roles on custom selects, fieldset/legend on radio groups
+- Backend: enum validation, URL format checks, 100K char limit, atomic Prisma transactions
+- "None" mutual exclusivity in multiselect (selecting None clears others)
+
+**20 Pipeline Bias Fixes**
+- GEO_BEHAVIORAL rewritten: neutral market-context descriptions, no value judgments or stereotypes
+- MBTI_BEHAVIORAL rewritten: analytical style only, removed all "score higher/lower" directives
+- DELIBERATION_WEIGHT reduced 1.5 to 1.0 (equal weight for all agents)
+- Verdict override removed: swarm divergence is now an advisory note, not a hard override
+- Industry weights capped at 1.5x base (HealthTech/BioTech regulatory was 2.5x)
+- Data quality penalty softened: cap raised 0.5 to 0.6, verdicts no longer downgraded
+- Stage vocabulary normalized: single `normalize_stage()` maps form/extraction/calibration vocabularies
+- Stage and data_quality now wired through analyze() to predict() and swarm.predict()
+- ChromaDB scoped to current submission (was searching all collections, cross-tenant leak)
+- Prompt injection containment: exec_summary wrapped in `<user_input>` tags in all LLM prompts
+- target_market bug fixed: was passing product text instead of actual target market
+
+**REST API Matches Dashboard Pipeline**
+- Structured fields passthrough from website form (skips lossy LLM extraction)
+- Blind scoring runs in parallel with research (same as dashboard WebSocket path)
+- OpenClaw agentic research primary, Gemini fallback, BI built-in fallback
+- Council: 11 models deep mode with blind score cache
+- Swarm: 50 agents with enriched context and research_data
+- OASIS market simulation: auto-enabled, uses swarm agents as panelists
+- HTML report generation via generate_html_report()
+
+**Async Job Pattern**
+- `/api/bi/analyze` returns job_id immediately (no more dropped connections)
+- `/api/bi/job/{id}` polling endpoint (website polls every 15s)
+- Analysis queue: 3 retries, 10s delay, health check, 60 min timeout
+
+**Reliability Fixes**
+- Claude CLI timeout increased to 7 minutes (research synthesis takes 5-7 min)
+- Swarm workers reduced 15 to 8 (stays under NVIDIA NIM 40 RPM limit)
+- OpenClaw health check hits /health instead of /v1/models (was failing on auth scope)
+- Report generator: fixed import (ReportGenerator class to generate_html_report function)
+- Trends join TypeError fix in plan phase (dict items in list)
+- Startup recovery: stuck "reviewing" submissions reset to "queued" on server restart
+
+**Cleanup**
+- Deleted oasis_profile_generator.py (dead code, never imported by pipeline)
+- Removed broken imports from __init__.py and simulation_manager.py
+- Removed 6 sensitive/demographic keywords from form options
+
+## [0.9.0] — 2026-03-25
+
+### Changed — Flask→FastAPI, claude-proxy, 10 Dimensions, Dual Research
+
+**Backend Migration**
+- Migrated from Flask+flask-sock to **FastAPI** with native async WebSocket
+- Fixed critical broadcast race condition — analysis messages were silently lost due to monkey-patch/restore pattern in daemon threads
+- Permanent broadcast patch in lifespan context manager
+- Fixed `asyncio.get_event_loop()` deprecation (4 occurrences → `get_running_loop()`)
+- Fixed PDF endpoint returning JSON metadata instead of actual PDF bytes
+
+**claude-proxy Integration (Zero-Cost LLM)**
+- Replaced OpenClaw gateway (port 18789) and Mirai gateway (port 19789) with **claude-proxy** (port 4000)
+- All LLM calls now route through existing Claude Code, ChatGPT Plus subscriptions — zero API cost
+- Council models: Claude Opus 4.6, Claude Sonnet 4.6, GPT-5.4, GPT-5.3 Codex
+- Removed all `anthropic/`, `openai-codex/`, `google-gemini-cli/` model name prefixes
+- Unified JSON enforcement via prompt injection (no more `response_format` incompatibility)
+
+**Dual-Model Parallel Research**
+- Agentic researcher rewritten — runs **Claude Opus 4.6-web + GPT 5.4-web in parallel**
+- Both independently search the web and research the startup using built-in web search
+- Findings merged with deduplication (competitors, facts, sources, trends)
+- ~20-30s total (parallel) instead of 2+ min (sequential 5-iteration tool-call loop)
+- Old manual action loop (search/fetch/done JSON) replaced with native web search
+
+**10-Dimension Scoring**
+- Added 3 new dimensions: `capital_efficiency`, `scalability_potential`, `exit_potential`
+- Updated weights, correlated pairs, industry adjustments, and fact-check keyword mappings
+- Chairman prompt updated for 10 dimensions
+- `max_tokens` increased from 3000 to 4500 for scoring calls
+- JSON repair for truncated LLM responses (closes incomplete JSON brackets)
+
+**Removed SearXNG + ChromaDB**
+- Deleted `web_researcher.py` (SearXNG-based BI research — all engines were suspended/dead)
+- Deleted `funding_signals.py` (SearXNG news search — redundant with agentic researcher)
+- `search_engine.py` gutted to utility-only (SOURCE_CREDIBILITY, _extract_root_domain) with no-op stub
+- Replaced ChromaDB research cache with **file-based JSON cache** (~/.mirai/research_cache/)
+  - Instant reads (vs 16s ChromaDB cold-start), no Rust panics, no SQLite corruption
+  - Fixed cache hit logic: `hasattr(dict, 'summary')` (always False) → `'summary' in dict`
+
+**PDF Report Audit**
+- LLM auto-audit (Opus 4.6) runs on every PDF before download
+- Programmatic layer: fixes "7→10 dimensions", "Ai" industry bug, detects empty fields/pages
+- LLM layer: reads report text, returns find/replace fixes for inconsistencies and garbled text
+
+**Frontend**
+- Start Analysis button: added running/connected guards, disabled during analysis, shows status
+- Batched `setSpawnedIds` (500ms debounce) — no more agent count flickering (40→23→40)
+- Council elders: 4 → 8 pixel agents, persist through swarm phase
+- Council room: tables+chairs replaced with sofa arrangement, 8 seats
+- "Elders scoring 7 dimensions" → "Elders scoring 10 dimensions"
+
+**Extraction & Report**
+- Full extraction fields now passed to report (website, location, revenue, team, funding, known_competitors)
+- Competitor industry matching improved (no more false "Ai" from keyword `ai` in snippets)
+- Data sources updated: "SearXNG" → "Brave Search"
+
+## [0.8.3] — 2026-03-24
+
+### Changed — OpenClaw Research Integration
+
+**Root cause**: BI engine research produced "formatted emptiness" — SearXNG returned 3 shallow results with fake 0.0 relevance, Crawl4AI extracted 6K chars from static pages only. PDF reports had broken sections (market size "$.T", competitor table all "—", no funding data).
+
+- **New gateway_client.py** — thin Python client for OpenClaw's web_search (Brave, 10 results, real 0-1 relevance) and web_fetch (Readability.js, 30K chars, handles JS sites)
+- **research_agent.py** now uses gateway as primary search+extract, with SearXNG+Crawl4AI as automatic fallback
+- Search results increased from 3 to 10 per query, content extraction from 6K to 30K chars per page
+- Cited facts attribution improved — uses gateway's siteName field instead of naive domain string matching
+- Competitor deep-dive gets richer data (30K char pages vs 1.5K snippets)
+
+## [0.8.2] — 2026-03-24
+
+### Fixed — Persona System Overhaul (Audit-Driven)
+
+**Root cause**: Persona audit revealed PERSONA_POOL was dead code, Wave 2 agents got no persona depth,
+1.6M dataset was 48% educators, contrarian zone had hardcoded pessimistic prior, zone distribution was fixed.
+
+**Must Fix**
+- Deleted 116 lines of dead PERSONA_POOL code (never used, all personas come from PersonaEngine)
+- Upgraded Wave 2 batch agents to use PersonaEngine-generated persona briefs (same depth as Wave 1)
+- Removed contrarian pessimistic prior ("default to 5 or below") — now scores based on risk survivability
+- Adaptive zone distribution — 12 industry-specific zone splits (B2C gets more customers, deeptech more operators)
+
+**Should Fix**
+- Pre-filtered 1.6M persona datasets into business_personas.jsonl (151K business-relevant entries, zone-tagged)
+- Dataset personality injection — generated personas get human texture from dataset descriptions
+- Semantic role dedup — "Series-B VC" and "Growth-Stage VC" now treated as same role group
+
+**New Dimensions (16 total, up from 11)**
+- Investment thesis style: thesis-driven / opportunistic / relationship-led / data-driven / contrarian
+- Technical depth: deep-technical / business-oriented / generalist
+- Failure scar tissue: overhyped market / bad team / regulation / competition / scaling / none
+- Network strength: highly-connected / moderate / outsider
+- Decision speed: fast-conviction / methodical / consensus-builder
+
+**Updated combinatorics**: ~2.6 quadrillion unique personas per zone (was ~3.2 trillion)
+
+## [0.8.1] — 2026-03-24
+
+### Fixed — Scoring Pipeline Overhaul (Audit-Driven)
+
+**Root cause**: Full pipeline audit (2026-03-24) revealed systematic score clustering into the 5.5-7.0 range
+due to research anchoring, missing calibration anchors, persona bias, and conservative verdict blending.
+
+**Tier 1: Rating Accuracy**
+- Calibrated scoring rubrics — each dimension now has concrete anchor examples (what 2/4/6/8/10 looks like). Reasoning-before-score instruction reduces anchoring.
+- Two-pass council scoring — models score exec summary blind FIRST, then adjust after seeing research (breaks research anchoring).
+- Balanced persona scoring — added calibration anchors ("Use the FULL 1-10 range") to individual and batch agent prompts.
+- Confidence-weighted verdict blending — council and swarm verdicts combined by confidence weight (replaces "conservative wins" rule that systematically underrated startups).
+
+**Tier 2: Structural**
+- Dimension correlation penalty — correlated dimension pairs (e.g., market_timing <-> social_proof_demand) automatically de-weighted 50% when scores are within 1 point, preventing double-counting of correlated signals.
+- OASIS wired into verdict — declining 6-month trajectory downgrades optimistic verdicts to Mixed Signal; improving trajectory upgrades pessimistic ones.
+- Data quality gates — low-data startups (data_quality < 0.5) get wider "uncertain" band instead of false precision on extreme verdicts.
+- Deliberation prompt reordered — agents state their position BEFORE seeing consensus (reduces groupthink anchoring).
+
+**Tier 3: Efficiency**
+- Deliberation weight reduced 3.0 -> 1.5 (was over-amplifying outlier extremes with negligible accuracy benefit).
+- Wave 2 batch prompt unified with Wave 1 quality (role-specific language requirement, zone assignment, calibration anchors).
+
+## [0.8.0] — 2026-03-24
+
+### Added — Credibility Overhaul (Phases A-E)
+
+**Phase A: Fixed Broken Foundations**
+- Source credibility scoring fix — position-based fallback when SearXNG returns score=0.0. Exact domain matching via urlparse.
+- Research query independence — fallback queries differentiated by model focus (market/regulatory, competitors/funding, news/trends).
+- Semantic research synthesis — LLM cross-references 3 model findings into {confirmed_facts, contradictions, unique_insights, coverage_gaps}.
+- Full-swarm divergence — z-score analysis now runs on ALL agents (Wave 1 + Wave 2), not just first 100.
+- Weighted deliberation — committee members get DELIBERATION_WEIGHT=3.0 in aggregation. Configurable.
+- Anonymized council labels — models labeled "Evaluator A/B/C/D" during reconciliation to prevent brand bias.
+
+**Phase B: Real Fact Verification**
+- Brave Search integration — free tier (1,000 queries/month) for high-priority research queries with real relevance scores.
+- Real fact-checker — Brave + SearXNG + SEC EDGAR + Yahoo Finance + Jina DeepSearch verify quantitative claims against real sources. Replaces LLM-asking-LLM circular verification.
+- Gateway web_fetch — content extraction via OpenClaw gateway's built-in Readability.js (no Firecrawl API needed).
+- Source citation tracking — cited_facts with {text, source_url, source_domain, confidence} flows through entire pipeline. Appendix D in PDF report.
+
+**Phase C: OASIS Grounded in Reality**
+- Real market events — OASIS sources news from Brave Search + SearXNG instead of LLM imagination. Falls back to "No significant market event" instead of fabricating.
+- Swarm-sourced OASIS agents — 12 panelists selected from actual swarm (strongest bull/bear, per-zone reps). Initial scores from swarm, not neutral 5.0.
+- Uncertainty quantification — confidence_low/confidence_high bands per OASIS round based on agent score std_dev.
+
+**Phase D: Observability & Calibration**
+- Prompt registry — VERSION + SHA-256 hash per critical prompt. Correlates accuracy changes with prompt versions.
+- Hallucination guard — TF-IDF traceability check on research synthesis. Claims with specific numbers not traceable to sources flagged as [LLM-INFERRED]. Re-synthesis if faithfulness < 0.6.
+- LLM observability — every call logged to ~/.mirai/logs/llm_calls.jsonl (model, latency, tokens, success, JSON parse result).
+- Calibration pipeline — backtest tracks accuracy by dimension, persona zone, and model. Stores results with git commit + prompt hashes.
+
+**Phase E: Evaluation & Testing**
+- Mirai Eval Suite — LLM-as-judge metrics (faithfulness, relevancy, council grounding, persona adherence). No external framework.
+- Prompt regression tester — 17 test cases across 6 prompts. JSON validity, score ranges, required fields. Run: python -m subconscious.swarm.prompts.test_prompts
+- Semantic dedup — TF-IDF cosine similarity replaces set-based dedup for research facts.
+- Jina DeepSearch grounding — factuality score (0-1) with evidence references for high-uncertainty claims.
+
+### Changed — Zero External Dependencies
+- Removed semhash → replaced with 35-line TF-IDF cosine dedup (stdlib only)
+- Removed deepeval → replaced with Mirai-owned LLM-as-judge eval suite
+- Removed edgartools → replaced with direct SEC EDGAR REST API calls
+- Removed yfinance → replaced with direct Yahoo Finance HTTP calls
+- Removed langfuse → file-based JSONL logging retained
+- Removed promptfoo → replaced with Python prompt regression tester
+
+### New Files
+- subconscious/swarm/services/brave_search.py
+- subconscious/swarm/services/hallucination_guard.py
+- subconscious/swarm/prompts/ (6 prompt files + registry)
+- subconscious/swarm/prompts/test_prompts.py
+- subconscious/swarm/validation/eval_suite.py
+- subconscious/swarm/utils/prompt_registry.py
+
 ## [0.7.1] — 2026-03-23
 
 ### Added — Research & Council Upgrades

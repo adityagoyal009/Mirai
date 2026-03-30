@@ -49,18 +49,18 @@ describe("runDaemonInstall integration", () => {
   beforeAll(async () => {
     envSnapshot = captureEnv([
       "HOME",
-      "OPENCLAW_STATE_DIR",
-      "OPENCLAW_CONFIG_PATH",
-      "OPENCLAW_GATEWAY_TOKEN",
-      "CLAWDBOT_GATEWAY_TOKEN",
-      "OPENCLAW_GATEWAY_PASSWORD",
-      "CLAWDBOT_GATEWAY_PASSWORD",
+      "MIRAI_STATE_DIR",
+      "MIRAI_CONFIG_PATH",
+      "MIRAI_GATEWAY_TOKEN",
+      "MIRAI_LEGACY_GATEWAY_TOKEN",
+      "MIRAI_GATEWAY_PASSWORD",
+      "MIRAI_LEGACY_GATEWAY_PASSWORD",
     ]);
-    tempHome = await makeTempWorkspace("openclaw-daemon-install-int-");
-    configPath = path.join(tempHome, "openclaw.json");
+    tempHome = await makeTempWorkspace("mirai-daemon-install-int-");
+    configPath = path.join(tempHome, "mirai.json");
     process.env.HOME = tempHome;
-    process.env.OPENCLAW_STATE_DIR = tempHome;
-    process.env.OPENCLAW_CONFIG_PATH = configPath;
+    process.env.MIRAI_STATE_DIR = tempHome;
+    process.env.MIRAI_CONFIG_PATH = configPath;
   });
 
   afterAll(async () => {
@@ -73,10 +73,10 @@ describe("runDaemonInstall integration", () => {
     runtimeErrors.length = 0;
     vi.clearAllMocks();
     // Keep these defined-but-empty so dotenv won't repopulate from local .env.
-    process.env.OPENCLAW_GATEWAY_TOKEN = "";
-    process.env.CLAWDBOT_GATEWAY_TOKEN = "";
-    process.env.OPENCLAW_GATEWAY_PASSWORD = "";
-    process.env.CLAWDBOT_GATEWAY_PASSWORD = "";
+    process.env.MIRAI_GATEWAY_TOKEN = "";
+    process.env.MIRAI_LEGACY_GATEWAY_TOKEN = "";
+    process.env.MIRAI_GATEWAY_PASSWORD = "";
+    process.env.MIRAI_LEGACY_GATEWAY_PASSWORD = "";
     serviceMock.isLoaded.mockResolvedValue(false);
     await fs.writeFile(configPath, JSON.stringify({}, null, 2));
     clearConfigCache();
@@ -143,6 +143,6 @@ describe("runDaemonInstall integration", () => {
     expect((persistedToken ?? "").length).toBeGreaterThan(0);
 
     const installEnv = serviceMock.install.mock.calls[0]?.[0]?.environment;
-    expect(installEnv?.OPENCLAW_GATEWAY_TOKEN).toBeUndefined();
+    expect(installEnv?.MIRAI_GATEWAY_TOKEN).toBeUndefined();
   });
 });

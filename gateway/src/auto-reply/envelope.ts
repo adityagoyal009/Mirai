@@ -1,7 +1,7 @@
 import { resolveUserTimezone } from "../agents/date-time.js";
 import { normalizeChatType } from "../channels/chat-type.js";
 import { resolveSenderLabel, type SenderLabelParams } from "../channels/sender-label.js";
-import type { OpenClawConfig } from "../config/config.js";
+import type { MiraiConfig } from "../config/config.js";
 import {
   resolveTimezone,
   formatUtcTimestamp,
@@ -62,7 +62,7 @@ function sanitizeEnvelopeHeaderPart(value: string): string {
     .trim();
 }
 
-export function resolveEnvelopeFormatOptions(cfg?: OpenClawConfig): EnvelopeFormatOptions {
+export function resolveEnvelopeFormatOptions(cfg?: MiraiConfig): EnvelopeFormatOptions {
   const defaults = cfg?.agents?.defaults;
   return {
     timezone: defaults?.envelopeTimezone,
@@ -102,7 +102,7 @@ function resolveEnvelopeTimezone(options: NormalizedEnvelopeOptions): ResolvedEn
   return explicit ? { mode: "iana", timeZone: explicit } : { mode: "utc" };
 }
 
-export function formatEnvelopeTimestamp(
+function formatTimestamp(
   ts: number | Date | undefined,
   options?: EnvelopeFormatOptions,
 ): string | undefined {
@@ -179,7 +179,7 @@ export function formatAgentEnvelope(params: AgentEnvelopeParams): string {
   if (params.ip?.trim()) {
     parts.push(sanitizeEnvelopeHeaderPart(params.ip.trim()));
   }
-  const ts = formatEnvelopeTimestamp(params.timestamp, resolved);
+  const ts = formatTimestamp(params.timestamp, resolved);
   if (ts) {
     parts.push(ts);
   }
@@ -197,18 +197,12 @@ export function formatInboundEnvelope(params: {
   sender?: SenderLabelParams;
   previousTimestamp?: number | Date;
   envelope?: EnvelopeFormatOptions;
-  fromMe?: boolean;
 }): string {
   const chatType = normalizeChatType(params.chatType);
   const isDirect = !chatType || chatType === "direct";
   const resolvedSenderRaw = params.senderLabel?.trim() || resolveSenderLabel(params.sender ?? {});
   const resolvedSender = resolvedSenderRaw ? sanitizeEnvelopeHeaderPart(resolvedSenderRaw) : "";
-  const body =
-    isDirect && params.fromMe
-      ? `(self): ${params.body}`
-      : !isDirect && resolvedSender
-        ? `${resolvedSender}: ${params.body}`
-        : params.body;
+  const body = !isDirect && resolvedSender ? `${resolvedSender}: ${params.body}` : params.body;
   return formatAgentEnvelope({
     channel: params.channel,
     from: params.from,

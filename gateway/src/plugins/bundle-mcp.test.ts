@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import type { OpenClawConfig } from "../config/config.js";
+import type { MiraiConfig } from "../config/config.js";
 import { captureEnv } from "../test-utils/env.js";
 import { isRecord } from "../utils.js";
 import { loadEnabledBundleMcpConfig } from "./bundle-mcp.js";
@@ -36,18 +36,18 @@ afterEach(async () => {
 
 describe("loadEnabledBundleMcpConfig", () => {
   it("loads enabled Claude bundle MCP config and absolutizes relative args", async () => {
-    const env = captureEnv(["HOME", "USERPROFILE", "OPENCLAW_HOME", "OPENCLAW_STATE_DIR"]);
+    const env = captureEnv(["HOME", "USERPROFILE", "MIRAI_HOME", "MIRAI_STATE_DIR"]);
     try {
-      const homeDir = await tempHarness.createTempDir("openclaw-bundle-mcp-home-");
-      const workspaceDir = await tempHarness.createTempDir("openclaw-bundle-mcp-workspace-");
+      const homeDir = await tempHarness.createTempDir("mirai-bundle-mcp-home-");
+      const workspaceDir = await tempHarness.createTempDir("mirai-bundle-mcp-workspace-");
       process.env.HOME = homeDir;
       process.env.USERPROFILE = homeDir;
-      delete process.env.OPENCLAW_HOME;
-      delete process.env.OPENCLAW_STATE_DIR;
+      delete process.env.MIRAI_HOME;
+      delete process.env.MIRAI_STATE_DIR;
 
       const { pluginRoot, serverPath } = await createBundleProbePlugin(homeDir);
 
-      const config: OpenClawConfig = {
+      const config: MiraiConfig = {
         plugins: {
           entries: {
             "bundle-probe": { enabled: true },
@@ -82,17 +82,17 @@ describe("loadEnabledBundleMcpConfig", () => {
   });
 
   it("merges inline bundle MCP servers and skips disabled bundles", async () => {
-    const env = captureEnv(["HOME", "USERPROFILE", "OPENCLAW_HOME", "OPENCLAW_STATE_DIR"]);
+    const env = captureEnv(["HOME", "USERPROFILE", "MIRAI_HOME", "MIRAI_STATE_DIR"]);
     try {
-      const homeDir = await tempHarness.createTempDir("openclaw-bundle-inline-home-");
-      const workspaceDir = await tempHarness.createTempDir("openclaw-bundle-inline-workspace-");
+      const homeDir = await tempHarness.createTempDir("mirai-bundle-inline-home-");
+      const workspaceDir = await tempHarness.createTempDir("mirai-bundle-inline-workspace-");
       process.env.HOME = homeDir;
       process.env.USERPROFILE = homeDir;
-      delete process.env.OPENCLAW_HOME;
-      delete process.env.OPENCLAW_STATE_DIR;
+      delete process.env.MIRAI_HOME;
+      delete process.env.MIRAI_STATE_DIR;
 
-      const enabledRoot = path.join(homeDir, ".openclaw", "extensions", "inline-enabled");
-      const disabledRoot = path.join(homeDir, ".openclaw", "extensions", "inline-disabled");
+      const enabledRoot = path.join(homeDir, ".mirai", "extensions", "inline-enabled");
+      const disabledRoot = path.join(homeDir, ".mirai", "extensions", "inline-disabled");
       await fs.mkdir(path.join(enabledRoot, ".claude-plugin"), { recursive: true });
       await fs.mkdir(path.join(disabledRoot, ".claude-plugin"), { recursive: true });
       await fs.writeFile(
@@ -130,7 +130,7 @@ describe("loadEnabledBundleMcpConfig", () => {
         "utf-8",
       );
 
-      const config: OpenClawConfig = {
+      const config: MiraiConfig = {
         plugins: {
           entries: {
             "inline-enabled": { enabled: true },
@@ -152,18 +152,18 @@ describe("loadEnabledBundleMcpConfig", () => {
   });
 
   it("resolves inline Claude MCP paths from the plugin root and expands CLAUDE_PLUGIN_ROOT", async () => {
-    const env = captureEnv(["HOME", "USERPROFILE", "OPENCLAW_HOME", "OPENCLAW_STATE_DIR"]);
+    const env = captureEnv(["HOME", "USERPROFILE", "MIRAI_HOME", "MIRAI_STATE_DIR"]);
     try {
-      const homeDir = await tempHarness.createTempDir("openclaw-bundle-inline-placeholder-home-");
+      const homeDir = await tempHarness.createTempDir("mirai-bundle-inline-placeholder-home-");
       const workspaceDir = await tempHarness.createTempDir(
-        "openclaw-bundle-inline-placeholder-workspace-",
+        "mirai-bundle-inline-placeholder-workspace-",
       );
       process.env.HOME = homeDir;
       process.env.USERPROFILE = homeDir;
-      delete process.env.OPENCLAW_HOME;
-      delete process.env.OPENCLAW_STATE_DIR;
+      delete process.env.MIRAI_HOME;
+      delete process.env.MIRAI_STATE_DIR;
 
-      const pluginRoot = path.join(homeDir, ".openclaw", "extensions", "inline-claude");
+      const pluginRoot = path.join(homeDir, ".mirai", "extensions", "inline-claude");
       await fs.mkdir(path.join(pluginRoot, ".claude-plugin"), { recursive: true });
       await fs.writeFile(
         path.join(pluginRoot, ".claude-plugin", "plugin.json"),

@@ -34,24 +34,12 @@ vi.mock("./pw-session.js", () => {
 
 vi.mock("./paths.js", () => {
   return {
-    DEFAULT_UPLOAD_DIR: "/tmp/openclaw/uploads",
+    DEFAULT_UPLOAD_DIR: "/tmp/mirai/uploads",
     resolveStrictExistingPathsWithinRoot,
   };
 });
 
 let setInputFilesViaPlaywright: typeof import("./pw-tools-core.interactions.js").setInputFilesViaPlaywright;
-
-function seedSingleLocatorPage(): { setInputFiles: ReturnType<typeof vi.fn> } {
-  const setInputFiles = vi.fn(async () => {});
-  locator = {
-    setInputFiles,
-    elementHandle: vi.fn(async () => null),
-  };
-  page = {
-    locator: vi.fn(() => ({ first: () => locator })),
-  };
-  return { setInputFiles };
-}
 
 describe("setInputFilesViaPlaywright", () => {
   beforeAll(async () => {
@@ -64,27 +52,34 @@ describe("setInputFilesViaPlaywright", () => {
     locator = null;
     resolveStrictExistingPathsWithinRoot.mockResolvedValue({
       ok: true,
-      paths: ["/private/tmp/openclaw/uploads/ok.txt"],
+      paths: ["/private/tmp/mirai/uploads/ok.txt"],
     });
   });
 
   it("revalidates upload paths and uses resolved canonical paths for inputRef", async () => {
-    const { setInputFiles } = seedSingleLocatorPage();
+    const setInputFiles = vi.fn(async () => {});
+    locator = {
+      setInputFiles,
+      elementHandle: vi.fn(async () => null),
+    };
+    page = {
+      locator: vi.fn(() => ({ first: () => locator })),
+    };
 
     await setInputFilesViaPlaywright({
       cdpUrl: "http://127.0.0.1:18792",
       targetId: "T1",
       inputRef: "e7",
-      paths: ["/tmp/openclaw/uploads/ok.txt"],
+      paths: ["/tmp/mirai/uploads/ok.txt"],
     });
 
     expect(resolveStrictExistingPathsWithinRoot).toHaveBeenCalledWith({
-      rootDir: "/tmp/openclaw/uploads",
-      requestedPaths: ["/tmp/openclaw/uploads/ok.txt"],
-      scopeLabel: "uploads directory (/tmp/openclaw/uploads)",
+      rootDir: "/tmp/mirai/uploads",
+      requestedPaths: ["/tmp/mirai/uploads/ok.txt"],
+      scopeLabel: "uploads directory (/tmp/mirai/uploads)",
     });
     expect(refLocator).toHaveBeenCalledWith(page, "e7");
-    expect(setInputFiles).toHaveBeenCalledWith(["/private/tmp/openclaw/uploads/ok.txt"]);
+    expect(setInputFiles).toHaveBeenCalledWith(["/private/tmp/mirai/uploads/ok.txt"]);
   });
 
   it("throws and skips setInputFiles when use-time validation fails", async () => {
@@ -93,14 +88,21 @@ describe("setInputFilesViaPlaywright", () => {
       error: "Invalid path: must stay within uploads directory",
     });
 
-    const { setInputFiles } = seedSingleLocatorPage();
+    const setInputFiles = vi.fn(async () => {});
+    locator = {
+      setInputFiles,
+      elementHandle: vi.fn(async () => null),
+    };
+    page = {
+      locator: vi.fn(() => ({ first: () => locator })),
+    };
 
     await expect(
       setInputFilesViaPlaywright({
         cdpUrl: "http://127.0.0.1:18792",
         targetId: "T1",
         element: "input[type=file]",
-        paths: ["/tmp/openclaw/uploads/missing.txt"],
+        paths: ["/tmp/mirai/uploads/missing.txt"],
       }),
     ).rejects.toThrow("Invalid path: must stay within uploads directory");
 

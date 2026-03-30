@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { imessageOutbound } from "../../../../test/channel-outbounds.js";
-import type { OpenClawConfig } from "../../../config/config.js";
+import type { MiraiConfig } from "../../../config/config.js";
+import { imessageOutbound } from "./imessage.js";
 
 describe("imessageOutbound", () => {
-  const cfg: OpenClawConfig = {
+  const cfg: MiraiConfig = {
     channels: {
       imessage: {
         mediaMaxMb: 2,
@@ -22,7 +22,7 @@ describe("imessageOutbound", () => {
       text: "hello",
       accountId: "default",
       replyToId: "msg-123",
-      deps: { imessage: sendIMessage },
+      deps: { sendIMessage },
     });
 
     expect(sendIMessage).toHaveBeenCalledWith(
@@ -50,7 +50,7 @@ describe("imessageOutbound", () => {
       mediaLocalRoots: ["/tmp"],
       accountId: "acct-1",
       replyToId: "msg-456",
-      deps: { imessage: sendIMessage },
+      deps: { sendIMessage },
     });
 
     expect(sendIMessage).toHaveBeenCalledWith(

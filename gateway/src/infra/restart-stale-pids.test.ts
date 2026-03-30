@@ -57,9 +57,9 @@ function createLsofResult(overrides: Partial<MockLsofResult> = {}): MockLsofResu
   };
 }
 
-function createOpenClawBusyResult(pid: number, overrides: Partial<MockLsofResult> = {}) {
+function createMiraiBusyResult(pid: number, overrides: Partial<MockLsofResult> = {}) {
   return createLsofResult({
-    stdout: lsofOutput([{ pid, cmd: "openclaw-gateway" }]),
+    stdout: lsofOutput([{ pid, cmd: "mirai-gateway" }]),
     ...overrides,
   });
 }
@@ -78,7 +78,7 @@ function installInitialBusyPoll(
   mockSpawnSync.mockImplementation(() => {
     call += 1;
     if (call === 1) {
-      return createOpenClawBusyResult(stalePid);
+      return createMiraiBusyResult(stalePid);
     }
     return resolvePoll(call);
   });
@@ -136,14 +136,14 @@ describe.skipIf(isWindows)("restart-stale-pids", () => {
       );
     });
 
-    it("parses openclaw-gateway pids and excludes the current process", () => {
+    it("parses mirai-gateway pids and excludes the current process", () => {
       const stalePid = process.pid + 1;
       mockSpawnSync.mockReturnValue({
         error: null,
         status: 0,
         stdout: lsofOutput([
-          { pid: stalePid, cmd: "openclaw-gateway" },
-          { pid: process.pid, cmd: "openclaw-gateway" },
+          { pid: stalePid, cmd: "mirai-gateway" },
+          { pid: process.pid, cmd: "mirai-gateway" },
         ]),
         stderr: "",
       });
@@ -152,7 +152,7 @@ describe.skipIf(isWindows)("restart-stale-pids", () => {
       expect(pids).not.toContain(process.pid);
     });
 
-    it("excludes pids whose command does not include 'openclaw'", () => {
+    it("excludes pids whose command does not include 'mirai'", () => {
       const otherPid = process.pid + 2;
       mockSpawnSync.mockReturnValue({
         error: null,
@@ -178,7 +178,7 @@ describe.skipIf(isWindows)("restart-stale-pids", () => {
       // (once for the IPv4 socket, once for IPv6). Without dedup, terminateStaleProcessesSync
       // sends SIGTERM twice and returns killed=[pid, pid], corrupting the count.
       const stalePid = process.pid + 600;
-      const stdout = `p${stalePid}\ncopenclaw-gateway\np${stalePid}\ncopenclaw-gateway\n`;
+      const stdout = `p${stalePid}\ncmirai-gateway\np${stalePid}\ncmirai-gateway\n`;
       mockSpawnSync.mockReturnValue({ error: null, status: 0, stdout, stderr: "" });
       const result = findGatewayPidsOnPortSync(18789);
       expect(result).toEqual([stalePid]); // deduped — not [pid, pid]
@@ -211,15 +211,15 @@ describe.skipIf(isWindows)("restart-stale-pids", () => {
       expect(findGatewayPidsOnPortSync(18789)).toEqual([]);
     });
 
-    it("parses multiple openclaw pids from a single lsof output block", () => {
+    it("parses multiple mirai pids from a single lsof output block", () => {
       const pid1 = process.pid + 10;
       const pid2 = process.pid + 11;
       mockSpawnSync.mockReturnValue({
         error: null,
         status: 0,
         stdout: lsofOutput([
-          { pid: pid1, cmd: "openclaw-gateway" },
-          { pid: pid2, cmd: "openclaw-gateway" },
+          { pid: pid1, cmd: "mirai-gateway" },
+          { pid: pid2, cmd: "mirai-gateway" },
         ]),
         stderr: "",
       });
@@ -228,9 +228,9 @@ describe.skipIf(isWindows)("restart-stale-pids", () => {
       expect(result).toContain(pid2);
     });
 
-    it("returns [] when status 0 but only non-openclaw pids present", () => {
+    it("returns [] when status 0 but only non-mirai pids present", () => {
       // Port may be bound by an unrelated process. findGatewayPidsOnPortSync
-      // only tracks openclaw processes — non-openclaw listeners are ignored.
+      // only tracks mirai processes — non-mirai listeners are ignored.
       const otherPid = process.pid + 50;
       mockSpawnSync.mockReturnValue({
         error: null,
@@ -292,7 +292,7 @@ describe.skipIf(isWindows)("restart-stale-pids", () => {
       const getCallCount = installInitialBusyPoll(stalePid, (call) => {
         if (call === 2) {
           // First waitForPortFreeSync poll — status 0, port busy (should parse inline, not spawn again)
-          return createOpenClawBusyResult(stalePid);
+          return createMiraiBusyResult(stalePid);
         }
         // Port free on third call
         return createLsofResult();
@@ -307,15 +307,15 @@ describe.skipIf(isWindows)("restart-stale-pids", () => {
       expect(getCallCount()).toBe(3);
     });
 
-    it("lsof status 1 with non-empty openclaw stdout is treated as busy, not free (Linux container edge case)", () => {
+    it("lsof status 1 with non-empty mirai stdout is treated as busy, not free (Linux container edge case)", () => {
       // On Linux containers with restricted /proc (AppArmor, seccomp, user namespaces),
       // lsof can exit 1 AND still emit output for processes it could read.
-      // status 1 + non-empty openclaw stdout must not be treated as port-free.
+      // status 1 + non-empty mirai stdout must not be treated as port-free.
       const stalePid = process.pid + 601;
       const getCallCount = installInitialBusyPoll(stalePid, (call) => {
         if (call === 2) {
-          // status 1 + openclaw pid in stdout — container-restricted lsof reports partial results
-          return createOpenClawBusyResult(stalePid, {
+          // status 1 + mirai pid in stdout — container-restricted lsof reports partial results
+          return createMiraiBusyResult(stalePid, {
             status: 1,
             stderr: "lsof: WARNING: can't stat() fuse",
           });
@@ -346,7 +346,7 @@ describe.skipIf(isWindows)("restart-stale-pids", () => {
         return {
           error: null,
           status: 0,
-          stdout: lsofOutput([{ pid: stalePid, cmd: "openclaw-gateway" }]),
+          stdout: lsofOutput([{ pid: stalePid, cmd: "mirai-gateway" }]),
           stderr: "",
         };
       });
@@ -397,7 +397,7 @@ describe.skipIf(isWindows)("restart-stale-pids", () => {
           return {
             error: null,
             status: 0,
-            stdout: lsofOutput([{ pid: stalePid, cmd: "openclaw-gateway" }]),
+            stdout: lsofOutput([{ pid: stalePid, cmd: "mirai-gateway" }]),
             stderr: "",
           };
         }
@@ -427,7 +427,7 @@ describe.skipIf(isWindows)("restart-stale-pids", () => {
           return {
             error: null,
             status: 0,
-            stdout: lsofOutput([{ pid: stalePid, cmd: "openclaw-gateway" }]),
+            stdout: lsofOutput([{ pid: stalePid, cmd: "mirai-gateway" }]),
             stderr: "",
           };
         }
@@ -436,7 +436,7 @@ describe.skipIf(isWindows)("restart-stale-pids", () => {
           return {
             error: null,
             status: 0,
-            stdout: lsofOutput([{ pid: stalePid, cmd: "openclaw-gateway" }]),
+            stdout: lsofOutput([{ pid: stalePid, cmd: "mirai-gateway" }]),
             stderr: "",
           };
         }
@@ -511,7 +511,7 @@ describe.skipIf(isWindows)("restart-stale-pids", () => {
       installInitialBusyPoll(stalePid, () => {
         // Advance clock by PORT_FREE_TIMEOUT_MS + 1ms on first poll to trip the deadline.
         fakeNow += 2001;
-        return createOpenClawBusyResult(stalePid);
+        return createMiraiBusyResult(stalePid);
       });
 
       vi.spyOn(process, "kill").mockReturnValue(true);
@@ -598,13 +598,13 @@ describe.skipIf(isWindows)("restart-stale-pids", () => {
   // parsePidsFromLsofOutput — branch-coverage for mid-loop && short-circuits
   // -------------------------------------------------------------------------
   describe("parsePidsFromLsofOutput — branch coverage (lines 67-69)", () => {
-    it("skips a mid-loop entry when the command does not include 'openclaw'", () => {
-      // Exercises the false branch of currentCmd.toLowerCase().includes("openclaw")
-      // inside the mid-loop flush: a non-openclaw cmd between two entries must not
-      // be pushed, but the following openclaw entry still must be.
+    it("skips a mid-loop entry when the command does not include 'mirai'", () => {
+      // Exercises the false branch of currentCmd.toLowerCase().includes("mirai")
+      // inside the mid-loop flush: a non-mirai cmd between two entries must not
+      // be pushed, but the following mirai entry still must be.
       const stalePid = process.pid + 700;
-      // Mixed output: non-openclaw entry first, then openclaw entry
-      const stdout = `p${process.pid + 699}\ncnginx\np${stalePid}\ncopenclaw-gateway\n`;
+      // Mixed output: non-mirai entry first, then mirai entry
+      const stdout = `p${process.pid + 699}\ncnginx\np${stalePid}\ncmirai-gateway\n`;
       mockSpawnSync.mockReturnValue({ error: null, status: 0, stdout, stderr: "" });
       const result = findGatewayPidsOnPortSync(18789);
       expect(result).toContain(stalePid);
@@ -616,7 +616,7 @@ describe.skipIf(isWindows)("restart-stale-pids", () => {
       // (no 'c' line between them) — the first PID must be skipped, the second handled.
       const stalePid = process.pid + 701;
       // Two consecutive p-lines: first has no c-line before the next p-line
-      const stdout = `p${process.pid + 702}\np${stalePid}\ncopenclaw-gateway\n`;
+      const stdout = `p${process.pid + 702}\np${stalePid}\ncmirai-gateway\n`;
       mockSpawnSync.mockReturnValue({ error: null, status: 0, stdout, stderr: "" });
       const result = findGatewayPidsOnPortSync(18789);
       expect(result).toContain(stalePid);
@@ -627,8 +627,8 @@ describe.skipIf(isWindows)("restart-stale-pids", () => {
       // false branch: a malformed 'p' line (e.g. 'p0' or 'pNaN') must not corrupt
       // currentPid and must not end up in the returned pids array.
       const stalePid = process.pid + 703;
-      // p0 is invalid (not > 0); the following valid openclaw entry must still be found.
-      const stdout = `p0\ncopenclaw-gateway\np${stalePid}\ncopenclaw-gateway\n`;
+      // p0 is invalid (not > 0); the following valid mirai entry must still be found.
+      const stdout = `p0\ncmirai-gateway\np${stalePid}\ncmirai-gateway\n`;
       mockSpawnSync.mockReturnValue({ error: null, status: 0, stdout, stderr: "" });
       const result = findGatewayPidsOnPortSync(18789);
       expect(result).toContain(stalePid);
@@ -641,7 +641,7 @@ describe.skipIf(isWindows)("restart-stale-pids", () => {
       // must not throw or corrupt the pid list. Unknown lines are just skipped.
       const stalePid = process.pid + 704;
       // Intersperse an 'f' line (file descriptor marker) — not a 'p' or 'c' line
-      const stdout = `p${stalePid}\nf8\ncopenclaw-gateway\n`;
+      const stdout = `p${stalePid}\nf8\ncmirai-gateway\n`;
       mockSpawnSync.mockReturnValue({ error: null, status: 0, stdout, stderr: "" });
       const result = findGatewayPidsOnPortSync(18789);
       // The 'f' line must not corrupt parsing; stalePid must still be found
@@ -651,23 +651,23 @@ describe.skipIf(isWindows)("restart-stale-pids", () => {
   });
 
   // -------------------------------------------------------------------------
-  // pollPortOnce branch — status 1 + non-empty stdout with zero openclaw pids
+  // pollPortOnce branch — status 1 + non-empty stdout with zero mirai pids
   // -------------------------------------------------------------------------
-  describe("pollPortOnce — status 1 + non-empty non-openclaw stdout (line 145)", () => {
-    it("treats status 1 + non-openclaw stdout as port-free (not an openclaw process)", () => {
-      // status 1 + non-empty stdout where no openclaw pids are present:
+  describe("pollPortOnce — status 1 + non-empty non-mirai stdout (line 145)", () => {
+    it("treats status 1 + non-mirai stdout as port-free (not an mirai process)", () => {
+      // status 1 + non-empty stdout where no mirai pids are present:
       // the port may be held by an unrelated process. From our perspective
-      // (we only kill openclaw pids) it is effectively free.
+      // (we only kill mirai pids) it is effectively free.
       const stalePid = process.pid + 800;
       const getCallCount = installInitialBusyPoll(stalePid, () => {
-        // status 1 + non-openclaw output — should be treated as free:true for our purposes
+        // status 1 + non-mirai output — should be treated as free:true for our purposes
         return createLsofResult({
           status: 1,
           stdout: lsofOutput([{ pid: process.pid + 801, cmd: "caddy" }]),
         });
       });
       vi.spyOn(process, "kill").mockReturnValue(true);
-      // Should complete cleanly — no openclaw pids in status-1 output → free
+      // Should complete cleanly — no mirai pids in status-1 output → free
       expect(() => cleanStaleGatewayProcessesSync()).not.toThrow();
       // Completed in exactly 2 calls (initial find + 1 free poll)
       expect(getCallCount()).toBe(2);

@@ -1,10 +1,10 @@
 import { formatCliCommand } from "../../cli/command-format.js";
-import type { OpenClawConfig } from "../../config/config.js";
+import type { MiraiConfig } from "../../config/config.js";
 import { resolveGatewayPort, writeConfigFile } from "../../config/config.js";
 import { logConfigUpdated } from "../../config/logging.js";
 import type { RuntimeEnv } from "../../runtime.js";
 import { DEFAULT_GATEWAY_DAEMON_RUNTIME } from "../daemon-runtime.js";
-import { applyLocalSetupWorkspaceConfig } from "../onboard-config.js";
+import { applyOnboardingLocalWorkspaceConfig } from "../onboard-config.js";
 import {
   applyWizardMetadata,
   DEFAULT_WORKSPACE,
@@ -15,62 +15,14 @@ import {
 import type { OnboardOptions } from "../onboard-types.js";
 import { inferAuthChoiceFromFlags } from "./local/auth-choice-inference.js";
 import { applyNonInteractiveGatewayConfig } from "./local/gateway-config.js";
-import {
-  type GatewayHealthFailureDiagnostics,
-  logNonInteractiveOnboardingFailure,
-  logNonInteractiveOnboardingJson,
-} from "./local/output.js";
+import { logNonInteractiveOnboardingJson } from "./local/output.js";
 import { applyNonInteractiveSkillsConfig } from "./local/skills-config.js";
 import { resolveNonInteractiveWorkspaceDir } from "./local/workspace.js";
 
-const INSTALL_DAEMON_HEALTH_DEADLINE_MS = 45_000;
-const ATTACH_EXISTING_GATEWAY_HEALTH_DEADLINE_MS = 15_000;
-
-async function collectGatewayHealthFailureDiagnostics(): Promise<
-  GatewayHealthFailureDiagnostics | undefined
-> {
-  const diagnostics: GatewayHealthFailureDiagnostics = {};
-
-  try {
-    const { resolveGatewayService } = await import("../../daemon/service.js");
-    const service = resolveGatewayService();
-    const env = process.env as Record<string, string | undefined>;
-    const [loaded, runtime] = await Promise.all([
-      service.isLoaded({ env }).catch(() => false),
-      service.readRuntime(env).catch(() => undefined),
-    ]);
-    diagnostics.service = {
-      label: service.label,
-      loaded,
-      loadedText: service.loadedText,
-      runtimeStatus: runtime?.status,
-      state: runtime?.state,
-      pid: runtime?.pid,
-      lastExitStatus: runtime?.lastExitStatus,
-      lastExitReason: runtime?.lastExitReason,
-    };
-  } catch (err) {
-    diagnostics.inspectError = `service diagnostics failed: ${String(err)}`;
-  }
-
-  try {
-    const { readLastGatewayErrorLine } = await import("../../daemon/diagnostics.js");
-    diagnostics.lastGatewayError = (await readLastGatewayErrorLine(process.env)) ?? undefined;
-  } catch (err) {
-    diagnostics.inspectError = diagnostics.inspectError
-      ? `${diagnostics.inspectError}; log diagnostics failed: ${String(err)}`
-      : `log diagnostics failed: ${String(err)}`;
-  }
-
-  return diagnostics.service || diagnostics.lastGatewayError || diagnostics.inspectError
-    ? diagnostics
-    : undefined;
-}
-
-export async function runNonInteractiveLocalSetup(params: {
+export async function runNonInteractiveOnboardingLocal(params: {
   opts: OnboardOptions;
   runtime: RuntimeEnv;
-  baseConfig: OpenClawConfig;
+  baseConfig: MiraiConfig;
 }) {
   const { opts, runtime, baseConfig } = params;
   const mode = "local" as const;
@@ -81,13 +33,13 @@ export async function runNonInteractiveLocalSetup(params: {
     defaultWorkspaceDir: DEFAULT_WORKSPACE,
   });
 
-  let nextConfig: OpenClawConfig = applyLocalSetupWorkspaceConfig(baseConfig, workspaceDir);
+  let nextConfig: MiraiConfig = applyOnboardingLocalWorkspaceConfig(baseConfig, workspaceDir);
 
   const inferredAuthChoice = inferAuthChoiceFromFlags(opts);
   if (!opts.authChoice && inferredAuthChoice.matches.length > 1) {
     runtime.error(
       [
-        "Multiple API key flags were provided for non-interactive setup.",
+        "Multiple API key flags were provided for non-interactive onboarding.",
         "Use a single provider flag or pass --auth-choice explicitly.",
         `Flags: ${inferredAuthChoice.matches.map((match) => match.label).join(", ")}`,
       ].join("\n"),
@@ -133,62 +85,18 @@ export async function runNonInteractiveLocalSetup(params: {
     skipBootstrap: Boolean(nextConfig.agents?.defaults?.skipBootstrap),
   });
 
-  const daemonRuntimeRaw = opts.daemonRuntime ?? DEFAULT_GATEWAY_DAEMON_RUNTIME;
-  let daemonInstallStatus:
-    | {
-        requested: boolean;
-        installed: boolean;
-        skippedReason?: "systemd-user-unavailable";
-      }
-    | undefined;
   if (opts.installDaemon) {
     const { installGatewayDaemonNonInteractive } = await import("./local/daemon-install.js");
-    const daemonInstall = await installGatewayDaemonNonInteractive({
+    await installGatewayDaemonNonInteractive({
       nextConfig,
       opts,
       runtime,
       port: gatewayResult.port,
+      gatewayToken: gatewayResult.gatewayToken,
     });
-    daemonInstallStatus = daemonInstall.installed
-      ? {
-          requested: true,
-          installed: true,
-        }
-      : {
-          requested: true,
-          installed: false,
-          skippedReason: daemonInstall.skippedReason,
-        };
-    if (!daemonInstall.installed && !opts.skipHealth) {
-      logNonInteractiveOnboardingFailure({
-        opts,
-        runtime,
-        mode,
-        phase: "daemon-install",
-        message:
-          daemonInstall.skippedReason === "systemd-user-unavailable"
-            ? "Gateway service install is unavailable because systemd user services are not reachable in this Linux session."
-            : "Gateway service install did not complete successfully.",
-        installDaemon: true,
-        daemonInstall: {
-          requested: true,
-          installed: false,
-          skippedReason: daemonInstall.skippedReason,
-        },
-        daemonRuntime: daemonRuntimeRaw,
-        hints:
-          daemonInstall.skippedReason === "systemd-user-unavailable"
-            ? [
-                "Fix: rerun without `--install-daemon` for one-shot setup, or enable a working user-systemd session and retry.",
-                "If your auth profile uses env-backed refs, keep those env vars set in the shell that runs `mirai gateway run` or `mirai agent --local`.",
-              ]
-            : [`Run \`${formatCliCommand("mirai gateway status --deep")}\` for more detail.`],
-      });
-      runtime.exit(1);
-      return;
-    }
   }
 
+  const daemonRuntimeRaw = opts.daemonRuntime ?? DEFAULT_GATEWAY_DAEMON_RUNTIME;
   if (!opts.skipHealth) {
     const { healthCommand } = await import("../health.js");
     const links = resolveControlUiLinks({
@@ -197,45 +105,11 @@ export async function runNonInteractiveLocalSetup(params: {
       customBindHost: nextConfig.gateway?.customBindHost,
       basePath: undefined,
     });
-    const probe = await waitForGatewayReachable({
+    await waitForGatewayReachable({
       url: links.wsUrl,
       token: gatewayResult.gatewayToken,
-      deadlineMs: opts.installDaemon
-        ? INSTALL_DAEMON_HEALTH_DEADLINE_MS
-        : ATTACH_EXISTING_GATEWAY_HEALTH_DEADLINE_MS,
+      deadlineMs: 15_000,
     });
-    if (!probe.ok) {
-      const diagnostics = opts.installDaemon
-        ? await collectGatewayHealthFailureDiagnostics()
-        : undefined;
-      logNonInteractiveOnboardingFailure({
-        opts,
-        runtime,
-        mode,
-        phase: "gateway-health",
-        message: `Gateway did not become reachable at ${links.wsUrl}.`,
-        detail: probe.detail,
-        gateway: {
-          wsUrl: links.wsUrl,
-          httpUrl: links.httpUrl,
-        },
-        installDaemon: Boolean(opts.installDaemon),
-        daemonInstall: daemonInstallStatus,
-        daemonRuntime: opts.installDaemon ? daemonRuntimeRaw : undefined,
-        diagnostics,
-        hints: !opts.installDaemon
-          ? [
-              "Non-interactive local setup only waits for an already-running gateway unless you pass --install-daemon.",
-              `Fix: start \`${formatCliCommand("mirai gateway run")}\`, re-run with \`--install-daemon\`, or use \`--skip-health\`.`,
-              process.platform === "win32"
-                ? "Native Windows managed gateway install tries Scheduled Tasks first and falls back to a per-user Startup-folder login item when task creation is denied."
-                : undefined,
-            ].filter((value): value is string => Boolean(value))
-          : [`Run \`${formatCliCommand("mirai gateway status --deep")}\` for more detail.`],
-      });
-      runtime.exit(1);
-      return;
-    }
     await healthCommand({ json: false, timeoutMs: 10_000 }, runtime);
   }
 
@@ -252,7 +126,6 @@ export async function runNonInteractiveLocalSetup(params: {
       tailscaleMode: gatewayResult.tailscaleMode,
     },
     installDaemon: Boolean(opts.installDaemon),
-    daemonInstall: daemonInstallStatus,
     daemonRuntime: opts.installDaemon ? daemonRuntimeRaw : undefined,
     skipSkills: Boolean(opts.skipSkills),
     skipHealth: Boolean(opts.skipHealth),
@@ -260,7 +133,7 @@ export async function runNonInteractiveLocalSetup(params: {
 
   if (!opts.json) {
     runtime.log(
-      `Tip: run \`${formatCliCommand("mirai configure --section web")}\` to store your Brave API key for web_search. Docs: https://github.com/adityagoyal009/Mirai/tree/main/gateway/docs/tools/web`,
+      `Tip: run \`${formatCliCommand("mirai configure --section web")}\` to store your Brave API key for web_search. Docs: https://docs.mirai.ai/tools/web`,
     );
   }
 }

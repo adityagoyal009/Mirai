@@ -1,36 +1,24 @@
 import { describe, expect, it } from "vitest";
-import type { OpenClawConfig } from "../../config/config.js";
-import { normalizeAccountId } from "../../routing/session-key.js";
+import type { MiraiConfig } from "../../config/config.js";
 import { createAccountListHelpers } from "./account-helpers.js";
 
 const { listConfiguredAccountIds, listAccountIds, resolveDefaultAccountId } =
   createAccountListHelpers("testchannel");
 
-function cfg(accounts?: Record<string, unknown> | null, defaultAccount?: string): OpenClawConfig {
+function cfg(accounts?: Record<string, unknown> | null): MiraiConfig {
   if (accounts === null) {
-    return {
-      channels: {
-        testchannel: defaultAccount ? { defaultAccount } : {},
-      },
-    } as unknown as OpenClawConfig;
+    return { channels: { testchannel: {} } } as unknown as MiraiConfig;
   }
-  if (accounts === undefined && !defaultAccount) {
-    return {} as unknown as OpenClawConfig;
+  if (accounts === undefined) {
+    return {} as unknown as MiraiConfig;
   }
-  return {
-    channels: {
-      testchannel: {
-        ...(accounts === undefined ? {} : { accounts }),
-        ...(defaultAccount ? { defaultAccount } : {}),
-      },
-    },
-  } as unknown as OpenClawConfig;
+  return { channels: { testchannel: { accounts } } } as unknown as MiraiConfig;
 }
 
 describe("createAccountListHelpers", () => {
   describe("listConfiguredAccountIds", () => {
     it("returns empty for missing config", () => {
-      expect(listConfiguredAccountIds({} as OpenClawConfig)).toEqual([]);
+      expect(listConfiguredAccountIds({} as MiraiConfig)).toEqual([]);
     });
 
     it("returns empty when no accounts key", () => {
@@ -53,25 +41,9 @@ describe("createAccountListHelpers", () => {
     });
   });
 
-  describe("with normalizeAccountId option", () => {
-    const normalized = createAccountListHelpers("testchannel", { normalizeAccountId });
-
-    it("normalizes and deduplicates configured account ids", () => {
-      expect(
-        normalized.listConfiguredAccountIds(
-          cfg({
-            "Router D": {},
-            "router-d": {},
-            "Personal A": {},
-          }),
-        ),
-      ).toEqual(["router-d", "personal-a"]);
-    });
-  });
-
   describe("listAccountIds", () => {
     it('returns ["default"] for empty config', () => {
-      expect(listAccountIds({} as OpenClawConfig)).toEqual(["default"]);
+      expect(listAccountIds({} as MiraiConfig)).toEqual(["default"]);
     });
 
     it('returns ["default"] for empty accounts', () => {
@@ -84,18 +56,6 @@ describe("createAccountListHelpers", () => {
   });
 
   describe("resolveDefaultAccountId", () => {
-    it("prefers configured defaultAccount when it matches a configured account id", () => {
-      expect(resolveDefaultAccountId(cfg({ alpha: {}, beta: {} }, "beta"))).toBe("beta");
-    });
-
-    it("normalizes configured defaultAccount before matching", () => {
-      expect(resolveDefaultAccountId(cfg({ "router-d": {} }, "Router D"))).toBe("router-d");
-    });
-
-    it("falls back when configured defaultAccount is missing", () => {
-      expect(resolveDefaultAccountId(cfg({ beta: {}, alpha: {} }, "missing"))).toBe("alpha");
-    });
-
     it('returns "default" when present', () => {
       expect(resolveDefaultAccountId(cfg({ default: {}, other: {} }))).toBe("default");
     });
@@ -105,7 +65,7 @@ describe("createAccountListHelpers", () => {
     });
 
     it('returns "default" for empty config', () => {
-      expect(resolveDefaultAccountId({} as OpenClawConfig)).toBe("default");
+      expect(resolveDefaultAccountId({} as MiraiConfig)).toBe("default");
     });
   });
 });

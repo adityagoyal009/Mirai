@@ -1,14 +1,12 @@
 import type { AgentTool, AgentToolResult } from "@mariozechner/pi-agent-core";
 import type { TSchema } from "@sinclair/typebox";
 import type { MsgContext } from "../../auto-reply/templating.js";
-import type { ReplyPayload } from "../../auto-reply/types.js";
-import type { OpenClawConfig } from "../../config/config.js";
+import type { MiraiConfig } from "../../config/config.js";
 import type { PollInput } from "../../polls.js";
 import type { GatewayClientMode, GatewayClientName } from "../../utils/message-channel.js";
 import type { ChatType } from "../chat-type.js";
 import type { ChatChannelId } from "../registry.js";
 import type { ChannelMessageActionName as ChannelMessageActionNameFromList } from "./message-action-names.js";
-import type { ChannelMessageCapability } from "./message-capabilities.js";
 
 export type ChannelId = ChatChannelId | (string & {});
 
@@ -18,49 +16,11 @@ export type ChannelAgentTool = AgentTool<TSchema, unknown> & {
   ownerOnly?: boolean;
 };
 
-export type ChannelAgentToolFactory = (params: { cfg?: OpenClawConfig }) => ChannelAgentTool[];
-
-/**
- * Discovery-time inputs passed to channel action adapters when the core is
- * asking what an agent should be allowed to see. This is intentionally
- * smaller than execution context: it carries routing/account scope, but no
- * tool params or runtime handles.
- */
-export type ChannelMessageActionDiscoveryContext = {
-  cfg: OpenClawConfig;
-  currentChannelId?: string | null;
-  currentChannelProvider?: string | null;
-  currentThreadTs?: string | null;
-  currentMessageId?: string | number | null;
-  accountId?: string | null;
-  sessionKey?: string | null;
-  sessionId?: string | null;
-  agentId?: string | null;
-  requesterSenderId?: string | null;
-};
-
-/**
- * Plugin-owned schema fragments for the shared `message` tool.
- * `current-channel` means expose the fields only when that provider is the
- * active runtime channel. `all-configured` keeps the fields visible even while
- * another configured channel is active, which is useful for cross-channel
- * sends from cron or isolated agents.
- */
-export type ChannelMessageToolSchemaContribution = {
-  properties: Record<string, TSchema>;
-  visibility?: "current-channel" | "all-configured";
-};
-
-export type ChannelMessageToolDiscovery = {
-  actions?: readonly ChannelMessageActionName[] | null;
-  capabilities?: readonly ChannelMessageCapability[] | null;
-  schema?: ChannelMessageToolSchemaContribution | ChannelMessageToolSchemaContribution[] | null;
-};
+export type ChannelAgentToolFactory = (params: { cfg?: MiraiConfig }) => ChannelAgentTool[];
 
 export type ChannelSetupInput = {
   name?: string;
   token?: string;
-  privateKey?: string;
   tokenFile?: string;
   botToken?: string;
   appToken?: string;
@@ -79,7 +39,6 @@ export type ChannelSetupInput = {
   audience?: string;
   useEnv?: boolean;
   homeserver?: string;
-  allowPrivateNetwork?: boolean;
   userId?: string;
   accessToken?: string;
   password?: string;
@@ -87,7 +46,6 @@ export type ChannelSetupInput = {
   initialSyncLimit?: number;
   ship?: string;
   url?: string;
-  relayUrls?: string;
   code?: string;
   groupChannels?: string[];
   dmAllowlist?: string[];
@@ -144,7 +102,6 @@ export type ChannelAccountSnapshot = {
   linked?: boolean;
   running?: boolean;
   connected?: boolean;
-  restartPending?: boolean;
   reconnectAttempts?: number;
   lastConnectedAt?: number | null;
   lastDisconnect?:
@@ -163,21 +120,12 @@ export type ChannelAccountSnapshot = {
   lastStopAt?: number | null;
   lastInboundAt?: number | null;
   lastOutboundAt?: number | null;
-  busy?: boolean;
-  activeRuns?: number;
-  lastRunActivityAt?: number | null;
   mode?: string;
   dmPolicy?: string;
   allowFrom?: string[];
   tokenSource?: string;
   botTokenSource?: string;
   appTokenSource?: string;
-  signingSecretSource?: string;
-  tokenStatus?: string;
-  botTokenStatus?: string;
-  appTokenStatus?: string;
-  signingSecretStatus?: string;
-  userTokenStatus?: string;
   credentialSource?: string;
   secretSource?: string;
   audienceType?: string;
@@ -208,7 +156,7 @@ export type ChannelLogSink = {
 };
 
 export type ChannelGroupContext = {
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   groupId?: string | null;
   /** Human label for channel-like group conversations (e.g. #general). */
   groupChannel?: string | null;
@@ -245,26 +193,21 @@ export type ChannelSecurityDmPolicy = {
 };
 
 export type ChannelSecurityContext<ResolvedAccount = unknown> = {
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   accountId?: string | null;
   account: ResolvedAccount;
 };
 
 export type ChannelMentionAdapter = {
-  stripRegexes?: (params: {
-    ctx: MsgContext;
-    cfg: OpenClawConfig | undefined;
-    agentId?: string;
-  }) => RegExp[];
   stripPatterns?: (params: {
     ctx: MsgContext;
-    cfg: OpenClawConfig | undefined;
+    cfg: MiraiConfig | undefined;
     agentId?: string;
   }) => string[];
   stripMentions?: (params: {
     text: string;
     ctx: MsgContext;
-    cfg: OpenClawConfig | undefined;
+    cfg: MiraiConfig | undefined;
     agentId?: string;
   }) => string;
 };
@@ -276,45 +219,9 @@ export type ChannelStreamingAdapter = {
   };
 };
 
-// Keep core transport-agnostic. Plugins can carry richer component types on
-// their side and cast at the boundary.
-export type ChannelStructuredComponents = unknown[];
-
-export type ChannelCrossContextComponentsFactory = (params: {
-  originLabel: string;
-  message: string;
-  cfg: OpenClawConfig;
-  accountId?: string | null;
-}) => ChannelStructuredComponents;
-
-export type ChannelReplyTransport = {
-  replyToId?: string | null;
-  threadId?: string | number | null;
-};
-
-export type ChannelFocusedBindingContext = {
-  conversationId: string;
-  parentConversationId?: string;
-  placement: "current" | "child";
-  labelNoun: string;
-};
-
-export type ChannelOutboundSessionRoute = {
-  sessionKey: string;
-  baseSessionKey: string;
-  peer: {
-    kind: ChatType;
-    id: string;
-  };
-  chatType: "direct" | "group" | "channel";
-  from: string;
-  to: string;
-  threadId?: string | number;
-};
-
 export type ChannelThreadingAdapter = {
   resolveReplyToMode?: (params: {
-    cfg: OpenClawConfig;
+    cfg: MiraiConfig;
     accountId?: string | null;
     chatType?: string | null;
   }) => "off" | "first" | "all";
@@ -330,29 +237,11 @@ export type ChannelThreadingAdapter = {
    */
   allowTagsWhenOff?: boolean;
   buildToolContext?: (params: {
-    cfg: OpenClawConfig;
+    cfg: MiraiConfig;
     accountId?: string | null;
     context: ChannelThreadingContext;
     hasRepliedRef?: { value: boolean };
   }) => ChannelThreadingToolContext | undefined;
-  resolveAutoThreadId?: (params: {
-    cfg: OpenClawConfig;
-    accountId?: string | null;
-    to: string;
-    toolContext?: ChannelThreadingToolContext;
-    replyToId?: string | null;
-  }) => string | undefined;
-  resolveReplyTransport?: (params: {
-    cfg: OpenClawConfig;
-    accountId?: string | null;
-    threadId?: string | number | null;
-    replyToId?: string | null;
-  }) => ChannelReplyTransport | null;
-  resolveFocusedBinding?: (params: {
-    cfg: OpenClawConfig;
-    accountId?: string | null;
-    context: ChannelThreadingContext;
-  }) => ChannelFocusedBindingContext | null;
 };
 
 export type ChannelThreadingContext = {
@@ -365,8 +254,6 @@ export type ChannelThreadingContext = {
   ReplyToIdFull?: string;
   ThreadLabel?: string;
   MessageThreadId?: string | number;
-  /** Platform-native channel/conversation id (e.g. Slack DM channel "D…" id). */
-  NativeChannelId?: string;
 };
 
 export type ChannelThreadingToolContext = {
@@ -386,74 +273,19 @@ export type ChannelThreadingToolContext = {
 
 export type ChannelMessagingAdapter = {
   normalizeTarget?: (raw: string) => string | undefined;
-  resolveSessionTarget?: (params: {
-    kind: "group" | "channel";
-    id: string;
-    threadId?: string | null;
-  }) => string | undefined;
-  parseExplicitTarget?: (params: { raw: string }) => {
-    to: string;
-    threadId?: string | number;
-    chatType?: ChatType;
-  } | null;
-  /**
-   * Lightweight chat-type inference used before directory lookup so plugins can
-   * steer peer-vs-group resolution without reimplementing host search flow.
-   */
-  inferTargetChatType?: (params: { to: string }) => ChatType | undefined;
-  buildCrossContextComponents?: ChannelCrossContextComponentsFactory;
-  enableInteractiveReplies?: (params: {
-    cfg: OpenClawConfig;
-    accountId?: string | null;
-  }) => boolean;
-  hasStructuredReplyPayload?: (params: { payload: ReplyPayload }) => boolean;
   targetResolver?: {
     looksLikeId?: (raw: string, normalized?: string) => boolean;
     hint?: string;
-    /**
-     * Plugin-owned fallback for explicit/native targets or post-directory-miss
-     * resolution. This should complement directory lookup, not duplicate it.
-     */
-    resolveTarget?: (params: {
-      cfg: OpenClawConfig;
-      accountId?: string | null;
-      input: string;
-      normalized: string;
-      preferredKind?: ChannelDirectoryEntryKind | "channel";
-    }) => Promise<{
-      to: string;
-      kind: ChannelDirectoryEntryKind | "channel";
-      display?: string;
-      source?: "normalized" | "directory";
-    } | null>;
   };
   formatTargetDisplay?: (params: {
     target: string;
     display?: string;
     kind?: ChannelDirectoryEntryKind;
   }) => string;
-  /**
-   * Provider-specific session-route builder used after target resolution.
-   * Keep session-key orchestration in core and channel-native routing rules here.
-   */
-  resolveOutboundSessionRoute?: (params: {
-    cfg: OpenClawConfig;
-    agentId: string;
-    accountId?: string | null;
-    target: string;
-    resolvedTarget?: {
-      to: string;
-      kind: ChannelDirectoryEntryKind | "channel";
-      display?: string;
-      source: "normalized" | "directory";
-    };
-    replyToId?: string | null;
-    threadId?: string | number | null;
-  }) => ChannelOutboundSessionRoute | Promise<ChannelOutboundSessionRoute | null> | null;
 };
 
 export type ChannelAgentPromptAdapter = {
-  messageToolHints?: (params: { cfg: OpenClawConfig; accountId?: string | null }) => string[];
+  messageToolHints?: (params: { cfg: MiraiConfig; accountId?: string | null }) => string[];
 };
 
 export type ChannelDirectoryEntryKind = "user" | "group" | "channel";
@@ -473,7 +305,7 @@ export type ChannelMessageActionName = ChannelMessageActionNameFromList;
 export type ChannelMessageActionContext = {
   channel: ChannelId;
   action: ChannelMessageActionName;
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   params: Record<string, unknown>;
   mediaLocalRoots?: readonly string[];
   accountId?: string | null;
@@ -482,9 +314,6 @@ export type ChannelMessageActionContext = {
    * never be sourced from tool/model-controlled params.
    */
   requesterSenderId?: string | null;
-  sessionKey?: string | null;
-  sessionId?: string | null;
-  agentId?: string | null;
   gateway?: {
     url?: string;
     token?: string;
@@ -500,28 +329,14 @@ export type ChannelMessageActionContext = {
 export type ChannelToolSend = {
   to: string;
   accountId?: string | null;
-  threadId?: string | null;
 };
 
 export type ChannelMessageActionAdapter = {
-  /**
-   * Unified discovery surface for the shared `message` tool.
-   * This returns the scoped actions,
-   * capabilities, and schema fragments together so they cannot drift.
-   */
-  describeMessageTool: (
-    params: ChannelMessageActionDiscoveryContext,
-  ) => ChannelMessageToolDiscovery | null | undefined;
+  listActions?: (params: { cfg: MiraiConfig }) => ChannelMessageActionName[];
   supportsAction?: (params: { action: ChannelMessageActionName }) => boolean;
-  requiresTrustedRequesterSender?: (params: {
-    action: ChannelMessageActionName;
-    toolContext?: ChannelThreadingToolContext;
-  }) => boolean;
+  supportsButtons?: (params: { cfg: MiraiConfig }) => boolean;
+  supportsCards?: (params: { cfg: MiraiConfig }) => boolean;
   extractToolSend?: (params: { args: Record<string, unknown> }) => ChannelToolSend | null;
-  /**
-   * Prefer this for channel-specific poll semantics or extra poll parameters.
-   * Core only parses the shared poll model when falling back to `outbound.sendPoll`.
-   */
   handleAction?: (ctx: ChannelMessageActionContext) => Promise<AgentToolResult<unknown>>;
 };
 
@@ -534,7 +349,7 @@ export type ChannelPollResult = {
 };
 
 export type ChannelPollContext = {
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   to: string;
   poll: PollInput;
   accountId?: string | null;

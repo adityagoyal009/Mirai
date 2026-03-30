@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { OpenClawConfig } from "../config/config.js";
+import type { MiraiConfig } from "../config/config.js";
 import { ensureOwnerDisplaySecret, resolveOwnerDisplaySetting } from "./owner-display.js";
 
 describe("resolveOwnerDisplaySetting", () => {
@@ -9,11 +9,11 @@ describe("resolveOwnerDisplaySetting", () => {
         ownerDisplay: "hash",
         ownerDisplaySecret: "  owner-secret  ",
       },
-    } as OpenClawConfig;
+    } as MiraiConfig;
 
     expect(resolveOwnerDisplaySetting(cfg)).toEqual({
       ownerDisplay: "hash",
-      ownerDisplaySecret: "owner-secret", // pragma: allowlist secret
+      ownerDisplaySecret: "owner-secret",
     });
   });
 
@@ -26,7 +26,7 @@ describe("resolveOwnerDisplaySetting", () => {
         auth: { token: "gateway-auth-token" },
         remote: { token: "gateway-remote-token" },
       },
-    } as OpenClawConfig;
+    } as MiraiConfig;
 
     expect(resolveOwnerDisplaySetting(cfg)).toEqual({
       ownerDisplay: "hash",
@@ -38,9 +38,9 @@ describe("resolveOwnerDisplaySetting", () => {
     const cfg = {
       commands: {
         ownerDisplay: "raw",
-        ownerDisplaySecret: "owner-secret", // pragma: allowlist secret
+        ownerDisplaySecret: "owner-secret",
       },
-    } as OpenClawConfig;
+    } as MiraiConfig;
 
     expect(resolveOwnerDisplaySetting(cfg)).toEqual({
       ownerDisplay: "raw",
@@ -55,7 +55,7 @@ describe("ensureOwnerDisplaySecret", () => {
       commands: {
         ownerDisplay: "hash",
       },
-    } as OpenClawConfig;
+    } as MiraiConfig;
 
     const result = ensureOwnerDisplaySecret(cfg, () => "generated-owner-secret");
     expect(result.generatedSecret).toBe("generated-owner-secret");
@@ -67,9 +67,9 @@ describe("ensureOwnerDisplaySecret", () => {
     const cfg = {
       commands: {
         ownerDisplay: "hash",
-        ownerDisplaySecret: "existing-owner-secret", // pragma: allowlist secret
+        ownerDisplaySecret: "existing-owner-secret",
       },
-    } as OpenClawConfig;
+    } as MiraiConfig;
 
     const result = ensureOwnerDisplaySecret(cfg, () => "generated-owner-secret");
     expect(result.generatedSecret).toBeUndefined();

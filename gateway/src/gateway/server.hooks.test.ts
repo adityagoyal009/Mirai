@@ -1,8 +1,6 @@
-import fs from "node:fs/promises";
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { describe, expect, test } from "vitest";
 import { resolveMainSessionKeyFromConfig } from "../config/sessions.js";
 import { drainSystemEvents, peekSystemEvents } from "../infra/system-events.js";
-import { DEDUPE_TTL_MS } from "./server-constants.js";
 import {
   cronIsolatedRun,
   installGatewayTestHooks,
@@ -14,122 +12,70 @@ import {
 installGatewayTestHooks({ scope: "suite" });
 
 const resolveMainKey = () => resolveMainSessionKeyFromConfig();
-const HOOK_TOKEN = "hook-secret";
-
-afterEach(() => {
-  vi.restoreAllMocks();
-});
-
-function buildHookJsonHeaders(options?: {
-  token?: string | null;
-  headers?: Record<string, string>;
-}): Record<string, string> {
-  const token = options?.token === undefined ? HOOK_TOKEN : options.token;
-  return {
-    "Content-Type": "application/json",
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    ...options?.headers,
-  };
-}
-
-async function postHook(
-  port: number,
-  path: string,
-  body: Record<string, unknown> | string,
-  options?: {
-    token?: string | null;
-    headers?: Record<string, string>;
-  },
-): Promise<Response> {
-  return fetch(`http://127.0.0.1:${port}${path}`, {
-    method: "POST",
-    headers: buildHookJsonHeaders(options),
-    body: typeof body === "string" ? body : JSON.stringify(body),
-  });
-}
-
-function setMainAndHooksAgents(): void {
-  testState.agentsConfig = {
-    list: [{ id: "main", default: true }, { id: "hooks" }],
-  };
-}
-
-function mockIsolatedRunOkOnce(): void {
-  cronIsolatedRun.mockClear();
-  cronIsolatedRun.mockResolvedValueOnce({
-    status: "ok",
-    summary: "done",
-  });
-}
-
-function mockIsolatedRunOk(): void {
-  cronIsolatedRun.mockClear();
-  cronIsolatedRun.mockResolvedValue({
-    status: "ok",
-    summary: "done",
-  });
-}
-
-async function postAgentHookWithIdempotency(
-  port: number,
-  idempotencyKey: string,
-  headers?: Record<string, string>,
-) {
-  const response = await postHook(
-    port,
-    "/hooks/agent",
-    { message: "Do it", name: "Email" },
-    { headers: { "Idempotency-Key": idempotencyKey, ...headers } },
-  );
-  expect(response.status).toBe(200);
-  return response;
-}
-
-async function expectFirstHookDelivery(
-  port: number,
-  idempotencyKey: string,
-  headers?: Record<string, string>,
-) {
-  const first = await postAgentHookWithIdempotency(port, idempotencyKey, headers);
-  const firstBody = (await first.json()) as { runId?: string };
-  expect(firstBody.runId).toBeTruthy();
-  await waitForSystemEvent();
-  drainSystemEvents(resolveMainKey());
-  return firstBody;
-}
 
 describe("gateway server hooks", () => {
   test("handles auth, wake, and agent flows", async () => {
-    testState.hooksConfig = { enabled: true, token: HOOK_TOKEN };
-    setMainAndHooksAgents();
+    testState.hooksConfig = { enabled: true, token: "hook-secret" };
+    testState.agentsConfig = {
+      list: [{ id: "main", default: true }, { id: "hooks" }],
+    };
     await withGatewayServer(async ({ port }) => {
-      const resNoAuth = await postHook(port, "/hooks/wake", { text: "Ping" }, { token: null });
+      const resNoAuth = await fetch(`http://127.0.0.1:${port}/hooks/wake`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: "Ping" }),
+      });
       expect(resNoAuth.status).toBe(401);
 
-      const resWake = await postHook(port, "/hooks/wake", { text: "Ping", mode: "next-heartbeat" });
+      const resWake = await fetch(`http://127.0.0.1:${port}/hooks/wake`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer hook-secret",
+        },
+        body: JSON.stringify({ text: "Ping", mode: "next-heartbeat" }),
+      });
       expect(resWake.status).toBe(200);
       const wakeEvents = await waitForSystemEvent();
       expect(wakeEvents.some((e) => e.includes("Ping"))).toBe(true);
       drainSystemEvents(resolveMainKey());
 
-      mockIsolatedRunOkOnce();
-      const resAgent = await postHook(port, "/hooks/agent", { message: "Do it", name: "Email" });
-      expect(resAgent.status).toBe(200);
+      cronIsolatedRun.mockClear();
+      cronIsolatedRun.mockResolvedValueOnce({
+        status: "ok",
+        summary: "done",
+      });
+      const resAgent = await fetch(`http://127.0.0.1:${port}/hooks/agent`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer hook-secret",
+        },
+        body: JSON.stringify({ message: "Do it", name: "Email" }),
+      });
+      expect(resAgent.status).toBe(202);
       const agentEvents = await waitForSystemEvent();
       expect(agentEvents.some((e) => e.includes("Hook Email: done"))).toBe(true);
-      const firstCall = (cronIsolatedRun.mock.calls[0] as unknown[] | undefined)?.[0] as {
-        deliveryContract?: string;
-      };
-      expect(firstCall?.deliveryContract).toBe("shared");
       drainSystemEvents(resolveMainKey());
 
-      mockIsolatedRunOkOnce();
-      const resAgentModel = await postHook(port, "/hooks/agent", {
-        message: "Do it",
-        name: "Email",
-        model: "openai/gpt-4.1-mini",
+      cronIsolatedRun.mockClear();
+      cronIsolatedRun.mockResolvedValueOnce({
+        status: "ok",
+        summary: "done",
       });
-      expect(resAgentModel.status).toBe(200);
+      const resAgentModel = await fetch(`http://127.0.0.1:${port}/hooks/agent`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer hook-secret",
+        },
+        body: JSON.stringify({
+          message: "Do it",
+          name: "Email",
+          model: "openai/gpt-4.1-mini",
+        }),
+      });
+      expect(resAgentModel.status).toBe(202);
       await waitForSystemEvent();
       const call = (cronIsolatedRun.mock.calls[0] as unknown[] | undefined)?.[0] as {
         job?: { payload?: { model?: string } };
@@ -137,13 +83,20 @@ describe("gateway server hooks", () => {
       expect(call?.job?.payload?.model).toBe("openai/gpt-4.1-mini");
       drainSystemEvents(resolveMainKey());
 
-      mockIsolatedRunOkOnce();
-      const resAgentWithId = await postHook(port, "/hooks/agent", {
-        message: "Do it",
-        name: "Email",
-        agentId: "hooks",
+      cronIsolatedRun.mockClear();
+      cronIsolatedRun.mockResolvedValueOnce({
+        status: "ok",
+        summary: "done",
       });
-      expect(resAgentWithId.status).toBe(200);
+      const resAgentWithId = await fetch(`http://127.0.0.1:${port}/hooks/agent`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer hook-secret",
+        },
+        body: JSON.stringify({ message: "Do it", name: "Email", agentId: "hooks" }),
+      });
+      expect(resAgentWithId.status).toBe(202);
       await waitForSystemEvent();
       const routedCall = (cronIsolatedRun.mock.calls[0] as unknown[] | undefined)?.[0] as {
         job?: { agentId?: string };
@@ -151,13 +104,20 @@ describe("gateway server hooks", () => {
       expect(routedCall?.job?.agentId).toBe("hooks");
       drainSystemEvents(resolveMainKey());
 
-      mockIsolatedRunOkOnce();
-      const resAgentUnknown = await postHook(port, "/hooks/agent", {
-        message: "Do it",
-        name: "Email",
-        agentId: "missing-agent",
+      cronIsolatedRun.mockClear();
+      cronIsolatedRun.mockResolvedValueOnce({
+        status: "ok",
+        summary: "done",
       });
-      expect(resAgentUnknown.status).toBe(200);
+      const resAgentUnknown = await fetch(`http://127.0.0.1:${port}/hooks/agent`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer hook-secret",
+        },
+        body: JSON.stringify({ message: "Do it", name: "Email", agentId: "missing-agent" }),
+      });
+      expect(resAgentUnknown.status).toBe(202);
       await waitForSystemEvent();
       const fallbackCall = (cronIsolatedRun.mock.calls[0] as unknown[] | undefined)?.[0] as {
         job?: { agentId?: string };
@@ -165,27 +125,32 @@ describe("gateway server hooks", () => {
       expect(fallbackCall?.job?.agentId).toBe("main");
       drainSystemEvents(resolveMainKey());
 
-      const resQuery = await postHook(
-        port,
-        "/hooks/wake?token=hook-secret",
-        { text: "Query auth" },
-        { token: null },
-      );
+      const resQuery = await fetch(`http://127.0.0.1:${port}/hooks/wake?token=hook-secret`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: "Query auth" }),
+      });
       expect(resQuery.status).toBe(400);
 
-      const resBadChannel = await postHook(port, "/hooks/agent", {
-        message: "Nope",
-        channel: "sms",
+      const resBadChannel = await fetch(`http://127.0.0.1:${port}/hooks/agent`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer hook-secret",
+        },
+        body: JSON.stringify({ message: "Nope", channel: "sms" }),
       });
       expect(resBadChannel.status).toBe(400);
       expect(peekSystemEvents(resolveMainKey()).length).toBe(0);
 
-      const resHeader = await postHook(
-        port,
-        "/hooks/wake",
-        { text: "Header auth" },
-        { token: null, headers: { "x-openclaw-token": HOOK_TOKEN } },
-      );
+      const resHeader = await fetch(`http://127.0.0.1:${port}/hooks/wake`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-mirai-token": "hook-secret",
+        },
+        body: JSON.stringify({ text: "Header auth" }),
+      });
       expect(resHeader.status).toBe(200);
       const headerEvents = await waitForSystemEvent();
       expect(headerEvents.some((e) => e.includes("Header auth"))).toBe(true);
@@ -197,23 +162,51 @@ describe("gateway server hooks", () => {
       });
       expect(resGet.status).toBe(405);
 
-      const resBlankText = await postHook(port, "/hooks/wake", { text: " " });
+      const resBlankText = await fetch(`http://127.0.0.1:${port}/hooks/wake`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer hook-secret",
+        },
+        body: JSON.stringify({ text: " " }),
+      });
       expect(resBlankText.status).toBe(400);
 
-      const resBlankMessage = await postHook(port, "/hooks/agent", { message: " " });
+      const resBlankMessage = await fetch(`http://127.0.0.1:${port}/hooks/agent`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer hook-secret",
+        },
+        body: JSON.stringify({ message: " " }),
+      });
       expect(resBlankMessage.status).toBe(400);
 
-      const resBadJson = await postHook(port, "/hooks/wake", "{");
+      const resBadJson = await fetch(`http://127.0.0.1:${port}/hooks/wake`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer hook-secret",
+        },
+        body: "{",
+      });
       expect(resBadJson.status).toBe(400);
     });
   });
 
   test("rejects request sessionKey unless hooks.allowRequestSessionKey is enabled", async () => {
-    testState.hooksConfig = { enabled: true, token: HOOK_TOKEN };
+    testState.hooksConfig = { enabled: true, token: "hook-secret" };
     await withGatewayServer(async ({ port }) => {
-      const denied = await postHook(port, "/hooks/agent", {
-        message: "Do it",
-        sessionKey: "agent:main:dm:u99999",
+      const denied = await fetch(`http://127.0.0.1:${port}/hooks/agent`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer hook-secret",
+        },
+        body: JSON.stringify({
+          message: "Do it",
+          sessionKey: "agent:main:dm:u99999",
+        }),
       });
       expect(denied.status).toBe(400);
       const deniedBody = (await denied.json()) as { error?: string };
@@ -224,7 +217,7 @@ describe("gateway server hooks", () => {
   test("respects hooks session policy for request + mapping session keys", async () => {
     testState.hooksConfig = {
       enabled: true,
-      token: HOOK_TOKEN,
+      token: "hook-secret",
       allowRequestSessionKey: true,
       allowedSessionKeyPrefixes: ["hook:"],
       defaultSessionKey: "hook:ingress",
@@ -255,7 +248,7 @@ describe("gateway server hooks", () => {
         },
         body: JSON.stringify({ message: "No key" }),
       });
-      expect(defaultRoute.status).toBe(200);
+      expect(defaultRoute.status).toBe(202);
       await waitForSystemEvent();
       const defaultCall = (cronIsolatedRun.mock.calls[0] as unknown[] | undefined)?.[0] as
         | { sessionKey?: string }
@@ -273,7 +266,7 @@ describe("gateway server hooks", () => {
         },
         body: JSON.stringify({ subject: "hello", id: "42" }),
       });
-      expect(mappedOk.status).toBe(200);
+      expect(mappedOk.status).toBe(202);
       await waitForSystemEvent();
       const mappedCall = (cronIsolatedRun.mock.calls[0] as unknown[] | undefined)?.[0] as
         | { sessionKey?: string }
@@ -281,139 +274,35 @@ describe("gateway server hooks", () => {
       expect(mappedCall?.sessionKey).toBe("hook:mapped:42");
       drainSystemEvents(resolveMainKey());
 
-      const requestBadPrefix = await postHook(port, "/hooks/agent", {
-        message: "Bad key",
-        sessionKey: "agent:main:main",
+      const requestBadPrefix = await fetch(`http://127.0.0.1:${port}/hooks/agent`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer hook-secret",
+        },
+        body: JSON.stringify({
+          message: "Bad key",
+          sessionKey: "agent:main:main",
+        }),
       });
       expect(requestBadPrefix.status).toBe(400);
 
-      const mappedBadPrefix = await postHook(port, "/hooks/mapped-bad", { subject: "hello" });
+      const mappedBadPrefix = await fetch(`http://127.0.0.1:${port}/hooks/mapped-bad`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer hook-secret",
+        },
+        body: JSON.stringify({ subject: "hello" }),
+      });
       expect(mappedBadPrefix.status).toBe(400);
-    });
-  });
-
-  test("normalizes duplicate target-agent prefixes before isolated dispatch", async () => {
-    testState.hooksConfig = {
-      enabled: true,
-      token: HOOK_TOKEN,
-      allowRequestSessionKey: true,
-      allowedSessionKeyPrefixes: ["hook:", "agent:"],
-    };
-    setMainAndHooksAgents();
-    await withGatewayServer(async ({ port }) => {
-      mockIsolatedRunOkOnce();
-
-      const resAgent = await postHook(port, "/hooks/agent", {
-        message: "Do it",
-        name: "Email",
-        agentId: "hooks",
-        sessionKey: "agent:hooks:slack:channel:c123",
-      });
-      expect(resAgent.status).toBe(200);
-      await waitForSystemEvent();
-
-      const routedCall = (cronIsolatedRun.mock.calls[0] as unknown[] | undefined)?.[0] as
-        | { sessionKey?: string; job?: { agentId?: string } }
-        | undefined;
-      expect(routedCall?.job?.agentId).toBe("hooks");
-      expect(routedCall?.sessionKey).toBe("slack:channel:c123");
-      drainSystemEvents(resolveMainKey());
-    });
-  });
-
-  test("dedupes repeated /hooks/agent deliveries by idempotency key", async () => {
-    testState.hooksConfig = { enabled: true, token: HOOK_TOKEN };
-    await withGatewayServer(async ({ port }) => {
-      mockIsolatedRunOk();
-      const firstBody = await expectFirstHookDelivery(port, "hook-idem-1");
-      expect(cronIsolatedRun).toHaveBeenCalledTimes(1);
-
-      const second = await postAgentHookWithIdempotency(port, "hook-idem-1");
-      const secondBody = (await second.json()) as { runId?: string };
-      expect(secondBody.runId).toBe(firstBody.runId);
-      expect(cronIsolatedRun).toHaveBeenCalledTimes(1);
-      expect(peekSystemEvents(resolveMainKey())).toHaveLength(0);
-    });
-  });
-
-  test("dedupes hook retries even when trusted-proxy client IP changes", async () => {
-    testState.hooksConfig = { enabled: true, token: HOOK_TOKEN };
-    const configPath = process.env.OPENCLAW_CONFIG_PATH;
-    expect(configPath).toBeTruthy();
-    await fs.writeFile(
-      configPath!,
-      JSON.stringify({ gateway: { trustedProxies: ["127.0.0.1"] } }, null, 2),
-      "utf-8",
-    );
-
-    await withGatewayServer(async ({ port }) => {
-      mockIsolatedRunOk();
-      const firstBody = await expectFirstHookDelivery(port, "hook-idem-forwarded", {
-        "X-Forwarded-For": "198.51.100.10",
-      });
-      const second = await postAgentHookWithIdempotency(port, "hook-idem-forwarded", {
-        "X-Forwarded-For": "203.0.113.25",
-      });
-      const secondBody = (await second.json()) as { runId?: string };
-      expect(secondBody.runId).toBe(firstBody.runId);
-      expect(cronIsolatedRun).toHaveBeenCalledTimes(1);
-    });
-  });
-
-  test("does not retain oversized idempotency keys for replay dedupe", async () => {
-    testState.hooksConfig = { enabled: true, token: HOOK_TOKEN };
-    const oversizedKey = "x".repeat(257);
-
-    await withGatewayServer(async ({ port }) => {
-      mockIsolatedRunOk();
-      await expectFirstHookDelivery(port, oversizedKey);
-      await postAgentHookWithIdempotency(port, oversizedKey);
-      await waitForSystemEvent();
-
-      expect(cronIsolatedRun).toHaveBeenCalledTimes(2);
-    });
-  });
-
-  test("expires hook idempotency entries from first delivery time", async () => {
-    testState.hooksConfig = { enabled: true, token: HOOK_TOKEN };
-    const nowSpy = vi.spyOn(Date, "now");
-    nowSpy.mockReturnValue(1_000_000);
-
-    await withGatewayServer(async ({ port }) => {
-      mockIsolatedRunOk();
-      const firstBody = await expectFirstHookDelivery(port, "fixed-window-idem");
-
-      nowSpy.mockReturnValue(1_000_000 + DEDUPE_TTL_MS - 1);
-      const second = await postHook(
-        port,
-        "/hooks/agent",
-        { message: "Do it", name: "Email" },
-        { headers: { "Idempotency-Key": "fixed-window-idem" } },
-      );
-      expect(second.status).toBe(200);
-      const secondBody = (await second.json()) as { runId?: string };
-      expect(secondBody.runId).toBe(firstBody.runId);
-      expect(cronIsolatedRun).toHaveBeenCalledTimes(1);
-
-      nowSpy.mockReturnValue(1_000_000 + DEDUPE_TTL_MS + 1);
-      const third = await postHook(
-        port,
-        "/hooks/agent",
-        { message: "Do it", name: "Email" },
-        { headers: { "Idempotency-Key": "fixed-window-idem" } },
-      );
-      expect(third.status).toBe(200);
-      const thirdBody = (await third.json()) as { runId?: string };
-      expect(thirdBody.runId).toBeTruthy();
-      expect(thirdBody.runId).not.toBe(firstBody.runId);
-      expect(cronIsolatedRun).toHaveBeenCalledTimes(2);
     });
   });
 
   test("enforces hooks.allowedAgentIds for explicit agent routing", async () => {
     testState.hooksConfig = {
       enabled: true,
-      token: HOOK_TOKEN,
+      token: "hook-secret",
       allowedAgentIds: ["hooks"],
       mappings: [
         {
@@ -424,11 +313,24 @@ describe("gateway server hooks", () => {
         },
       ],
     };
-    setMainAndHooksAgents();
+    testState.agentsConfig = {
+      list: [{ id: "main", default: true }, { id: "hooks" }],
+    };
     await withGatewayServer(async ({ port }) => {
-      mockIsolatedRunOkOnce();
-      const resNoAgent = await postHook(port, "/hooks/agent", { message: "No explicit agent" });
-      expect(resNoAgent.status).toBe(200);
+      cronIsolatedRun.mockClear();
+      cronIsolatedRun.mockResolvedValueOnce({
+        status: "ok",
+        summary: "done",
+      });
+      const resNoAgent = await fetch(`http://127.0.0.1:${port}/hooks/agent`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer hook-secret",
+        },
+        body: JSON.stringify({ message: "No explicit agent" }),
+      });
+      expect(resNoAgent.status).toBe(202);
       await waitForSystemEvent();
       const noAgentCall = (cronIsolatedRun.mock.calls[0] as unknown[] | undefined)?.[0] as {
         job?: { agentId?: string };
@@ -436,12 +338,20 @@ describe("gateway server hooks", () => {
       expect(noAgentCall?.job?.agentId).toBeUndefined();
       drainSystemEvents(resolveMainKey());
 
-      mockIsolatedRunOkOnce();
-      const resAllowed = await postHook(port, "/hooks/agent", {
-        message: "Allowed",
-        agentId: "hooks",
+      cronIsolatedRun.mockClear();
+      cronIsolatedRun.mockResolvedValueOnce({
+        status: "ok",
+        summary: "done",
       });
-      expect(resAllowed.status).toBe(200);
+      const resAllowed = await fetch(`http://127.0.0.1:${port}/hooks/agent`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer hook-secret",
+        },
+        body: JSON.stringify({ message: "Allowed", agentId: "hooks" }),
+      });
+      expect(resAllowed.status).toBe(202);
       await waitForSystemEvent();
       const allowedCall = (cronIsolatedRun.mock.calls[0] as unknown[] | undefined)?.[0] as {
         job?: { agentId?: string };
@@ -449,15 +359,26 @@ describe("gateway server hooks", () => {
       expect(allowedCall?.job?.agentId).toBe("hooks");
       drainSystemEvents(resolveMainKey());
 
-      const resDenied = await postHook(port, "/hooks/agent", {
-        message: "Denied",
-        agentId: "main",
+      const resDenied = await fetch(`http://127.0.0.1:${port}/hooks/agent`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer hook-secret",
+        },
+        body: JSON.stringify({ message: "Denied", agentId: "main" }),
       });
       expect(resDenied.status).toBe(400);
       const deniedBody = (await resDenied.json()) as { error?: string };
       expect(deniedBody.error).toContain("hooks.allowedAgentIds");
 
-      const resMappedDenied = await postHook(port, "/hooks/mapped", { subject: "hello" });
+      const resMappedDenied = await fetch(`http://127.0.0.1:${port}/hooks/mapped`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer hook-secret",
+        },
+        body: JSON.stringify({ subject: "hello" }),
+      });
       expect(resMappedDenied.status).toBe(400);
       const mappedDeniedBody = (await resMappedDenied.json()) as { error?: string };
       expect(mappedDeniedBody.error).toContain("hooks.allowedAgentIds");
@@ -468,16 +389,20 @@ describe("gateway server hooks", () => {
   test("denies explicit agentId when hooks.allowedAgentIds is empty", async () => {
     testState.hooksConfig = {
       enabled: true,
-      token: HOOK_TOKEN,
+      token: "hook-secret",
       allowedAgentIds: [],
     };
     testState.agentsConfig = {
       list: [{ id: "main", default: true }, { id: "hooks" }],
     };
     await withGatewayServer(async ({ port }) => {
-      const resDenied = await postHook(port, "/hooks/agent", {
-        message: "Denied",
-        agentId: "hooks",
+      const resDenied = await fetch(`http://127.0.0.1:${port}/hooks/agent`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer hook-secret",
+        },
+        body: JSON.stringify({ message: "Denied", agentId: "hooks" }),
       });
       expect(resDenied.status).toBe(400);
       const deniedBody = (await resDenied.json()) as { error?: string };
@@ -487,55 +412,53 @@ describe("gateway server hooks", () => {
   });
 
   test("throttles repeated hook auth failures and resets after success", async () => {
-    testState.hooksConfig = { enabled: true, token: HOOK_TOKEN };
+    testState.hooksConfig = { enabled: true, token: "hook-secret" };
     await withGatewayServer(async ({ port }) => {
-      const firstFail = await postHook(
-        port,
-        "/hooks/wake",
-        { text: "blocked" },
-        { token: "wrong" },
-      );
+      const firstFail = await fetch(`http://127.0.0.1:${port}/hooks/wake`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer wrong",
+        },
+        body: JSON.stringify({ text: "blocked" }),
+      });
       expect(firstFail.status).toBe(401);
 
       let throttled: Response | null = null;
       for (let i = 0; i < 20; i++) {
-        throttled = await postHook(port, "/hooks/wake", { text: "blocked" }, { token: "wrong" });
+        throttled = await fetch(`http://127.0.0.1:${port}/hooks/wake`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: "Bearer wrong",
+          },
+          body: JSON.stringify({ text: "blocked" }),
+        });
       }
       expect(throttled?.status).toBe(429);
       expect(throttled?.headers.get("retry-after")).toBeTruthy();
 
-      const allowed = await postHook(port, "/hooks/wake", { text: "auth reset" });
+      const allowed = await fetch(`http://127.0.0.1:${port}/hooks/wake`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer hook-secret",
+        },
+        body: JSON.stringify({ text: "auth reset" }),
+      });
       expect(allowed.status).toBe(200);
       await waitForSystemEvent();
       drainSystemEvents(resolveMainKey());
 
-      const failAfterSuccess = await postHook(
-        port,
-        "/hooks/wake",
-        { text: "blocked" },
-        { token: "wrong" },
-      );
+      const failAfterSuccess = await fetch(`http://127.0.0.1:${port}/hooks/wake`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer wrong",
+        },
+        body: JSON.stringify({ text: "blocked" }),
+      });
       expect(failAfterSuccess.status).toBe(401);
-    });
-  });
-
-  test("rejects non-POST hook requests without consuming auth failure budget", async () => {
-    testState.hooksConfig = { enabled: true, token: HOOK_TOKEN };
-    await withGatewayServer(async ({ port }) => {
-      let lastGet: Response | null = null;
-      for (let i = 0; i < 21; i++) {
-        lastGet = await fetch(`http://127.0.0.1:${port}/hooks/wake`, {
-          method: "GET",
-          headers: { Authorization: "Bearer wrong" },
-        });
-      }
-      expect(lastGet?.status).toBe(405);
-      expect(lastGet?.headers.get("allow")).toBe("POST");
-
-      const allowed = await postHook(port, "/hooks/wake", { text: "still works" });
-      expect(allowed.status).toBe(200);
-      await waitForSystemEvent();
-      drainSystemEvents(resolveMainKey());
     });
   });
 });

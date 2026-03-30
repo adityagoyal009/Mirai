@@ -39,15 +39,13 @@ export type SessionFilePathOptions = {
   sessionsDir?: string;
 };
 
-const MULTI_STORE_PATH_SENTINEL = "(multiple)";
-
 export function resolveSessionFilePathOptions(params: {
   agentId?: string;
   storePath?: string;
 }): SessionFilePathOptions | undefined {
   const agentId = params.agentId?.trim();
   const storePath = params.storePath?.trim();
-  if (storePath && storePath !== MULTI_STORE_PATH_SENTINEL) {
+  if (storePath) {
     const sessionsDir = path.dirname(path.resolve(storePath));
     return agentId ? { sessionsDir, agentId } : { sessionsDir };
   }
@@ -106,24 +104,13 @@ function resolveSiblingAgentSessionsDir(
   return path.join(rootDir, "agents", normalizeAgentId(agentId), "sessions");
 }
 
-function resolveAgentSessionsPathParts(
-  candidateAbsPath: string,
-): { parts: string[]; sessionsIndex: number } | null {
+function extractAgentIdFromAbsoluteSessionPath(candidateAbsPath: string): string | undefined {
   const normalized = path.normalize(path.resolve(candidateAbsPath));
   const parts = normalized.split(path.sep).filter(Boolean);
   const sessionsIndex = parts.lastIndexOf("sessions");
   if (sessionsIndex < 2 || parts[sessionsIndex - 2] !== "agents") {
-    return null;
-  }
-  return { parts, sessionsIndex };
-}
-
-function extractAgentIdFromAbsoluteSessionPath(candidateAbsPath: string): string | undefined {
-  const parsed = resolveAgentSessionsPathParts(candidateAbsPath);
-  if (!parsed) {
     return undefined;
   }
-  const { parts, sessionsIndex } = parsed;
   const agentId = parts[sessionsIndex - 1];
   return agentId || undefined;
 }
@@ -132,11 +119,12 @@ function resolveStructuralSessionFallbackPath(
   candidateAbsPath: string,
   expectedAgentId: string,
 ): string | undefined {
-  const parsed = resolveAgentSessionsPathParts(candidateAbsPath);
-  if (!parsed) {
+  const normalized = path.normalize(path.resolve(candidateAbsPath));
+  const parts = normalized.split(path.sep).filter(Boolean);
+  const sessionsIndex = parts.lastIndexOf("sessions");
+  if (sessionsIndex < 2 || parts[sessionsIndex - 2] !== "agents") {
     return undefined;
   }
-  const { parts, sessionsIndex } = parsed;
   const agentIdPart = parts[sessionsIndex - 1];
   if (!agentIdPart) {
     return undefined;
@@ -157,7 +145,7 @@ function resolveStructuralSessionFallbackPath(
   if (!fileName || fileName === "." || fileName === "..") {
     return undefined;
   }
-  return path.normalize(path.resolve(candidateAbsPath));
+  return normalized;
 }
 
 function safeRealpathSync(filePath: string): string | undefined {
@@ -276,24 +264,19 @@ export function resolveSessionFilePath(
   return resolveSessionTranscriptPathInDir(sessionId, sessionsDir);
 }
 
-export function resolveStorePath(
-  store?: string,
-  opts?: { agentId?: string; env?: NodeJS.ProcessEnv },
-) {
+export function resolveStorePath(store?: string, opts?: { agentId?: string }) {
   const agentId = normalizeAgentId(opts?.agentId ?? DEFAULT_AGENT_ID);
-  const env = opts?.env ?? process.env;
-  const homedir = () => resolveRequiredHomeDir(env, os.homedir);
   if (!store) {
-    return path.join(resolveAgentSessionsDir(agentId, env, homedir), "sessions.json");
+    return resolveDefaultSessionStorePath(agentId);
   }
   if (store.includes("{agentId}")) {
     const expanded = store.replaceAll("{agentId}", agentId);
     if (expanded.startsWith("~")) {
       return path.resolve(
         expandHomePrefix(expanded, {
-          home: resolveRequiredHomeDir(env, homedir),
-          env,
-          homedir,
+          home: resolveRequiredHomeDir(process.env, os.homedir),
+          env: process.env,
+          homedir: os.homedir,
         }),
       );
     }
@@ -302,28 +285,11 @@ export function resolveStorePath(
   if (store.startsWith("~")) {
     return path.resolve(
       expandHomePrefix(store, {
-        home: resolveRequiredHomeDir(env, homedir),
-        env,
-        homedir,
+        home: resolveRequiredHomeDir(process.env, os.homedir),
+        env: process.env,
+        homedir: os.homedir,
       }),
     );
   }
   return path.resolve(store);
-}
-
-export function resolveAgentsDirFromSessionStorePath(storePath: string): string | undefined {
-  const candidateAbsPath = path.resolve(storePath);
-  if (path.basename(candidateAbsPath) !== "sessions.json") {
-    return undefined;
-  }
-  const sessionsDir = path.dirname(candidateAbsPath);
-  if (path.basename(sessionsDir) !== "sessions") {
-    return undefined;
-  }
-  const agentDir = path.dirname(sessionsDir);
-  const agentsDir = path.dirname(agentDir);
-  if (path.basename(agentsDir) !== "agents") {
-    return undefined;
-  }
-  return agentsDir;
 }

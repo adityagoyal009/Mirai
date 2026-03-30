@@ -1,0 +1,11 @@
+{
+  "name": "@mirai/discord",
+  "version": "2026.3.13",
+  "description": "Mirai Discord channel plugin",
+  "type": "module",
+  "mirai": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}

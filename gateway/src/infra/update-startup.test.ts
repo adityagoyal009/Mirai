@@ -5,8 +5,8 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { captureEnv } from "../test-utils/env.js";
 import type { UpdateCheckResult } from "./update-check.js";
 
-vi.mock("./openclaw-root.js", () => ({
-  resolveOpenClawPackageRoot: vi.fn(),
+vi.mock("./mirai-root.js", () => ({
+  resolveMiraiPackageRoot: vi.fn(),
 }));
 
 vi.mock("./update-check.js", async () => {
@@ -45,7 +45,7 @@ describe("update-startup", () => {
   let tempDir: string;
   let envSnapshot: ReturnType<typeof captureEnv>;
 
-  let resolveOpenClawPackageRoot: (typeof import("./openclaw-root.js"))["resolveOpenClawPackageRoot"];
+  let resolveMiraiPackageRoot: (typeof import("./mirai-root.js"))["resolveMiraiPackageRoot"];
   let checkUpdateStatus: (typeof import("./update-check.js"))["checkUpdateStatus"];
   let resolveNpmChannelTag: (typeof import("./update-check.js"))["resolveNpmChannelTag"];
   let runCommandWithTimeout: (typeof import("../process/exec.js"))["runCommandWithTimeout"];
@@ -56,7 +56,7 @@ describe("update-startup", () => {
   let loaded = false;
 
   beforeAll(async () => {
-    suiteRoot = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-update-check-suite-"));
+    suiteRoot = await fs.mkdtemp(path.join(os.tmpdir(), "mirai-update-check-suite-"));
   });
 
   beforeEach(async () => {
@@ -64,8 +64,8 @@ describe("update-startup", () => {
     vi.setSystemTime(new Date("2026-01-17T10:00:00Z"));
     tempDir = path.join(suiteRoot, `case-${++suiteCase}`);
     await fs.mkdir(tempDir);
-    envSnapshot = captureEnv(["OPENCLAW_STATE_DIR", "NODE_ENV", "VITEST"]);
-    process.env.OPENCLAW_STATE_DIR = tempDir;
+    envSnapshot = captureEnv(["MIRAI_STATE_DIR", "NODE_ENV", "VITEST"]);
+    process.env.MIRAI_STATE_DIR = tempDir;
 
     process.env.NODE_ENV = "test";
 
@@ -74,7 +74,7 @@ describe("update-startup", () => {
 
     // Perf: load mocked modules once (after timers/env are set up).
     if (!loaded) {
-      ({ resolveOpenClawPackageRoot } = await import("./openclaw-root.js"));
+      ({ resolveMiraiPackageRoot } = await import("./mirai-root.js"));
       ({ checkUpdateStatus, resolveNpmChannelTag } = await import("./update-check.js"));
       ({ runCommandWithTimeout } = await import("../process/exec.js"));
       ({
@@ -85,7 +85,7 @@ describe("update-startup", () => {
       } = await import("./update-startup.js"));
       loaded = true;
     }
-    vi.mocked(resolveOpenClawPackageRoot).mockClear();
+    vi.mocked(resolveMiraiPackageRoot).mockClear();
     vi.mocked(checkUpdateStatus).mockClear();
     vi.mocked(resolveNpmChannelTag).mockClear();
     vi.mocked(runCommandWithTimeout).mockClear();
@@ -107,20 +107,12 @@ describe("update-startup", () => {
   });
 
   function mockPackageUpdateStatus(tag = "latest", version = "2.0.0") {
-    mockPackageInstallStatus();
-    mockNpmChannelTag(tag, version);
-  }
-
-  function mockPackageInstallStatus() {
-    vi.mocked(resolveOpenClawPackageRoot).mockResolvedValue("/opt/openclaw");
+    vi.mocked(resolveMiraiPackageRoot).mockResolvedValue("/opt/mirai");
     vi.mocked(checkUpdateStatus).mockResolvedValue({
-      root: "/opt/openclaw",
+      root: "/opt/mirai",
       installKind: "package",
       packageManager: "npm",
     } satisfies UpdateCheckResult);
-  }
-
-  function mockNpmChannelTag(tag: string, version: string) {
     vi.mocked(resolveNpmChannelTag).mockResolvedValue({
       tag,
       version,
@@ -152,48 +144,6 @@ describe("update-startup", () => {
     return vi.fn().mockResolvedValue({
       ok: true,
       code: 0,
-    });
-  }
-
-  function createBetaAutoUpdateConfig(params?: { checkOnStart?: boolean }) {
-    return {
-      update: {
-        ...(params?.checkOnStart === false ? { checkOnStart: false } : {}),
-        channel: "beta" as const,
-        auto: {
-          enabled: true,
-          betaCheckIntervalHours: 1,
-        },
-      },
-    };
-  }
-
-  async function runAutoUpdateCheckWithDefaults(params: {
-    cfg: { update?: Record<string, unknown> };
-    runAutoUpdate?: ReturnType<typeof createAutoUpdateSuccessMock>;
-  }) {
-    await runGatewayUpdateCheck({
-      cfg: params.cfg,
-      log: { info: vi.fn() },
-      isNixMode: false,
-      allowInTests: true,
-      ...(params.runAutoUpdate ? { runAutoUpdate: params.runAutoUpdate } : {}),
-    });
-  }
-
-  async function runStableUpdateCheck(params: {
-    onUpdateAvailableChange?: Parameters<
-      typeof runGatewayUpdateCheck
-    >[0]["onUpdateAvailableChange"];
-  }) {
-    await runGatewayUpdateCheck({
-      cfg: { update: { channel: "stable" } },
-      log: { info: vi.fn() },
-      isNixMode: false,
-      allowInTests: true,
-      ...(params.onUpdateAvailableChange
-        ? { onUpdateAvailableChange: params.onUpdateAvailableChange }
-        : {}),
     });
   }
 
@@ -256,7 +206,12 @@ describe("update-startup", () => {
   });
 
   it("emits update change callback when update state clears", async () => {
-    mockPackageInstallStatus();
+    vi.mocked(resolveMiraiPackageRoot).mockResolvedValue("/opt/mirai");
+    vi.mocked(checkUpdateStatus).mockResolvedValue({
+      root: "/opt/mirai",
+      installKind: "package",
+      packageManager: "npm",
+    } satisfies UpdateCheckResult);
     vi.mocked(resolveNpmChannelTag)
       .mockResolvedValueOnce({
         tag: "latest",
@@ -268,9 +223,21 @@ describe("update-startup", () => {
       });
 
     const onUpdateAvailableChange = vi.fn();
-    await runStableUpdateCheck({ onUpdateAvailableChange });
+    await runGatewayUpdateCheck({
+      cfg: { update: { channel: "stable" } },
+      log: { info: vi.fn() },
+      isNixMode: false,
+      allowInTests: true,
+      onUpdateAvailableChange,
+    });
     vi.setSystemTime(new Date("2026-01-18T11:00:00Z"));
-    await runStableUpdateCheck({ onUpdateAvailableChange });
+    await runGatewayUpdateCheck({
+      cfg: { update: { channel: "stable" } },
+      log: { info: vi.fn() },
+      isNixMode: false,
+      allowInTests: true,
+      onUpdateAvailableChange,
+    });
 
     expect(onUpdateAvailableChange).toHaveBeenNthCalledWith(1, {
       currentVersion: "1.0.0",
@@ -335,7 +302,7 @@ describe("update-startup", () => {
     expect(runAutoUpdate).toHaveBeenCalledWith({
       channel: "stable",
       timeoutMs: 45 * 60 * 1000,
-      root: "/opt/openclaw",
+      root: "/opt/mirai",
     });
   });
 
@@ -343,8 +310,19 @@ describe("update-startup", () => {
     mockPackageUpdateStatus("beta", "2.0.0-beta.1");
     const runAutoUpdate = createAutoUpdateSuccessMock();
 
-    await runAutoUpdateCheckWithDefaults({
-      cfg: createBetaAutoUpdateConfig(),
+    await runGatewayUpdateCheck({
+      cfg: {
+        update: {
+          channel: "beta",
+          auto: {
+            enabled: true,
+            betaCheckIntervalHours: 1,
+          },
+        },
+      },
+      log: { info: vi.fn() },
+      isNixMode: false,
+      allowInTests: true,
       runAutoUpdate,
     });
 
@@ -352,7 +330,7 @@ describe("update-startup", () => {
     expect(runAutoUpdate).toHaveBeenCalledWith({
       channel: "beta",
       timeoutMs: 45 * 60 * 1000,
-      root: "/opt/openclaw",
+      root: "/opt/mirai",
     });
   });
 
@@ -360,8 +338,20 @@ describe("update-startup", () => {
     mockPackageUpdateStatus("beta", "2.0.0-beta.1");
     const runAutoUpdate = createAutoUpdateSuccessMock();
 
-    await runAutoUpdateCheckWithDefaults({
-      cfg: createBetaAutoUpdateConfig({ checkOnStart: false }),
+    await runGatewayUpdateCheck({
+      cfg: {
+        update: {
+          checkOnStart: false,
+          channel: "beta",
+          auto: {
+            enabled: true,
+            betaCheckIntervalHours: 1,
+          },
+        },
+      },
+      log: { info: vi.fn() },
+      isNixMode: false,
+      allowInTests: true,
       runAutoUpdate,
     });
 
@@ -369,8 +359,16 @@ describe("update-startup", () => {
   });
 
   it("uses current runtime + entrypoint for default auto-update command execution", async () => {
-    mockPackageInstallStatus();
-    mockNpmChannelTag("beta", "2.0.0-beta.1");
+    vi.mocked(resolveMiraiPackageRoot).mockResolvedValue("/opt/mirai");
+    vi.mocked(checkUpdateStatus).mockResolvedValue({
+      root: "/opt/mirai",
+      installKind: "package",
+      packageManager: "npm",
+    } satisfies UpdateCheckResult);
+    vi.mocked(resolveNpmChannelTag).mockResolvedValue({
+      tag: "beta",
+      version: "2.0.0-beta.1",
+    });
     vi.mocked(runCommandWithTimeout).mockResolvedValue({
       stdout: "{}",
       stderr: "",
@@ -381,10 +379,21 @@ describe("update-startup", () => {
     });
 
     const originalArgv = process.argv.slice();
-    process.argv = [process.execPath, "/opt/openclaw/dist/entry.js"];
+    process.argv = [process.execPath, "/opt/mirai/dist/entry.js"];
     try {
-      await runAutoUpdateCheckWithDefaults({
-        cfg: createBetaAutoUpdateConfig(),
+      await runGatewayUpdateCheck({
+        cfg: {
+          update: {
+            channel: "beta",
+            auto: {
+              enabled: true,
+              betaCheckIntervalHours: 1,
+            },
+          },
+        },
+        log: { info: vi.fn() },
+        isNixMode: false,
+        allowInTests: true,
       });
     } finally {
       process.argv = originalArgv;
@@ -393,7 +402,7 @@ describe("update-startup", () => {
     expect(runCommandWithTimeout).toHaveBeenCalledWith(
       [
         process.execPath,
-        "/opt/openclaw/dist/entry.js",
+        "/opt/mirai/dist/entry.js",
         "update",
         "--yes",
         "--channel",
@@ -403,7 +412,7 @@ describe("update-startup", () => {
       expect.objectContaining({
         timeoutMs: 45 * 60 * 1000,
         env: expect.objectContaining({
-          OPENCLAW_AUTO_UPDATE: "1",
+          MIRAI_AUTO_UPDATE: "1",
         }),
       }),
     );

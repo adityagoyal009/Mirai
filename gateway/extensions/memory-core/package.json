@@ -1,0 +1,23 @@
+{
+  "name": "@mirai/memory-core",
+  "version": "2026.3.13",
+  "private": true,
+  "description": "Mirai core memory search plugin",
+  "type": "module",
+  "devDependencies": {
+    "mirai": "workspace:*"
+  },
+  "peerDependencies": {
+    "mirai": ">=2026.3.11"
+  },
+  "peerDependenciesMeta": {
+    "mirai": {
+      "optional": true
+    }
+  },
+  "mirai": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}

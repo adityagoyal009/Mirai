@@ -13,10 +13,9 @@ import {
   shouldDeferShellEnvFallback,
   shouldEnableShellEnvFallback,
 } from "../infra/shell-env.js";
-import { sanitizeTerminalText } from "../terminal/safe-text.js";
 import { VERSION } from "../version.js";
 import { DuplicateAgentDirError, findDuplicateAgentDirs } from "./agent-dirs.js";
-import { maintainConfigBackups } from "./backup-rotation.js";
+import { rotateConfigBackups } from "./backup-rotation.js";
 import {
   applyCompactionDefaults,
   applyContextPruningDefaults,
@@ -30,17 +29,12 @@ import {
 } from "./defaults.js";
 import { restoreEnvVarRefs } from "./env-preserve.js";
 import {
-  type EnvSubstitutionWarning,
   MissingEnvVarError,
   containsEnvVarReference,
   resolveConfigEnvVars,
 } from "./env-substitution.js";
 import { applyConfigEnvVars } from "./env-vars.js";
-import {
-  ConfigIncludeError,
-  readConfigIncludeFileWithGuards,
-  resolveConfigIncludes,
-} from "./includes.js";
+import { ConfigIncludeError, resolveConfigIncludes } from "./includes.js";
 import { findLegacyConfigIssues } from "./legacy.js";
 import { applyMergePatch } from "./merge-patch.js";
 import { normalizeExecSafeBinProfilesInConfig } from "./normalize-exec-safe-bin.js";
@@ -48,12 +42,12 @@ import { normalizeConfigPaths } from "./normalize-paths.js";
 import { resolveConfigPath, resolveDefaultConfigCandidates, resolveStateDir } from "./paths.js";
 import { isBlockedObjectKey } from "./prototype-keys.js";
 import { applyConfigOverrides } from "./runtime-overrides.js";
-import type { OpenClawConfig, ConfigFileSnapshot, LegacyConfigIssue } from "./types.js";
+import type { MiraiConfig, ConfigFileSnapshot, LegacyConfigIssue } from "./types.js";
 import {
   validateConfigObjectRawWithPlugins,
   validateConfigObjectWithPlugins,
 } from "./validation.js";
-import { compareOpenClawVersions } from "./version.js";
+import { compareMiraiVersions } from "./version.js";
 
 // Re-export for backwards compatibility
 export { CircularIncludeError, ConfigIncludeError } from "./includes.js";
@@ -68,7 +62,6 @@ const SHELL_ENV_EXPECTED_KEYS = [
   "OPENROUTER_API_KEY",
   "AI_GATEWAY_API_KEY",
   "MINIMAX_API_KEY",
-  "MODELSTUDIO_API_KEY",
   "SYNTHETIC_API_KEY",
   "KILOCODE_API_KEY",
   "ELEVENLABS_API_KEY",
@@ -76,8 +69,8 @@ const SHELL_ENV_EXPECTED_KEYS = [
   "DISCORD_BOT_TOKEN",
   "SLACK_BOT_TOKEN",
   "SLACK_APP_TOKEN",
-  "OPENCLAW_GATEWAY_TOKEN",
-  "OPENCLAW_GATEWAY_PASSWORD",
+  "MIRAI_GATEWAY_TOKEN",
+  "MIRAI_GATEWAY_PASSWORD",
 ];
 
 const OPEN_DM_POLICY_ALLOW_FROM_RE =
@@ -141,53 +134,11 @@ export type ReadConfigFileSnapshotForWriteResult = {
   writeOptions: ConfigWriteOptions;
 };
 
-export type RuntimeConfigSnapshotRefreshParams = {
-  sourceConfig: OpenClawConfig;
-};
-
-export type RuntimeConfigSnapshotRefreshHandler = {
-  refresh: (params: RuntimeConfigSnapshotRefreshParams) => boolean | Promise<boolean>;
-  clearOnRefreshFailure?: () => void;
-};
-
-export class ConfigRuntimeRefreshError extends Error {
-  constructor(message: string, options?: { cause?: unknown }) {
-    super(message, options);
-    this.name = "ConfigRuntimeRefreshError";
-  }
-}
-
 function hashConfigRaw(raw: string | null): string {
   return crypto
     .createHash("sha256")
     .update(raw ?? "")
     .digest("hex");
-}
-
-async function tightenStateDirPermissionsIfNeeded(params: {
-  configPath: string;
-  env: NodeJS.ProcessEnv;
-  homedir: () => string;
-  fsModule: typeof fs;
-}): Promise<void> {
-  if (process.platform === "win32") {
-    return;
-  }
-  const stateDir = resolveStateDir(params.env, params.homedir);
-  const configDir = path.dirname(params.configPath);
-  if (path.resolve(configDir) !== path.resolve(stateDir)) {
-    return;
-  }
-  try {
-    const stat = await params.fsModule.promises.stat(configDir);
-    const mode = stat.mode & 0o777;
-    if ((mode & 0o077) === 0) {
-      return;
-    }
-    await params.fsModule.promises.chmod(configDir, 0o700);
-  } catch {
-    // Best-effort hardening only; callers still need the config write to proceed.
-  }
 }
 
 function formatConfigValidationFailure(pathLabel: string, issueMessage: string): string {
@@ -204,10 +155,10 @@ function formatConfigValidationFailure(pathLabel: string, issueMessage: string):
     `Configuration mismatch: ${policyPath} is "open", but ${allowPath} does not include "*".`,
     "",
     "Fix with:",
-    `  openclaw config set ${allowPath} '["*"]'`,
+    `  mirai config set ${allowPath} '["*"]'`,
     "",
     "Or switch policy:",
-    `  openclaw config set ${policyPath} "pairing"`,
+    `  mirai config set ${policyPath} "pairing"`,
   ].join("\n");
 }
 
@@ -300,9 +251,9 @@ function unsetPathForWriteAt(
 }
 
 function unsetPathForWrite(
-  root: OpenClawConfig,
+  root: MiraiConfig,
   pathSegments: string[],
-): { changed: boolean; next: OpenClawConfig } {
+): { changed: boolean; next: MiraiConfig } {
   if (pathSegments.length === 0) {
     return { changed: false, next: root };
   }
@@ -335,11 +286,11 @@ export function resolveConfigSnapshotHash(snapshot: {
   return hashConfigRaw(snapshot.raw);
 }
 
-function coerceConfig(value: unknown): OpenClawConfig {
+function coerceConfig(value: unknown): MiraiConfig {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return {};
   }
-  return value as OpenClawConfig;
+  return value as MiraiConfig;
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -604,7 +555,7 @@ function warnOnConfigMiskeys(raw: unknown, logger: Pick<typeof console, "warn">)
   }
 }
 
-function stampConfigVersion(cfg: OpenClawConfig): OpenClawConfig {
+function stampConfigVersion(cfg: MiraiConfig): MiraiConfig {
   const now = new Date().toISOString();
   return {
     ...cfg,
@@ -616,12 +567,12 @@ function stampConfigVersion(cfg: OpenClawConfig): OpenClawConfig {
   };
 }
 
-function warnIfConfigFromFuture(cfg: OpenClawConfig, logger: Pick<typeof console, "warn">): void {
+function warnIfConfigFromFuture(cfg: MiraiConfig, logger: Pick<typeof console, "warn">): void {
   const touched = cfg.meta?.lastTouchedVersion;
   if (!touched) {
     return;
   }
-  const cmp = compareOpenClawVersions(VERSION, touched);
+  const cmp = compareMiraiVersions(VERSION, touched);
   if (cmp === null) {
     return;
   }
@@ -674,7 +625,6 @@ export function parseConfigJson5(
 type ConfigReadResolution = {
   resolvedConfigRaw: unknown;
   envSnapshotForRestore: Record<string, string | undefined>;
-  envWarnings: EnvSubstitutionWarning[];
 };
 
 function resolveConfigIncludesForRead(
@@ -684,13 +634,6 @@ function resolveConfigIncludesForRead(
 ): unknown {
   return resolveConfigIncludes(parsed, configPath, {
     readFile: (candidate) => deps.fs.readFileSync(candidate, "utf-8"),
-    readFileWithGuards: ({ includePath, resolvedPath, rootRealDir }) =>
-      readConfigIncludeFileWithGuards({
-        includePath,
-        resolvedPath,
-        rootRealDir,
-        ioFs: deps.fs,
-      }),
     parseJson: (raw) => deps.json5.parse(raw),
   });
 }
@@ -701,19 +644,13 @@ function resolveConfigForRead(
 ): ConfigReadResolution {
   // Apply config.env to process.env BEFORE substitution so ${VAR} can reference config-defined vars.
   if (resolvedIncludes && typeof resolvedIncludes === "object" && "env" in resolvedIncludes) {
-    applyConfigEnvVars(resolvedIncludes as OpenClawConfig, env);
+    applyConfigEnvVars(resolvedIncludes as MiraiConfig, env);
   }
 
-  // Collect missing env var references as warnings instead of throwing,
-  // so non-critical config sections with unset vars don't crash the gateway.
-  const envWarnings: EnvSubstitutionWarning[] = [];
   return {
-    resolvedConfigRaw: resolveConfigEnvVars(resolvedIncludes, env, {
-      onMissing: (w) => envWarnings.push(w),
-    }),
+    resolvedConfigRaw: resolveConfigEnvVars(resolvedIncludes, env),
     // Capture env snapshot after substitution for write-time ${VAR} restoration.
     envSnapshotForRestore: { ...env } as Record<string, string | undefined>,
-    envWarnings,
   };
 }
 
@@ -731,7 +668,7 @@ export function createConfigIO(overrides: ConfigIoDeps = {}) {
   const configPath =
     candidatePaths.find((candidate) => deps.fs.existsSync(candidate)) ?? requestedConfigPath;
 
-  function loadConfig(): OpenClawConfig {
+  function loadConfig(): MiraiConfig {
     try {
       maybeLoadDotEnvForConfig(deps.env);
       if (!deps.fs.existsSync(configPath)) {
@@ -748,21 +685,15 @@ export function createConfigIO(overrides: ConfigIoDeps = {}) {
       }
       const raw = deps.fs.readFileSync(configPath, "utf-8");
       const parsed = deps.json5.parse(raw);
-      const readResolution = resolveConfigForRead(
+      const { resolvedConfigRaw: resolvedConfig } = resolveConfigForRead(
         resolveConfigIncludesForRead(parsed, configPath, deps),
         deps.env,
       );
-      const resolvedConfig = readResolution.resolvedConfigRaw;
-      for (const w of readResolution.envWarnings) {
-        deps.logger.warn(
-          `Config (${configPath}): missing env var "${w.varName}" at ${w.configPath} — feature using this value will be unavailable`,
-        );
-      }
       warnOnConfigMiskeys(resolvedConfig, deps.logger);
       if (typeof resolvedConfig !== "object" || resolvedConfig === null) {
         return {};
       }
-      const preValidationDuplicates = findDuplicateAgentDirs(resolvedConfig as OpenClawConfig, {
+      const preValidationDuplicates = findDuplicateAgentDirs(resolvedConfig as MiraiConfig, {
         env: deps.env,
         homedir: deps.homedir,
       });
@@ -772,26 +703,20 @@ export function createConfigIO(overrides: ConfigIoDeps = {}) {
       const validated = validateConfigObjectWithPlugins(resolvedConfig);
       if (!validated.ok) {
         const details = validated.issues
-          .map(
-            (iss) =>
-              `- ${sanitizeTerminalText(iss.path || "<root>")}: ${sanitizeTerminalText(iss.message)}`,
-          )
+          .map((iss) => `- ${iss.path || "<root>"}: ${iss.message}`)
           .join("\n");
         if (!loggedInvalidConfigs.has(configPath)) {
           loggedInvalidConfigs.add(configPath);
           deps.logger.error(`Invalid config at ${configPath}:\\n${details}`);
         }
-        const error = new Error(`Invalid config at ${configPath}:\n${details}`);
+        const error = new Error("Invalid config");
         (error as { code?: string; details?: string }).code = "INVALID_CONFIG";
         (error as { code?: string; details?: string }).details = details;
         throw error;
       }
       if (validated.warnings.length > 0) {
         const details = validated.warnings
-          .map(
-            (iss) =>
-              `- ${sanitizeTerminalText(iss.path || "<root>")}: ${sanitizeTerminalText(iss.message)}`,
-          )
+          .map((iss) => `- ${iss.path || "<root>"}: ${iss.message}`)
           .join("\n");
         deps.logger.warn(`Config warnings:\\n${details}`);
       }
@@ -874,11 +799,10 @@ export function createConfigIO(overrides: ConfigIoDeps = {}) {
       }
       const error = err as { code?: string };
       if (error?.code === "INVALID_CONFIG") {
-        // Fail closed so invalid configs cannot silently fall back to permissive defaults.
-        throw err;
+        return {};
       }
       deps.logger.error(`Failed to read config at ${configPath}`, err);
-      throw err;
+      return {};
     }
   }
 
@@ -964,20 +888,33 @@ export function createConfigIO(overrides: ConfigIoDeps = {}) {
         };
       }
 
-      const readResolution = resolveConfigForRead(resolved, deps.env);
-
-      // Convert missing env var references to config warnings instead of fatal errors.
-      // This allows the gateway to start in degraded mode when non-critical config
-      // sections reference unset env vars (e.g. optional provider API keys).
-      const envVarWarnings = readResolution.envWarnings.map((w) => ({
-        path: w.configPath,
-        message: `Missing env var "${w.varName}" — feature using this value will be unavailable`,
-      }));
+      let readResolution: ConfigReadResolution;
+      try {
+        readResolution = resolveConfigForRead(resolved, deps.env);
+      } catch (err) {
+        const message =
+          err instanceof MissingEnvVarError
+            ? err.message
+            : `Env var substitution failed: ${String(err)}`;
+        return {
+          snapshot: {
+            path: configPath,
+            exists: true,
+            raw,
+            parsed: parsedRes.parsed,
+            resolved: coerceConfig(resolved),
+            valid: false,
+            config: coerceConfig(resolved),
+            hash,
+            issues: [{ path: "", message }],
+            warnings: [],
+            legacyIssues: [],
+          },
+        };
+      }
 
       const resolvedConfigRaw = readResolution.resolvedConfigRaw;
-      // Detect legacy keys on resolved config, but only mark source-literal legacy
-      // entries (for auto-migration) when they are present in the parsed source.
-      const legacyIssues = findLegacyConfigIssues(resolvedConfigRaw, parsedRes.parsed);
+      const legacyIssues = findLegacyConfigIssues(resolvedConfigRaw);
 
       const validated = validateConfigObjectWithPlugins(resolvedConfigRaw);
       if (!validated.ok) {
@@ -992,7 +929,7 @@ export function createConfigIO(overrides: ConfigIoDeps = {}) {
             config: coerceConfig(resolvedConfigRaw),
             hash,
             issues: validated.issues,
-            warnings: [...validated.warnings, ...envVarWarnings],
+            warnings: validated.warnings,
             legacyIssues,
           },
         };
@@ -1024,7 +961,7 @@ export function createConfigIO(overrides: ConfigIoDeps = {}) {
           config: snapshotConfig,
           hash,
           issues: [],
-          warnings: [...validated.warnings, ...envVarWarnings],
+          warnings: validated.warnings,
           legacyIssues,
         },
         envSnapshotForRestore: readResolution.envSnapshotForRestore,
@@ -1083,7 +1020,7 @@ export function createConfigIO(overrides: ConfigIoDeps = {}) {
     };
   }
 
-  async function writeConfigFile(cfg: OpenClawConfig, options: ConfigWriteOptions = {}) {
+  async function writeConfigFile(cfg: MiraiConfig, options: ConfigWriteOptions = {}) {
     clearConfigCache();
     let persistCandidate: unknown = cfg;
     const { snapshot } = await readConfigFileSnapshotInternal();
@@ -1095,13 +1032,6 @@ export function createConfigIO(overrides: ConfigIoDeps = {}) {
       try {
         const resolvedIncludes = resolveConfigIncludes(snapshot.parsed, configPath, {
           readFile: (candidate) => deps.fs.readFileSync(candidate, "utf-8"),
-          readFileWithGuards: ({ includePath, resolvedPath, rootRealDir }) =>
-            readConfigIncludeFileWithGuards({
-              includePath,
-              resolvedPath,
-              rootRealDir,
-              ioFs: deps.fs,
-            }),
           parseJson: (raw) => deps.json5.parse(raw),
         });
         const collected = new Map<string, string>();
@@ -1153,7 +1083,7 @@ export function createConfigIO(overrides: ConfigIoDeps = {}) {
             cfgToWrite,
             parsedRes.parsed,
             envForRestore,
-          ) as OpenClawConfig;
+          ) as MiraiConfig;
         }
       }
     } catch {
@@ -1162,15 +1092,9 @@ export function createConfigIO(overrides: ConfigIoDeps = {}) {
 
     const dir = path.dirname(configPath);
     await deps.fs.promises.mkdir(dir, { recursive: true, mode: 0o700 });
-    await tightenStateDirPermissionsIfNeeded({
-      configPath,
-      env: deps.env,
-      homedir: deps.homedir,
-      fsModule: deps.fs,
-    });
     const outputConfigBase =
       envRefMap && changedPaths
-        ? (restoreEnvRefsFromMap(cfgToWrite, "", envRefMap, changedPaths) as OpenClawConfig)
+        ? (restoreEnvRefsFromMap(cfgToWrite, "", envRefMap, changedPaths) as MiraiConfig)
         : cfgToWrite;
     let outputConfig = outputConfigBase;
     if (options.unsetPaths?.length) {
@@ -1211,7 +1135,7 @@ export function createConfigIO(overrides: ConfigIoDeps = {}) {
         return;
       }
       const isVitest = deps.env.VITEST === "true";
-      const shouldLogInVitest = deps.env.OPENCLAW_TEST_CONFIG_OVERWRITE_LOG === "1";
+      const shouldLogInVitest = deps.env.MIRAI_TEST_CONFIG_OVERWRITE_LOG === "1";
       if (isVitest && !shouldLogInVitest) {
         return;
       }
@@ -1227,7 +1151,7 @@ export function createConfigIO(overrides: ConfigIoDeps = {}) {
       }
       // Tests often write minimal configs (missing meta, etc); keep output quiet unless requested.
       const isVitest = deps.env.VITEST === "true";
-      const shouldLogInVitest = deps.env.OPENCLAW_TEST_CONFIG_WRITE_ANOMALY_LOG === "1";
+      const shouldLogInVitest = deps.env.MIRAI_TEST_CONFIG_WRITE_ANOMALY_LOG === "1";
       if (isVitest && !shouldLogInVitest) {
         return;
       }
@@ -1243,16 +1167,16 @@ export function createConfigIO(overrides: ConfigIoDeps = {}) {
       cwd: process.cwd(),
       argv: process.argv.slice(0, 8),
       execArgv: process.execArgv.slice(0, 8),
-      watchMode: deps.env.OPENCLAW_WATCH_MODE === "1",
+      watchMode: deps.env.MIRAI_WATCH_MODE === "1",
       watchSession:
-        typeof deps.env.OPENCLAW_WATCH_SESSION === "string" &&
-        deps.env.OPENCLAW_WATCH_SESSION.trim().length > 0
-          ? deps.env.OPENCLAW_WATCH_SESSION.trim()
+        typeof deps.env.MIRAI_WATCH_SESSION === "string" &&
+        deps.env.MIRAI_WATCH_SESSION.trim().length > 0
+          ? deps.env.MIRAI_WATCH_SESSION.trim()
           : null,
       watchCommand:
-        typeof deps.env.OPENCLAW_WATCH_COMMAND === "string" &&
-        deps.env.OPENCLAW_WATCH_COMMAND.trim().length > 0
-          ? deps.env.OPENCLAW_WATCH_COMMAND.trim()
+        typeof deps.env.MIRAI_WATCH_COMMAND === "string" &&
+        deps.env.MIRAI_WATCH_COMMAND.trim().length > 0
+          ? deps.env.MIRAI_WATCH_COMMAND.trim()
           : null,
       existsBefore: snapshot.exists,
       previousHash: previousHash ?? null,
@@ -1297,7 +1221,10 @@ export function createConfigIO(overrides: ConfigIoDeps = {}) {
       });
 
       if (deps.fs.existsSync(configPath)) {
-        await maintainConfigBackups(configPath, deps.fs.promises);
+        await rotateConfigBackups(configPath, deps.fs.promises);
+        await deps.fs.promises.copyFile(configPath, `${configPath}.bak`).catch(() => {
+          // best-effort
+        });
       }
 
       try {
@@ -1342,7 +1269,7 @@ export function createConfigIO(overrides: ConfigIoDeps = {}) {
 }
 
 // NOTE: These wrappers intentionally do *not* cache the resolved config path at
-// module scope. `OPENCLAW_CONFIG_PATH` (and friends) are expected to work even
+// module scope. `MIRAI_CONFIG_PATH` (and friends) are expected to work even
 // when set after the module has been imported (tests, one-off scripts, etc.).
 const DEFAULT_CONFIG_CACHE_MS = 200;
 const AUTO_OWNER_DISPLAY_SECRET_BY_PATH = new Map<string, string>();
@@ -1351,14 +1278,11 @@ const AUTO_OWNER_DISPLAY_SECRET_PERSIST_WARNED = new Set<string>();
 let configCache: {
   configPath: string;
   expiresAt: number;
-  config: OpenClawConfig;
+  config: MiraiConfig;
 } | null = null;
-let runtimeConfigSnapshot: OpenClawConfig | null = null;
-let runtimeConfigSourceSnapshot: OpenClawConfig | null = null;
-let runtimeConfigSnapshotRefreshHandler: RuntimeConfigSnapshotRefreshHandler | null = null;
 
 function resolveConfigCacheMs(env: NodeJS.ProcessEnv): number {
-  const raw = env.OPENCLAW_CONFIG_CACHE_MS?.trim();
+  const raw = env.MIRAI_CONFIG_CACHE_MS?.trim();
   if (raw === "" || raw === "0") {
     return 0;
   }
@@ -1373,7 +1297,7 @@ function resolveConfigCacheMs(env: NodeJS.ProcessEnv): number {
 }
 
 function shouldUseConfigCache(env: NodeJS.ProcessEnv): boolean {
-  if (env.OPENCLAW_DISABLE_CONFIG_CACHE?.trim()) {
+  if (env.MIRAI_DISABLE_CONFIG_CACHE?.trim()) {
     return false;
   }
   return resolveConfigCacheMs(env) > 0;
@@ -1383,91 +1307,7 @@ export function clearConfigCache(): void {
   configCache = null;
 }
 
-export function setRuntimeConfigSnapshot(
-  config: OpenClawConfig,
-  sourceConfig?: OpenClawConfig,
-): void {
-  runtimeConfigSnapshot = config;
-  runtimeConfigSourceSnapshot = sourceConfig ?? null;
-  clearConfigCache();
-}
-
-export function clearRuntimeConfigSnapshot(): void {
-  runtimeConfigSnapshot = null;
-  runtimeConfigSourceSnapshot = null;
-  clearConfigCache();
-}
-
-export function getRuntimeConfigSnapshot(): OpenClawConfig | null {
-  return runtimeConfigSnapshot;
-}
-
-export function getRuntimeConfigSourceSnapshot(): OpenClawConfig | null {
-  return runtimeConfigSourceSnapshot;
-}
-
-function isCompatibleTopLevelRuntimeProjectionShape(params: {
-  runtimeSnapshot: OpenClawConfig;
-  candidate: OpenClawConfig;
-}): boolean {
-  const runtime = params.runtimeSnapshot as Record<string, unknown>;
-  const candidate = params.candidate as Record<string, unknown>;
-  for (const key of Object.keys(runtime)) {
-    if (!Object.hasOwn(candidate, key)) {
-      return false;
-    }
-    const runtimeValue = runtime[key];
-    const candidateValue = candidate[key];
-    const runtimeType = Array.isArray(runtimeValue)
-      ? "array"
-      : runtimeValue === null
-        ? "null"
-        : typeof runtimeValue;
-    const candidateType = Array.isArray(candidateValue)
-      ? "array"
-      : candidateValue === null
-        ? "null"
-        : typeof candidateValue;
-    if (runtimeType !== candidateType) {
-      return false;
-    }
-  }
-  return true;
-}
-
-export function projectConfigOntoRuntimeSourceSnapshot(config: OpenClawConfig): OpenClawConfig {
-  if (!runtimeConfigSnapshot || !runtimeConfigSourceSnapshot) {
-    return config;
-  }
-  if (config === runtimeConfigSnapshot) {
-    return runtimeConfigSourceSnapshot;
-  }
-  // This projection expects callers to pass config objects derived from the
-  // active runtime snapshot (for example shallow/deep clones with targeted edits).
-  // For structurally unrelated configs, skip projection to avoid accidental
-  // merge-patch deletions or reintroducing resolved values into source refs.
-  if (
-    !isCompatibleTopLevelRuntimeProjectionShape({
-      runtimeSnapshot: runtimeConfigSnapshot,
-      candidate: config,
-    })
-  ) {
-    return config;
-  }
-  const runtimePatch = createMergePatch(runtimeConfigSnapshot, config);
-  return coerceConfig(applyMergePatch(runtimeConfigSourceSnapshot, runtimePatch));
-}
-
-export function setRuntimeConfigSnapshotRefreshHandler(
-  refreshHandler: RuntimeConfigSnapshotRefreshHandler | null,
-): void {
-  runtimeConfigSnapshotRefreshHandler = refreshHandler;
-}
-
-export function loadConfig(): OpenClawConfig {
-  if (runtimeConfigSnapshot) {
-    return runtimeConfigSnapshot;
-  }
+export function loadConfig(): MiraiConfig {
   const io = createConfigIO();
   const configPath = io.configPath;
   const now = Date.now();
@@ -1491,11 +1331,6 @@ export function loadConfig(): OpenClawConfig {
   return config;
 }
 
-export async function readBestEffortConfig(): Promise<OpenClawConfig> {
-  const snapshot = await readConfigFileSnapshot();
-  return snapshot.valid ? loadConfig() : snapshot.config;
-}
-
 export async function readConfigFileSnapshot(): Promise<ConfigFileSnapshot> {
   return await createConfigIO().readConfigFileSnapshot();
 }
@@ -1505,55 +1340,14 @@ export async function readConfigFileSnapshotForWrite(): Promise<ReadConfigFileSn
 }
 
 export async function writeConfigFile(
-  cfg: OpenClawConfig,
+  cfg: MiraiConfig,
   options: ConfigWriteOptions = {},
 ): Promise<void> {
   const io = createConfigIO();
-  let nextCfg = cfg;
-  const hadRuntimeSnapshot = Boolean(runtimeConfigSnapshot);
-  const hadBothSnapshots = Boolean(runtimeConfigSnapshot && runtimeConfigSourceSnapshot);
-  if (hadBothSnapshots) {
-    const runtimePatch = createMergePatch(runtimeConfigSnapshot!, cfg);
-    nextCfg = coerceConfig(applyMergePatch(runtimeConfigSourceSnapshot!, runtimePatch));
-  }
   const sameConfigPath =
     options.expectedConfigPath === undefined || options.expectedConfigPath === io.configPath;
-  await io.writeConfigFile(nextCfg, {
+  await io.writeConfigFile(cfg, {
     envSnapshotForRestore: sameConfigPath ? options.envSnapshotForRestore : undefined,
     unsetPaths: options.unsetPaths,
   });
-  // Keep the last-known-good runtime snapshot active until the specialized refresh path
-  // succeeds, so concurrent readers do not observe unresolved SecretRefs mid-refresh.
-  const refreshHandler = runtimeConfigSnapshotRefreshHandler;
-  if (refreshHandler) {
-    try {
-      const refreshed = await refreshHandler.refresh({ sourceConfig: nextCfg });
-      if (refreshed) {
-        return;
-      }
-    } catch (error) {
-      try {
-        refreshHandler.clearOnRefreshFailure?.();
-      } catch {
-        // Keep the original refresh failure as the surfaced error.
-      }
-      const detail = error instanceof Error ? error.message : String(error);
-      throw new ConfigRuntimeRefreshError(
-        `Config was written to ${io.configPath}, but runtime snapshot refresh failed: ${detail}`,
-        { cause: error },
-      );
-    }
-  }
-  if (hadBothSnapshots) {
-    // Refresh both snapshots from disk atomically so follow-up reads get normalized config and
-    // subsequent writes still get secret-preservation merge-patch (hadBothSnapshots stays true).
-    const fresh = io.loadConfig();
-    setRuntimeConfigSnapshot(fresh, nextCfg);
-    return;
-  }
-  if (hadRuntimeSnapshot) {
-    clearRuntimeConfigSnapshot();
-  }
-  // When we had no runtime snapshot, keep callers reading from disk/cache so external/manual
-  // edits to openclaw.json remain visible (no stale snapshot).
 }

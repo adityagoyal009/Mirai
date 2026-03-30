@@ -45,7 +45,7 @@ describe("getSubagentDepthFromSessionStore", () => {
   });
 
   it("resolves prefixed store keys when caller key omits the agent prefix", () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-subagent-depth-"));
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "mirai-subagent-depth-"));
     const storeTemplate = path.join(tmpDir, "sessions-{agentId}.json");
     const prefixedKey = "agent:main:subagent:flat";
     const storePath = storeTemplate.replaceAll("{agentId}", "main");
@@ -62,33 +62,6 @@ describe("getSubagentDepthFromSessionStore", () => {
         null,
         2,
       ),
-      "utf-8",
-    );
-
-    const depth = getSubagentDepthFromSessionStore("subagent:flat", {
-      cfg: {
-        session: {
-          store: storeTemplate,
-        },
-      },
-    });
-
-    expect(depth).toBe(2);
-  });
-
-  it("accepts JSON5 syntax in the on-disk depth store for backward compatibility", () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-subagent-depth-json5-"));
-    const storeTemplate = path.join(tmpDir, "sessions-{agentId}.json");
-    const storePath = storeTemplate.replaceAll("{agentId}", "main");
-    fs.writeFileSync(
-      storePath,
-      `{
-        // hand-edited legacy store
-        "agent:main:subagent:flat": {
-          sessionId: "subagent-flat",
-          spawnDepth: 2,
-        },
-      }`,
       "utf-8",
     );
 

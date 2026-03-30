@@ -9,7 +9,7 @@ type Semver = {
   patch: number;
 };
 
-const MIN_NODE: Semver = { major: 22, minor: 16, patch: 0 };
+const MIN_NODE: Semver = { major: 22, minor: 12, patch: 0 };
 
 export type RuntimeDetails = {
   kind: RuntimeKind;
@@ -88,11 +88,11 @@ export function assertSupportedRuntime(
 
   runtime.error(
     [
-      "mirai requires Node >=22.16.0.",
+      "mirai requires Node >=22.12.0.",
       `Detected: ${runtimeLabel} (exec: ${execLabel}).`,
       `PATH searched: ${details.pathEnv}`,
       "Install Node: https://nodejs.org/en/download",
-      "Upgrade Node and re-run openclaw.",
+      "Upgrade Node and re-run mirai.",
     ].join("\n"),
   );
   runtime.exit(1);

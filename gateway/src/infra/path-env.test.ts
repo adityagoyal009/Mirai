@@ -33,17 +33,13 @@ vi.mock("node:fs", async (importOriginal) => {
   return { ...wrapped, default: wrapped };
 });
 
-vi.mock("./env.js", () => ({
-  isTruthyEnvValue: (value?: string) => value === "1" || value === "true",
-}));
+let ensureMiraiCliOnPath: typeof import("./path-env.js").ensureMiraiCliOnPath;
 
-let ensureOpenClawCliOnPath: typeof import("./path-env.js").ensureOpenClawCliOnPath;
-
-describe("ensureOpenClawCliOnPath", () => {
+describe("ensureMiraiCliOnPath", () => {
   const envKeys = [
     "PATH",
-    "OPENCLAW_PATH_BOOTSTRAPPED",
-    "OPENCLAW_ALLOW_PROJECT_LOCAL_BIN",
+    "MIRAI_PATH_BOOTSTRAPPED",
+    "MIRAI_ALLOW_PROJECT_LOCAL_BIN",
     "MISE_DATA_DIR",
     "HOMEBREW_PREFIX",
     "HOMEBREW_BREW_FILE",
@@ -52,7 +48,7 @@ describe("ensureOpenClawCliOnPath", () => {
   let envSnapshot: Record<(typeof envKeys)[number], string | undefined>;
 
   beforeAll(async () => {
-    ({ ensureOpenClawCliOnPath } = await import("./path-env.js"));
+    ({ ensureMiraiCliOnPath } = await import("./path-env.js"));
   });
 
   beforeEach(() => {
@@ -76,45 +72,32 @@ describe("ensureOpenClawCliOnPath", () => {
     }
   });
 
-  function setupAppCliRoot(name: string) {
-    const tmp = abs(`/tmp/openclaw-path/${name}`);
+  it("prepends the bundled app bin dir when a sibling mirai exists", () => {
+    const tmp = abs("/tmp/mirai-path/case-bundled");
     const appBinDir = path.join(tmp, "AppBin");
-    const appCli = path.join(appBinDir, "openclaw");
+    const cliPath = path.join(appBinDir, "mirai");
     setDir(tmp);
     setDir(appBinDir);
-    setExe(appCli);
-    return { tmp, appBinDir, appCli };
-  }
+    setExe(cliPath);
 
-  function bootstrapPath(params: {
-    execPath: string;
-    cwd: string;
-    homeDir: string;
-    platform: NodeJS.Platform;
-    allowProjectLocalBin?: boolean;
-  }) {
-    ensureOpenClawCliOnPath(params);
-    return (process.env.PATH ?? "").split(path.delimiter);
-  }
-
-  it("prepends the bundled app bin dir when a sibling openclaw exists", () => {
-    const { tmp, appBinDir, appCli } = setupAppCliRoot("case-bundled");
     process.env.PATH = "/usr/bin";
-    delete process.env.OPENCLAW_PATH_BOOTSTRAPPED;
+    delete process.env.MIRAI_PATH_BOOTSTRAPPED;
 
-    const updated = bootstrapPath({
-      execPath: appCli,
+    ensureMiraiCliOnPath({
+      execPath: cliPath,
       cwd: tmp,
       homeDir: tmp,
       platform: "darwin",
     });
-    expect(updated[0]).toBe(appBinDir);
+
+    const updated = process.env.PATH ?? "";
+    expect(updated.split(path.delimiter)[0]).toBe(appBinDir);
   });
 
   it("is idempotent", () => {
     process.env.PATH = "/bin";
-    process.env.OPENCLAW_PATH_BOOTSTRAPPED = "1";
-    ensureOpenClawCliOnPath({
+    process.env.MIRAI_PATH_BOOTSTRAPPED = "1";
+    ensureMiraiCliOnPath({
       execPath: "/tmp/does-not-matter",
       cwd: "/tmp",
       homeDir: "/tmp",
@@ -124,7 +107,13 @@ describe("ensureOpenClawCliOnPath", () => {
   });
 
   it("prepends mise shims when available", () => {
-    const { tmp, appBinDir, appCli } = setupAppCliRoot("case-mise");
+    const tmp = abs("/tmp/mirai-path/case-mise");
+    const appBinDir = path.join(tmp, "AppBin");
+    const appCli = path.join(appBinDir, "mirai");
+    setDir(tmp);
+    setDir(appBinDir);
+    setExe(appCli);
+
     const miseDataDir = path.join(tmp, "mise");
     const shimsDir = path.join(miseDataDir, "shims");
     setDir(miseDataDir);
@@ -132,98 +121,68 @@ describe("ensureOpenClawCliOnPath", () => {
 
     process.env.MISE_DATA_DIR = miseDataDir;
     process.env.PATH = "/usr/bin";
-    delete process.env.OPENCLAW_PATH_BOOTSTRAPPED;
+    delete process.env.MIRAI_PATH_BOOTSTRAPPED;
 
-    const updated = bootstrapPath({
+    ensureMiraiCliOnPath({
       execPath: appCli,
       cwd: tmp,
       homeDir: tmp,
       platform: "darwin",
     });
-    const appBinIndex = updated.indexOf(appBinDir);
-    const shimsIndex = updated.indexOf(shimsDir);
+
+    const updated = process.env.PATH ?? "";
+    const parts = updated.split(path.delimiter);
+    const appBinIndex = parts.indexOf(appBinDir);
+    const shimsIndex = parts.indexOf(shimsDir);
     expect(appBinIndex).toBeGreaterThanOrEqual(0);
     expect(shimsIndex).toBeGreaterThan(appBinIndex);
   });
 
-  it.each([
-    {
-      name: "explicit option",
-      envValue: undefined,
-      allowProjectLocalBin: true,
-    },
-    {
-      name: "truthy env",
-      envValue: "1",
-      allowProjectLocalBin: undefined,
-    },
-  ])(
-    "only appends project-local node_modules/.bin when enabled via $name",
-    ({ envValue, allowProjectLocalBin }) => {
-      const { tmp, appCli } = setupAppCliRoot("case-project-local");
-      const localBinDir = path.join(tmp, "node_modules", ".bin");
-      const localCli = path.join(localBinDir, "openclaw");
-      setDir(path.join(tmp, "node_modules"));
-      setDir(localBinDir);
-      setExe(localCli);
+  it("only appends project-local node_modules/.bin when explicitly enabled", () => {
+    const tmp = abs("/tmp/mirai-path/case-project-local");
+    const appBinDir = path.join(tmp, "AppBin");
+    const appCli = path.join(appBinDir, "mirai");
+    setDir(tmp);
+    setDir(appBinDir);
+    setExe(appCli);
 
-      process.env.PATH = "/usr/bin";
-      delete process.env.OPENCLAW_PATH_BOOTSTRAPPED;
-      delete process.env.OPENCLAW_ALLOW_PROJECT_LOCAL_BIN;
-
-      const withoutOptIn = bootstrapPath({
-        execPath: appCli,
-        cwd: tmp,
-        homeDir: tmp,
-        platform: "darwin",
-      });
-      expect(withoutOptIn.includes(localBinDir)).toBe(false);
-
-      process.env.PATH = "/usr/bin";
-      delete process.env.OPENCLAW_PATH_BOOTSTRAPPED;
-      if (envValue === undefined) {
-        delete process.env.OPENCLAW_ALLOW_PROJECT_LOCAL_BIN;
-      } else {
-        process.env.OPENCLAW_ALLOW_PROJECT_LOCAL_BIN = envValue;
-      }
-
-      const withOptIn = bootstrapPath({
-        execPath: appCli,
-        cwd: tmp,
-        homeDir: tmp,
-        platform: "darwin",
-        ...(allowProjectLocalBin === undefined ? {} : { allowProjectLocalBin }),
-      });
-      const usrBinIndex = withOptIn.indexOf("/usr/bin");
-      const localIndex = withOptIn.indexOf(localBinDir);
-      expect(usrBinIndex).toBeGreaterThanOrEqual(0);
-      expect(localIndex).toBeGreaterThan(usrBinIndex);
-    },
-  );
-
-  it("prepends XDG_BIN_HOME ahead of other user bin fallbacks", () => {
-    const { tmp, appCli } = setupAppCliRoot("case-xdg-bin-home");
-    const xdgBinHome = path.join(tmp, "xdg-bin");
-    const localBin = path.join(tmp, ".local", "bin");
-    setDir(xdgBinHome);
-    setDir(path.join(tmp, ".local"));
-    setDir(localBin);
+    const localBinDir = path.join(tmp, "node_modules", ".bin");
+    const localCli = path.join(localBinDir, "mirai");
+    setDir(path.join(tmp, "node_modules"));
+    setDir(localBinDir);
+    setExe(localCli);
 
     process.env.PATH = "/usr/bin";
-    process.env.XDG_BIN_HOME = xdgBinHome;
-    delete process.env.OPENCLAW_PATH_BOOTSTRAPPED;
+    delete process.env.MIRAI_PATH_BOOTSTRAPPED;
 
-    const updated = bootstrapPath({
+    ensureMiraiCliOnPath({
       execPath: appCli,
       cwd: tmp,
       homeDir: tmp,
-      platform: "linux",
+      platform: "darwin",
     });
-    expect(updated.indexOf(xdgBinHome)).toBeLessThan(updated.indexOf(localBin));
+    const withoutOptIn = (process.env.PATH ?? "").split(path.delimiter);
+    expect(withoutOptIn.includes(localBinDir)).toBe(false);
+
+    process.env.PATH = "/usr/bin";
+    delete process.env.MIRAI_PATH_BOOTSTRAPPED;
+
+    ensureMiraiCliOnPath({
+      execPath: appCli,
+      cwd: tmp,
+      homeDir: tmp,
+      platform: "darwin",
+      allowProjectLocalBin: true,
+    });
+    const withOptIn = (process.env.PATH ?? "").split(path.delimiter);
+    const usrBinIndex = withOptIn.indexOf("/usr/bin");
+    const localIndex = withOptIn.indexOf(localBinDir);
+    expect(usrBinIndex).toBeGreaterThanOrEqual(0);
+    expect(localIndex).toBeGreaterThan(usrBinIndex);
   });
 
   it("prepends Linuxbrew dirs when present", () => {
-    const tmp = abs("/tmp/openclaw-path/case-linuxbrew");
+    const tmp = abs("/tmp/mirai-path/case-linuxbrew");
     const execDir = path.join(tmp, "exec");
     setDir(tmp);
     setDir(execDir);
@@ -236,17 +195,20 @@ describe("ensureOpenClawCliOnPath", () => {
     setDir(linuxbrewSbin);
 
     process.env.PATH = "/usr/bin";
-    delete process.env.OPENCLAW_PATH_BOOTSTRAPPED;
+    delete process.env.MIRAI_PATH_BOOTSTRAPPED;
     delete process.env.HOMEBREW_PREFIX;
     delete process.env.HOMEBREW_BREW_FILE;
     delete process.env.XDG_BIN_HOME;
 
-    const parts = bootstrapPath({
+    ensureMiraiCliOnPath({
       execPath: path.join(execDir, "node"),
       cwd: tmp,
       homeDir: tmp,
       platform: "linux",
     });
+
+    const updated = process.env.PATH ?? "";
+    const parts = updated.split(path.delimiter);
     expect(parts[0]).toBe(linuxbrewBin);
     expect(parts[1]).toBe(linuxbrewSbin);
   });

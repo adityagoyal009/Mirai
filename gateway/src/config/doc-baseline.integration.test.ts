@@ -86,7 +86,7 @@ describe("config doc baseline integration", () => {
       label: "Matrix",
       help: "open protocol; install the plugin to enable.",
     });
-    expect(byPath.get("channels.msteams")?.label).not.toContain("@openclaw/");
+    expect(byPath.get("channels.msteams")?.label).not.toContain("@mirai/");
     expect(byPath.get("channels.matrix")?.help).not.toContain("homeserver");
   });
 
@@ -113,7 +113,7 @@ describe("config doc baseline integration", () => {
   });
 
   it("supports check mode for stale generated artifacts", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-config-doc-baseline-"));
+    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "mirai-config-doc-baseline-"));
     tempRoots.push(tempRoot);
     const rendered = getSharedRendered();
 

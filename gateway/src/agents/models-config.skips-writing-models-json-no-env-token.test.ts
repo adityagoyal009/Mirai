@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { resolveOpenClawAgentDir } from "./agent-paths.js";
+import { resolveMiraiAgentDir } from "./agent-paths.js";
 import {
   CUSTOM_PROXY_MODELS_CONFIG,
   installModelsConfigTestHooks,
@@ -10,7 +10,7 @@ import {
   withTempEnv,
   withModelsTempHome as withTempHome,
 } from "./models-config.e2e-harness.js";
-import { ensureOpenClawModelsJson } from "./models-config.js";
+import { ensureMiraiModelsJson } from "./models-config.js";
 
 installModelsConfigTestHooks();
 
@@ -31,9 +31,9 @@ async function runEnvProviderCase(params: {
   const previousValue = process.env[params.envVar];
   process.env[params.envVar] = params.envValue;
   try {
-    await ensureOpenClawModelsJson({});
+    await ensureMiraiModelsJson({});
 
-    const modelPath = path.join(resolveOpenClawAgentDir(), "models.json");
+    const modelPath = path.join(resolveMiraiAgentDir(), "models.json");
     const raw = await fs.readFile(modelPath, "utf8");
     const parsed = JSON.parse(raw) as { providers: Record<string, ProviderConfig> };
     const provider = parsed.providers[params.providerKey];
@@ -60,10 +60,10 @@ describe("models-config", () => {
 
         const agentDir = path.join(home, "agent-empty");
         // ensureAuthProfileStore merges the main auth store into non-main dirs; point main at our temp dir.
-        process.env.OPENCLAW_AGENT_DIR = agentDir;
+        process.env.MIRAI_AGENT_DIR = agentDir;
         process.env.PI_CODING_AGENT_DIR = agentDir;
 
-        const result = await ensureOpenClawModelsJson(
+        const result = await ensureMiraiModelsJson(
           {
             models: { providers: {} },
           },
@@ -78,28 +78,15 @@ describe("models-config", () => {
 
   it("writes models.json for configured providers", async () => {
     await withTempHome(async () => {
-      await ensureOpenClawModelsJson(CUSTOM_PROXY_MODELS_CONFIG);
+      await ensureMiraiModelsJson(CUSTOM_PROXY_MODELS_CONFIG);
 
-      const modelPath = path.join(resolveOpenClawAgentDir(), "models.json");
+      const modelPath = path.join(resolveMiraiAgentDir(), "models.json");
       const raw = await fs.readFile(modelPath, "utf8");
       const parsed = JSON.parse(raw) as {
-        providers: Record<
-          string,
-          {
-            baseUrl?: string;
-            models?: Array<{
-              id?: string;
-              cost?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number };
-            }>;
-          }
-        >;
+        providers: Record<string, { baseUrl?: string }>;
       };
 
       expect(parsed.providers["custom-proxy"]?.baseUrl).toBe("http://localhost:4000/v1");
-      expect(parsed.providers["custom-proxy"]?.models?.[0]).toMatchObject({
-        id: "llama-3.1-8b",
-        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-      });
     });
   });
 
@@ -110,8 +97,8 @@ describe("models-config", () => {
         envValue: "sk-minimax-test",
         providerKey: "minimax",
         expectedBaseUrl: "https://api.minimax.io/anthropic",
-        expectedApiKeyRef: "MINIMAX_API_KEY", // pragma: allowlist secret
-        expectedModelIds: ["MiniMax-M2.7", "MiniMax-VL-01"],
+        expectedApiKeyRef: "MINIMAX_API_KEY",
+        expectedModelIds: ["MiniMax-M2.1", "MiniMax-VL-01"],
       });
     });
   });
@@ -123,8 +110,8 @@ describe("models-config", () => {
         envValue: "sk-synthetic-test",
         providerKey: "synthetic",
         expectedBaseUrl: "https://api.synthetic.new/anthropic",
-        expectedApiKeyRef: "SYNTHETIC_API_KEY", // pragma: allowlist secret
-        expectedModelIds: ["hf:MiniMaxAI/MiniMax-M2.5"],
+        expectedApiKeyRef: "SYNTHETIC_API_KEY",
+        expectedModelIds: ["hf:MiniMaxAI/MiniMax-M2.1"],
       });
     });
   });

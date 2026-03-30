@@ -1,4 +1,4 @@
-import type { OpenClawConfig } from "../config/config.js";
+import type { MiraiConfig } from "../config/config.js";
 import type { InboundDebounceByProvider } from "../config/types.messages.js";
 
 const resolveMs = (value: unknown): number | undefined => {
@@ -19,7 +19,7 @@ const resolveChannelOverride = (params: {
 };
 
 export function resolveInboundDebounceMs(params: {
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   channel: string;
   overrideMs?: number;
 }): number {
@@ -39,16 +39,14 @@ type DebounceBuffer<T> = {
   debounceMs: number;
 };
 
-export type InboundDebounceCreateParams<T> = {
+export function createInboundDebouncer<T>(params: {
   debounceMs: number;
   buildKey: (item: T) => string | null | undefined;
   shouldDebounce?: (item: T) => boolean;
   resolveDebounceMs?: (item: T) => number | undefined;
   onFlush: (items: T[]) => Promise<void>;
   onError?: (err: unknown, items: T[]) => void;
-};
-
-export function createInboundDebouncer<T>(params: InboundDebounceCreateParams<T>) {
+}) {
   const buffers = new Map<string, DebounceBuffer<T>>();
   const defaultDebounceMs = Math.max(0, Math.trunc(params.debounceMs));
 
@@ -88,8 +86,8 @@ export function createInboundDebouncer<T>(params: InboundDebounceCreateParams<T>
     if (buffer.timeout) {
       clearTimeout(buffer.timeout);
     }
-    buffer.timeout = setTimeout(async () => {
-      await flushBuffer(key, buffer);
+    buffer.timeout = setTimeout(() => {
+      void flushBuffer(key, buffer);
     }, buffer.debounceMs);
     buffer.timeout.unref?.();
   };
@@ -103,11 +101,7 @@ export function createInboundDebouncer<T>(params: InboundDebounceCreateParams<T>
       if (key && buffers.has(key)) {
         await flushKey(key);
       }
-      try {
-        await params.onFlush([item]);
-      } catch (err) {
-        params.onError?.(err, [item]);
-      }
+      await params.onFlush([item]);
       return;
     }
 

@@ -3,7 +3,6 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, vi } from "vitest";
 import type { MockFn } from "../test-utils/vitest-mock-fn.js";
-import type { LegacyStateDetection } from "./doctor-state-migrations.js";
 
 let originalIsTTY: boolean | undefined;
 let originalStateDir: string | undefined;
@@ -42,7 +41,7 @@ function createCommandWithTimeoutResult() {
 
 function createLegacyConfigSnapshot() {
   return {
-    path: "/tmp/openclaw.json",
+    path: "/tmp/mirai.json",
     exists: false,
     raw: null,
     parsed: {},
@@ -58,7 +57,7 @@ export const confirm = vi.fn().mockResolvedValue(true) as unknown as MockFn;
 export const select = vi.fn().mockResolvedValue("node") as unknown as MockFn;
 export const note = vi.fn() as unknown as MockFn;
 export const writeConfigFile = vi.fn().mockResolvedValue(undefined) as unknown as MockFn;
-export const resolveOpenClawPackageRoot = vi.fn().mockResolvedValue(null) as unknown as MockFn;
+export const resolveMiraiPackageRoot = vi.fn().mockResolvedValue(null) as unknown as MockFn;
 export const runGatewayUpdate = vi
   .fn()
   .mockResolvedValue(createGatewayUpdateResult()) as unknown as MockFn;
@@ -110,12 +109,11 @@ export const autoMigrateLegacyStateDir = vi.fn().mockResolvedValue({
   changes: [],
   warnings: [],
 }) as unknown as MockFn;
-export const runStartupMatrixMigration = vi.fn().mockResolvedValue(undefined) as unknown as MockFn;
 
 function createLegacyStateMigrationDetectionResult(params?: {
   hasLegacySessions?: boolean;
   preview?: string[];
-}): LegacyStateDetection {
+}) {
   return {
     targetAgentId: "main",
     targetMainKey: "main",
@@ -141,8 +139,9 @@ function createLegacyStateMigrationDetectionResult(params?: {
       hasLegacy: false,
     },
     pairingAllowFrom: {
+      legacyTelegramPath: "/tmp/oauth/telegram-allowFrom.json",
+      targetTelegramPath: "/tmp/oauth/telegram-default-allowFrom.json",
       hasLegacyTelegram: false,
-      copyPlans: [],
     },
     preview: params?.preview ?? [],
   };
@@ -158,7 +157,7 @@ export const runLegacyStateMigrations = vi.fn().mockResolvedValue({
 }) as unknown as MockFn;
 
 const DEFAULT_CONFIG_SNAPSHOT = {
-  path: "/tmp/openclaw.json",
+  path: "/tmp/mirai.json",
   exists: true,
   raw: "{}",
   parsed: {},
@@ -181,14 +180,14 @@ vi.mock("../agents/skills-status.js", () => ({
 }));
 
 vi.mock("../plugins/loader.js", () => ({
-  loadOpenClawPlugins: () => ({ plugins: [], diagnostics: [] }),
+  loadMiraiPlugins: () => ({ plugins: [], diagnostics: [] }),
 }));
 
 vi.mock("../config/config.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../config/config.js")>();
   return {
     ...actual,
-    CONFIG_PATH: "/tmp/openclaw.json",
+    CONFIG_PATH: "/tmp/mirai.json",
     createConfigIO,
     readConfigFileSnapshot,
     writeConfigFile,
@@ -223,8 +222,8 @@ vi.mock("../process/exec.js", () => ({
   runCommandWithTimeout,
 }));
 
-vi.mock("../infra/openclaw-root.js", () => ({
-  resolveOpenClawPackageRoot,
+vi.mock("../infra/mirai-root.js", () => ({
+  resolveMiraiPackageRoot,
 }));
 
 vi.mock("../infra/update-runner.js", () => ({
@@ -259,7 +258,7 @@ vi.mock("../pairing/pairing-store.js", () => ({
   upsertChannelPairingRequest: vi.fn().mockResolvedValue({ code: "000000", created: false }),
 }));
 
-vi.mock("../../extensions/telegram/api.js", () => ({
+vi.mock("../telegram/token.js", () => ({
   resolveTelegramToken: vi.fn(() => ({ token: "", source: "none" })),
 }));
 
@@ -298,10 +297,6 @@ vi.mock("./doctor-state-migrations.js", () => ({
   autoMigrateLegacyStateDir,
   detectLegacyStateMigrations,
   runLegacyStateMigrations,
-}));
-
-vi.mock("../gateway/server-startup-matrix-migration.js", () => ({
-  runStartupMatrixMigration,
 }));
 
 export function mockDoctorConfigSnapshot(
@@ -372,7 +367,7 @@ beforeEach(() => {
 
   readConfigFileSnapshot.mockReset();
   writeConfigFile.mockReset().mockResolvedValue(undefined);
-  resolveOpenClawPackageRoot.mockReset().mockResolvedValue(null);
+  resolveMiraiPackageRoot.mockReset().mockResolvedValue(null);
   runGatewayUpdate.mockReset().mockResolvedValue(createGatewayUpdateResult());
   legacyReadConfigFileSnapshot.mockReset().mockResolvedValue(createLegacyConfigSnapshot());
   createConfigIO.mockReset().mockImplementation(() => ({
@@ -398,15 +393,14 @@ beforeEach(() => {
   serviceRestart.mockReset().mockResolvedValue(undefined);
   serviceUninstall.mockReset().mockResolvedValue(undefined);
   callGateway.mockReset().mockRejectedValue(new Error("gateway closed"));
-  runStartupMatrixMigration.mockReset().mockResolvedValue(undefined);
 
   originalIsTTY = process.stdin.isTTY;
   setStdinTty(true);
-  originalStateDir = process.env.OPENCLAW_STATE_DIR;
-  originalUpdateInProgress = process.env.OPENCLAW_UPDATE_IN_PROGRESS;
-  process.env.OPENCLAW_UPDATE_IN_PROGRESS = "1";
-  tempStateDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-doctor-state-"));
-  process.env.OPENCLAW_STATE_DIR = tempStateDir;
+  originalStateDir = process.env.MIRAI_STATE_DIR;
+  originalUpdateInProgress = process.env.MIRAI_UPDATE_IN_PROGRESS;
+  process.env.MIRAI_UPDATE_IN_PROGRESS = "1";
+  tempStateDir = fs.mkdtempSync(path.join(os.tmpdir(), "mirai-doctor-state-"));
+  process.env.MIRAI_STATE_DIR = tempStateDir;
   fs.mkdirSync(path.join(tempStateDir, "agents", "main", "sessions"), {
     recursive: true,
   });
@@ -416,14 +410,14 @@ beforeEach(() => {
 afterEach(() => {
   setStdinTty(originalIsTTY);
   if (originalStateDir === undefined) {
-    delete process.env.OPENCLAW_STATE_DIR;
+    delete process.env.MIRAI_STATE_DIR;
   } else {
-    process.env.OPENCLAW_STATE_DIR = originalStateDir;
+    process.env.MIRAI_STATE_DIR = originalStateDir;
   }
   if (originalUpdateInProgress === undefined) {
-    delete process.env.OPENCLAW_UPDATE_IN_PROGRESS;
+    delete process.env.MIRAI_UPDATE_IN_PROGRESS;
   } else {
-    process.env.OPENCLAW_UPDATE_IN_PROGRESS = originalUpdateInProgress;
+    process.env.MIRAI_UPDATE_IN_PROGRESS = originalUpdateInProgress;
   }
   if (tempStateDir) {
     fs.rmSync(tempStateDir, { recursive: true, force: true });

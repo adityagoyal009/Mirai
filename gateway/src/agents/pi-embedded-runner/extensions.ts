@@ -1,6 +1,6 @@
 import type { Api, Model } from "@mariozechner/pi-ai";
 import type { ExtensionFactory, SessionManager } from "@mariozechner/pi-coding-agent";
-import type { OpenClawConfig } from "../../config/config.js";
+import type { MiraiConfig } from "../../config/config.js";
 import { resolveContextWindowInfo } from "../context-window-guard.js";
 import { DEFAULT_CONTEXT_TOKENS } from "../defaults.js";
 import { setCompactionSafeguardRuntime } from "../pi-extensions/compaction-safeguard-runtime.js";
@@ -13,7 +13,7 @@ import { ensurePiCompactionReserveTokens } from "../pi-settings.js";
 import { isCacheTtlEligibleProvider, readLastCacheTtlTimestamp } from "./cache-ttl.js";
 
 function resolveContextWindowTokens(params: {
-  cfg: OpenClawConfig | undefined;
+  cfg: MiraiConfig | undefined;
   provider: string;
   modelId: string;
   model: Model<Api> | undefined;
@@ -28,7 +28,7 @@ function resolveContextWindowTokens(params: {
 }
 
 function buildContextPruningFactory(params: {
-  cfg: OpenClawConfig | undefined;
+  cfg: MiraiConfig | undefined;
   sessionManager: SessionManager;
   provider: string;
   modelId: string;
@@ -57,12 +57,12 @@ function buildContextPruningFactory(params: {
   return contextPruningExtension;
 }
 
-function resolveCompactionMode(cfg?: OpenClawConfig): "default" | "safeguard" {
+function resolveCompactionMode(cfg?: MiraiConfig): "default" | "safeguard" {
   return cfg?.agents?.defaults?.compaction?.mode === "safeguard" ? "safeguard" : "default";
 }
 
 export function buildEmbeddedExtensionFactories(params: {
-  cfg: OpenClawConfig | undefined;
+  cfg: MiraiConfig | undefined;
   sessionManager: SessionManager;
   provider: string;
   modelId: string;
@@ -71,7 +71,6 @@ export function buildEmbeddedExtensionFactories(params: {
   const factories: ExtensionFactory[] = [];
   if (resolveCompactionMode(params.cfg) === "safeguard") {
     const compactionCfg = params.cfg?.agents?.defaults?.compaction;
-    const qualityGuardCfg = compactionCfg?.qualityGuard;
     const contextWindowInfo = resolveContextWindowInfo({
       cfg: params.cfg,
       provider: params.provider,
@@ -82,13 +81,7 @@ export function buildEmbeddedExtensionFactories(params: {
     setCompactionSafeguardRuntime(params.sessionManager, {
       maxHistoryShare: compactionCfg?.maxHistoryShare,
       contextWindowTokens: contextWindowInfo.tokens,
-      identifierPolicy: compactionCfg?.identifierPolicy,
-      identifierInstructions: compactionCfg?.identifierInstructions,
-      customInstructions: compactionCfg?.customInstructions,
-      qualityGuardEnabled: qualityGuardCfg?.enabled ?? false,
-      qualityGuardMaxRetries: qualityGuardCfg?.maxRetries,
       model: params.model,
-      recentTurnsPreserve: compactionCfg?.recentTurnsPreserve,
     });
     factories.push(compactionSafeguardExtension);
   }

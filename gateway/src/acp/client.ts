@@ -14,15 +14,7 @@ import {
   type SessionNotification,
 } from "@agentclientprotocol/sdk";
 import { isKnownCoreToolId } from "../agents/tool-catalog.js";
-import { ensureOpenClawCliOnPath } from "../infra/path-env.js";
-import {
-  materializeWindowsSpawnProgram,
-  resolveWindowsSpawnProgram,
-} from "../plugin-sdk/windows-spawn.js";
-import {
-  listKnownProviderAuthEnvVarNames,
-  omitEnvKeysCaseInsensitive,
-} from "../secrets/provider-env-vars.js";
+import { ensureMiraiCliOnPath } from "../infra/path-env.js";
 import { DANGEROUS_ACP_TOOLS } from "../security/dangerous-tools.js";
 
 const SAFE_AUTO_APPROVE_TOOL_IDS = new Set(["read", "search", "web_search", "memory_search"]);
@@ -104,22 +96,7 @@ function resolveToolNameForPermission(params: RequestPermissionRequest): string 
   const fromMeta = readFirstStringValue(toolMeta, ["toolName", "tool_name", "name"]);
   const fromRawInput = readFirstStringValue(rawInput, ["tool", "toolName", "tool_name", "name"]);
   const fromTitle = parseToolNameFromTitle(toolCall?.title);
-  const metaName = fromMeta ? normalizeToolName(fromMeta) : undefined;
-  const rawInputName = fromRawInput ? normalizeToolName(fromRawInput) : undefined;
-  const titleName = fromTitle;
-  if ((fromMeta && !metaName) || (fromRawInput && !rawInputName)) {
-    return undefined;
-  }
-  if (metaName && titleName && metaName !== titleName) {
-    return undefined;
-  }
-  if (rawInputName && metaName && rawInputName !== metaName) {
-    return undefined;
-  }
-  if (rawInputName && titleName && rawInputName !== titleName) {
-    return undefined;
-  }
-  return metaName ?? titleName ?? rawInputName;
+  return normalizeToolName(fromMeta ?? fromRawInput ?? fromTitle ?? "");
 }
 
 function extractPathFromToolTitle(
@@ -365,89 +342,6 @@ function buildServerArgs(opts: AcpClientOptions): string[] {
   return args;
 }
 
-type AcpClientSpawnEnvOptions = {
-  stripKeys?: Iterable<string>;
-};
-
-export function resolveAcpClientSpawnEnv(
-  baseEnv: NodeJS.ProcessEnv = process.env,
-  options: AcpClientSpawnEnvOptions = {},
-): NodeJS.ProcessEnv {
-  const env = omitEnvKeysCaseInsensitive(baseEnv, options.stripKeys ?? []);
-  env.OPENCLAW_SHELL = "acp-client";
-  return env;
-}
-
-export function shouldStripProviderAuthEnvVarsForAcpServer(
-  params: {
-    serverCommand?: string;
-    serverArgs?: string[];
-    defaultServerCommand?: string;
-    defaultServerArgs?: string[];
-  } = {},
-): boolean {
-  const serverCommand = params.serverCommand?.trim();
-  if (!serverCommand) {
-    return true;
-  }
-  const defaultServerCommand = params.defaultServerCommand?.trim();
-  if (!defaultServerCommand || serverCommand !== defaultServerCommand) {
-    return false;
-  }
-  const serverArgs = params.serverArgs ?? [];
-  const defaultServerArgs = params.defaultServerArgs ?? [];
-  return (
-    serverArgs.length === defaultServerArgs.length &&
-    serverArgs.every((arg, index) => arg === defaultServerArgs[index])
-  );
-}
-
-export function buildAcpClientStripKeys(params: {
-  stripProviderAuthEnvVars?: boolean;
-  activeSkillEnvKeys?: Iterable<string>;
-}): Set<string> {
-  const stripKeys = new Set<string>(params.activeSkillEnvKeys ?? []);
-  if (params.stripProviderAuthEnvVars) {
-    for (const key of listKnownProviderAuthEnvVarNames()) {
-      stripKeys.add(key);
-    }
-  }
-  return stripKeys;
-}
-
-type AcpSpawnRuntime = {
-  platform: NodeJS.Platform;
-  env: NodeJS.ProcessEnv;
-  execPath: string;
-};
-
-const DEFAULT_ACP_SPAWN_RUNTIME: AcpSpawnRuntime = {
-  platform: process.platform,
-  env: process.env,
-  execPath: process.execPath,
-};
-
-export function resolveAcpClientSpawnInvocation(
-  params: { serverCommand: string; serverArgs: string[] },
-  runtime: AcpSpawnRuntime = DEFAULT_ACP_SPAWN_RUNTIME,
-): { command: string; args: string[]; shell?: boolean; windowsHide?: boolean } {
-  const program = resolveWindowsSpawnProgram({
-    command: params.serverCommand,
-    platform: runtime.platform,
-    env: runtime.env,
-    execPath: runtime.execPath,
-    packageName: "openclaw",
-    allowShellFallback: true,
-  });
-  const resolved = materializeWindowsSpawnProgram(program, params.serverArgs);
-  return {
-    command: resolved.command,
-    args: resolved.argv,
-    shell: resolved.shell,
-    windowsHide: resolved.windowsHide,
-  };
-}
-
 function resolveSelfEntryPath(): string | null {
   // Prefer a path relative to the built module location (dist/acp/client.js -> dist/entry.js).
   try {
@@ -507,43 +401,18 @@ export async function createAcpClient(opts: AcpClientOptions = {}): Promise<AcpC
   const verbose = Boolean(opts.verbose);
   const log = verbose ? (msg: string) => console.error(`[acp-client] ${msg}`) : () => {};
 
-  ensureOpenClawCliOnPath();
+  ensureMiraiCliOnPath();
   const serverArgs = buildServerArgs(opts);
 
   const entryPath = resolveSelfEntryPath();
-  const defaultServerCommand = entryPath ? process.execPath : "openclaw";
-  const defaultServerArgs = entryPath ? [entryPath, ...serverArgs] : serverArgs;
-  const serverCommand = opts.serverCommand ?? defaultServerCommand;
-  const effectiveArgs = opts.serverCommand || !entryPath ? serverArgs : defaultServerArgs;
-  const { getActiveSkillEnvKeys } = await import("../agents/skills/env-overrides.runtime.js");
-  const stripProviderAuthEnvVars = shouldStripProviderAuthEnvVarsForAcpServer({
-    serverCommand,
-    serverArgs: effectiveArgs,
-    defaultServerCommand,
-    defaultServerArgs,
-  });
-  const stripKeys = buildAcpClientStripKeys({
-    stripProviderAuthEnvVars,
-    activeSkillEnvKeys: getActiveSkillEnvKeys(),
-  });
-  const spawnEnv = resolveAcpClientSpawnEnv(process.env, { stripKeys });
-  const spawnInvocation = resolveAcpClientSpawnInvocation(
-    { serverCommand, serverArgs: effectiveArgs },
-    {
-      platform: process.platform,
-      env: spawnEnv,
-      execPath: process.execPath,
-    },
-  );
+  const serverCommand = opts.serverCommand ?? (entryPath ? process.execPath : "mirai");
+  const effectiveArgs = opts.serverCommand || !entryPath ? serverArgs : [entryPath, ...serverArgs];
 
-  log(`spawning: ${spawnInvocation.command} ${spawnInvocation.args.join(" ")}`);
+  log(`spawning: ${serverCommand} ${effectiveArgs.join(" ")}`);
 
-  const agent = spawn(spawnInvocation.command, spawnInvocation.args, {
+  const agent = spawn(serverCommand, effectiveArgs, {
     stdio: ["pipe", "pipe", "inherit"],
     cwd,
-    env: spawnEnv,
-    shell: spawnInvocation.shell,
-    windowsHide: spawnInvocation.windowsHide,
   });
 
   if (!agent.stdin || !agent.stdout) {
@@ -573,7 +442,7 @@ export async function createAcpClient(opts: AcpClientOptions = {}): Promise<AcpC
       fs: { readTextFile: true, writeTextFile: true },
       terminal: true,
     },
-    clientInfo: { name: "openclaw-acp-client", version: "1.0.0" },
+    clientInfo: { name: "mirai-acp-client", version: "1.0.0" },
   });
 
   log("creating session");

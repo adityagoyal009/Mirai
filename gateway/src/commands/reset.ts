@@ -44,10 +44,6 @@ async function stopGatewayIfRunning(runtime: RuntimeEnv) {
   }
 }
 
-function logBackupRecommendation(runtime: RuntimeEnv) {
-  runtime.log(`Recommended first: ${formatCliCommand("mirai backup create")}`);
-}
-
 export async function resetCommand(runtime: RuntimeEnv, opts: ResetOptions) {
   const interactive = !opts.nonInteractive;
   if (!interactive && !opts.yes) {
@@ -69,7 +65,7 @@ export async function resetCommand(runtime: RuntimeEnv, opts: ResetOptions) {
         {
           value: "config",
           label: "Config only",
-          hint: "openclaw.json",
+          hint: "mirai.json",
         },
         {
           value: "config+creds+sessions",
@@ -114,7 +110,6 @@ export async function resetCommand(runtime: RuntimeEnv, opts: ResetOptions) {
     resolveCleanupPlanFromDisk();
 
   if (scope !== "config") {
-    logBackupRecommendation(runtime);
     if (dryRun) {
       runtime.log("[dry-run] stop gateway service");
     } else {

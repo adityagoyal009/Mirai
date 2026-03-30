@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage } from "node:http";
 import { buildAgentMainSessionKey, normalizeAgentId } from "../routing/session-key.js";
-import { normalizeMessageChannel } from "../utils/message-channel.js";
 
 export function getHeader(req: IncomingMessage, name: string): string | undefined {
   const raw = req.headers[name.toLowerCase()];
@@ -25,8 +24,8 @@ export function getBearerToken(req: IncomingMessage): string | undefined {
 
 export function resolveAgentIdFromHeader(req: IncomingMessage): string | undefined {
   const raw =
-    getHeader(req, "x-openclaw-agent-id")?.trim() ||
-    getHeader(req, "x-openclaw-agent")?.trim() ||
+    getHeader(req, "x-mirai-agent-id")?.trim() ||
+    getHeader(req, "x-mirai-agent")?.trim() ||
     "";
   if (!raw) {
     return undefined;
@@ -41,7 +40,7 @@ export function resolveAgentIdFromModel(model: string | undefined): string | und
   }
 
   const m =
-    raw.match(/^openclaw[:/](?<agentId>[a-z0-9][a-z0-9_-]{0,63})$/i) ??
+    raw.match(/^mirai[:/](?<agentId>[a-z0-9][a-z0-9_-]{0,63})$/i) ??
     raw.match(/^agent:(?<agentId>[a-z0-9][a-z0-9_-]{0,63})$/i);
   const agentId = m?.groups?.agentId;
   if (!agentId) {
@@ -69,7 +68,7 @@ export function resolveSessionKey(params: {
   user?: string | undefined;
   prefix: string;
 }): string {
-  const explicit = getHeader(params.req, "x-openclaw-session-key")?.trim();
+  const explicit = getHeader(params.req, "x-mirai-session-key")?.trim();
   if (explicit) {
     return explicit;
   }
@@ -77,28 +76,4 @@ export function resolveSessionKey(params: {
   const user = params.user?.trim();
   const mainKey = user ? `${params.prefix}-user:${user}` : `${params.prefix}:${randomUUID()}`;
   return buildAgentMainSessionKey({ agentId: params.agentId, mainKey });
-}
-
-export function resolveGatewayRequestContext(params: {
-  req: IncomingMessage;
-  model: string | undefined;
-  user?: string | undefined;
-  sessionPrefix: string;
-  defaultMessageChannel: string;
-  useMessageChannelHeader?: boolean;
-}): { agentId: string; sessionKey: string; messageChannel: string } {
-  const agentId = resolveAgentIdForRequest({ req: params.req, model: params.model });
-  const sessionKey = resolveSessionKey({
-    req: params.req,
-    agentId,
-    user: params.user,
-    prefix: params.sessionPrefix,
-  });
-
-  const messageChannel = params.useMessageChannelHeader
-    ? (normalizeMessageChannel(getHeader(params.req, "x-openclaw-message-channel")) ??
-      params.defaultMessageChannel)
-    : params.defaultMessageChannel;
-
-  return { agentId, sessionKey, messageChannel };
 }

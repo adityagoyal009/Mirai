@@ -1,13 +1,12 @@
 import type { Mock } from "vitest";
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import type { PluginCompatibilityNotice } from "../plugins/status.js";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { captureEnv } from "../test-utils/env.js";
 
 let envSnapshot: ReturnType<typeof captureEnv>;
 
 beforeAll(() => {
-  envSnapshot = captureEnv(["OPENCLAW_PROFILE"]);
-  process.env.OPENCLAW_PROFILE = "isolated";
+  envSnapshot = captureEnv(["MIRAI_PROFILE"]);
+  process.env.MIRAI_PROFILE = "isolated";
 });
 
 afterAll(() => {
@@ -86,68 +85,7 @@ async function withUnknownUsageStore(run: () => Promise<void>) {
   }
 }
 
-function getRuntimeLogs() {
-  return runtimeLogMock.mock.calls.map((call: unknown[]) => String(call[0]));
-}
-
-function getJoinedRuntimeLogs() {
-  return getRuntimeLogs().join("\n");
-}
-
-async function runStatusAndGetLogs(args: Parameters<typeof statusCommand>[0] = {}) {
-  runtimeLogMock.mockClear();
-  await statusCommand(args, runtime as never);
-  return getRuntimeLogs();
-}
-
-async function runStatusAndGetJoinedLogs(args: Parameters<typeof statusCommand>[0] = {}) {
-  await runStatusAndGetLogs(args);
-  return getJoinedRuntimeLogs();
-}
-
-type ProbeGatewayResult = {
-  ok: boolean;
-  url: string;
-  connectLatencyMs: number | null;
-  error: string | null;
-  close: { code: number; reason: string } | null;
-  health: unknown;
-  status: unknown;
-  presence: unknown;
-  configSnapshot: unknown;
-};
-
-function mockProbeGatewayResult(overrides: Partial<ProbeGatewayResult>) {
-  mocks.probeGateway.mockResolvedValueOnce({
-    ok: false,
-    url: "ws://127.0.0.1:18789",
-    connectLatencyMs: null,
-    error: "timeout",
-    close: null,
-    health: null,
-    status: null,
-    presence: null,
-    configSnapshot: null,
-    ...overrides,
-  });
-}
-
-async function withEnvVar<T>(key: string, value: string, run: () => Promise<T>): Promise<T> {
-  const prevValue = process.env[key];
-  process.env[key] = value;
-  try {
-    return await run();
-  } finally {
-    if (prevValue === undefined) {
-      delete process.env[key];
-    } else {
-      process.env[key] = prevValue;
-    }
-  }
-}
-
 const mocks = vi.hoisted(() => ({
-  loadConfig: vi.fn().mockReturnValue({ session: {} }),
   loadSessionStore: vi.fn().mockReturnValue({
     "+1000": createDefaultSessionStoreEntry(),
   }),
@@ -169,7 +107,7 @@ const mocks = vi.hoisted(() => ({
     configSnapshot: null,
   }),
   callGateway: vi.fn().mockResolvedValue({}),
-  listGatewayAgentsBasic: vi.fn().mockReturnValue({
+  listAgentsForGateway: vi.fn().mockReturnValue({
     defaultId: "main",
     mainKey: "agent:main:main",
     scope: "per-sender",
@@ -206,7 +144,6 @@ const mocks = vi.hoisted(() => ({
       },
     ],
   }),
-  buildPluginCompatibilityNotices: vi.fn((): PluginCompatibilityNotice[] => []),
 }));
 
 vi.mock("../memory/manager.js", () => ({
@@ -217,7 +154,7 @@ vi.mock("../memory/manager.js", () => ({
         files: 2,
         chunks: 3,
         dirty: false,
-        workspaceDir: "/tmp/openclaw",
+        workspaceDir: "/tmp/mirai",
         dbPath: "/tmp/memory.sqlite",
         provider: "openai",
         model: "text-embedding-3-small",
@@ -288,7 +225,7 @@ vi.mock("../channels/plugins/index.js", () => ({
       },
     ] as unknown,
 }));
-vi.mock("../../extensions/whatsapp/src/session.js", () => ({
+vi.mock("../web/session.js", () => ({
   webAuthExists: mocks.webAuthExists,
   getWebAuthAgeMs: mocks.getWebAuthAgeMs,
   readWebSelfId: mocks.readWebSelfId,
@@ -301,22 +238,15 @@ vi.mock("../gateway/call.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../gateway/call.js")>();
   return { ...actual, callGateway: mocks.callGateway };
 });
-vi.mock("../gateway/agent-list.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../gateway/agent-list.js")>();
-  return {
-    ...actual,
-    listGatewayAgentsBasic: mocks.listGatewayAgentsBasic,
-  };
-});
-
 vi.mock("../gateway/session-utils.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../gateway/session-utils.js")>();
   return {
     ...actual,
+    listAgentsForGateway: mocks.listAgentsForGateway,
   };
 });
-vi.mock("../infra/openclaw-root.js", () => ({
-  resolveOpenClawPackageRoot: vi.fn().mockResolvedValue("/tmp/openclaw"),
+vi.mock("../infra/mirai-root.js", () => ({
+  resolveMiraiPackageRoot: vi.fn().mockResolvedValue("/tmp/mirai"),
 }));
 vi.mock("../infra/os-summary.js", () => ({
   resolveOsSummary: () => ({
@@ -328,11 +258,11 @@ vi.mock("../infra/os-summary.js", () => ({
 }));
 vi.mock("../infra/update-check.js", () => ({
   checkUpdateStatus: vi.fn().mockResolvedValue({
-    root: "/tmp/openclaw",
+    root: "/tmp/mirai",
     installKind: "git",
     packageManager: "pnpm",
     git: {
-      root: "/tmp/openclaw",
+      root: "/tmp/mirai",
       branch: "main",
       upstream: "origin/main",
       dirty: false,
@@ -343,8 +273,8 @@ vi.mock("../infra/update-check.js", () => ({
     deps: {
       manager: "pnpm",
       status: "ok",
-      lockfilePath: "/tmp/openclaw/pnpm-lock.yaml",
-      markerPath: "/tmp/openclaw/node_modules/.modules.yaml",
+      lockfilePath: "/tmp/mirai/pnpm-lock.yaml",
+      markerPath: "/tmp/mirai/node_modules/.modules.yaml",
     },
     registry: { latestVersion: "0.0.0" },
   }),
@@ -355,7 +285,7 @@ vi.mock("../config/config.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../config/config.js")>();
   return {
     ...actual,
-    loadConfig: mocks.loadConfig,
+    loadConfig: () => ({ session: {} }),
   };
 });
 vi.mock("../daemon/service.js", () => ({
@@ -367,7 +297,7 @@ vi.mock("../daemon/service.js", () => ({
     readRuntime: async () => ({ status: "running", pid: 1234 }),
     readCommand: async () => ({
       programArguments: ["node", "dist/entry.js", "gateway"],
-      sourcePath: "/tmp/Library/LaunchAgents/ai.openclaw.gateway.plist",
+      sourcePath: "/tmp/Library/LaunchAgents/ai.mirai.gateway.plist",
     }),
   }),
 }));
@@ -380,15 +310,12 @@ vi.mock("../daemon/node-service.js", () => ({
     readRuntime: async () => ({ status: "running", pid: 4321 }),
     readCommand: async () => ({
       programArguments: ["node", "dist/entry.js", "node-host"],
-      sourcePath: "/tmp/Library/LaunchAgents/ai.openclaw.node.plist",
+      sourcePath: "/tmp/Library/LaunchAgents/ai.mirai.node.plist",
     }),
   }),
 }));
 vi.mock("../security/audit.js", () => ({
   runSecurityAudit: mocks.runSecurityAudit,
-}));
-vi.mock("../plugins/status.js", () => ({
-  buildPluginCompatibilityNotices: mocks.buildPluginCompatibilityNotices,
 }));
 
 import { statusCommand } from "./status.js";
@@ -402,24 +329,10 @@ const runtime = {
 const runtimeLogMock = runtime.log as Mock<(...args: unknown[]) => void>;
 
 describe("statusCommand", () => {
-  afterEach(() => {
-    mocks.loadConfig.mockReset();
-    mocks.loadConfig.mockReturnValue({ session: {} });
-  });
-
   it("prints JSON when requested", async () => {
-    mocks.buildPluginCompatibilityNotices.mockReturnValue([
-      {
-        pluginId: "legacy-plugin",
-        code: "legacy-before-agent-start",
-        severity: "warn",
-        message:
-          "still uses legacy before_agent_start; keep regression coverage on this plugin, and prefer before_model_resolve/before_prompt_build for new work.",
-      },
-    ]);
     await statusCommand({ json: true }, runtime as never);
     const payload = JSON.parse(String(runtimeLogMock.mock.calls[0]?.[0]));
-    expect(payload.linkChannel).toBeUndefined();
+    expect(payload.linkChannel.linked).toBe(true);
     expect(payload.memory.agentId).toBe("main");
     expect(payload.memoryPlugin.enabled).toBe(true);
     expect(payload.memoryPlugin.slot).toBe("memory-core");
@@ -438,24 +351,6 @@ describe("statusCommand", () => {
     expect(payload.securityAudit.summary.warn).toBe(1);
     expect(payload.gatewayService.label).toBe("LaunchAgent");
     expect(payload.nodeService.label).toBe("LaunchAgent");
-    expect(payload.pluginCompatibility).toEqual({
-      count: 1,
-      warnings: [
-        {
-          pluginId: "legacy-plugin",
-          code: "legacy-before-agent-start",
-          severity: "warn",
-          message:
-            "still uses legacy before_agent_start; keep regression coverage on this plugin, and prefer before_model_resolve/before_prompt_build for new work.",
-        },
-      ],
-    });
-    expect(mocks.runSecurityAudit).toHaveBeenCalledWith(
-      expect.objectContaining({
-        includeFilesystem: true,
-        includeChannelSecurity: true,
-      }),
-    );
   });
 
   it("surfaces unknown usage when totalTokens is missing", async () => {
@@ -472,108 +367,86 @@ describe("statusCommand", () => {
 
   it("prints unknown usage in formatted output when totalTokens is missing", async () => {
     await withUnknownUsageStore(async () => {
-      const logs = await runStatusAndGetLogs();
+      runtimeLogMock.mockClear();
+      await statusCommand({}, runtime as never);
+      const logs = runtimeLogMock.mock.calls.map((c: unknown[]) => String(c[0]));
       expect(logs.some((line) => line.includes("unknown/") && line.includes("(?%)"))).toBe(true);
     });
   });
 
   it("prints formatted lines otherwise", async () => {
-    mocks.buildPluginCompatibilityNotices.mockReturnValue([
-      {
-        pluginId: "legacy-plugin",
-        code: "legacy-before-agent-start",
-        severity: "warn",
-        message:
-          "still uses legacy before_agent_start; keep regression coverage on this plugin, and prefer before_model_resolve/before_prompt_build for new work.",
-      },
-    ]);
-    const logs = await runStatusAndGetLogs();
-    for (const token of [
-      "OpenClaw status",
-      "Overview",
-      "Security audit",
-      "Summary:",
-      "CRITICAL",
-      "Dashboard",
-      "macos 14.0 (arm64)",
-      "Memory",
-      "Plugin compatibility",
-      "Channels",
-      "WhatsApp",
-      "bootstrap files",
-      "Sessions",
-      "+1000",
-      "50%",
-      "40% cached",
-      "LaunchAgent",
-      "FAQ:",
-      "Troubleshooting:",
-      "Next steps:",
-    ]) {
-      expect(logs.some((line) => line.includes(token))).toBe(true);
-    }
-    expect(
-      logs.some((line) => line.includes("legacy-plugin still uses legacy before_agent_start")),
-    ).toBe(true);
+    runtimeLogMock.mockClear();
+    await statusCommand({}, runtime as never);
+    const logs = runtimeLogMock.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(logs.some((l: string) => l.includes("Mirai status"))).toBe(true);
+    expect(logs.some((l: string) => l.includes("Overview"))).toBe(true);
+    expect(logs.some((l: string) => l.includes("Security audit"))).toBe(true);
+    expect(logs.some((l: string) => l.includes("Summary:"))).toBe(true);
+    expect(logs.some((l: string) => l.includes("CRITICAL"))).toBe(true);
+    expect(logs.some((l: string) => l.includes("Dashboard"))).toBe(true);
+    expect(logs.some((l: string) => l.includes("macos 14.0 (arm64)"))).toBe(true);
+    expect(logs.some((l: string) => l.includes("Memory"))).toBe(true);
+    expect(logs.some((l: string) => l.includes("Channels"))).toBe(true);
+    expect(logs.some((l: string) => l.includes("WhatsApp"))).toBe(true);
+    expect(logs.some((l: string) => l.includes("bootstrap files"))).toBe(true);
+    expect(logs.some((l: string) => l.includes("Sessions"))).toBe(true);
+    expect(logs.some((l: string) => l.includes("+1000"))).toBe(true);
+    expect(logs.some((l: string) => l.includes("50%"))).toBe(true);
+    expect(logs.some((l: string) => l.includes("40% cached"))).toBe(true);
+    expect(logs.some((l: string) => l.includes("LaunchAgent"))).toBe(true);
+    expect(logs.some((l: string) => l.includes("FAQ:"))).toBe(true);
+    expect(logs.some((l: string) => l.includes("Troubleshooting:"))).toBe(true);
+    expect(logs.some((l: string) => l.includes("Next steps:"))).toBe(true);
     expect(
       logs.some(
-        (line) =>
-          line.includes("openclaw status --all") ||
-          line.includes("openclaw --profile isolated status --all"),
+        (l: string) =>
+          l.includes("mirai status --all") ||
+          l.includes("mirai --profile isolated status --all") ||
+          l.includes("mirai status --all") ||
+          l.includes("mirai --profile isolated status --all"),
       ),
     ).toBe(true);
   });
 
   it("shows gateway auth when reachable", async () => {
-    await withEnvVar("OPENCLAW_GATEWAY_TOKEN", "abcd1234", async () => {
-      mockProbeGatewayResult({
+    const prevToken = process.env.MIRAI_GATEWAY_TOKEN;
+    process.env.MIRAI_GATEWAY_TOKEN = "abcd1234";
+    try {
+      mocks.probeGateway.mockResolvedValueOnce({
         ok: true,
+        url: "ws://127.0.0.1:18789",
         connectLatencyMs: 123,
         error: null,
+        close: null,
         health: {},
         status: {},
         presence: [],
+        configSnapshot: null,
       });
-      const logs = await runStatusAndGetLogs();
+      runtimeLogMock.mockClear();
+      await statusCommand({}, runtime as never);
+      const logs = runtimeLogMock.mock.calls.map((c: unknown[]) => String(c[0]));
       expect(logs.some((l: string) => l.includes("auth token"))).toBe(true);
-    });
-  });
-
-  it("warns instead of crashing when gateway auth SecretRef is unresolved for probe auth", async () => {
-    mocks.loadConfig.mockReturnValue({
-      session: {},
-      gateway: {
-        auth: {
-          mode: "token",
-          token: { source: "env", provider: "default", id: "MISSING_GATEWAY_TOKEN" },
-        },
-      },
-      secrets: {
-        providers: {
-          default: { source: "env" },
-        },
-      },
-    });
-
-    await statusCommand({ json: true }, runtime as never);
-    const payload = JSON.parse(String(runtimeLogMock.mock.calls.at(-1)?.[0]));
-    expect(payload.gateway.error ?? payload.gateway.authWarning ?? null).not.toBeNull();
-    if (Array.isArray(payload.secretDiagnostics) && payload.secretDiagnostics.length > 0) {
-      expect(
-        payload.secretDiagnostics.some((entry: string) => entry.includes("gateway.auth.token")),
-      ).toBe(true);
+    } finally {
+      if (prevToken === undefined) {
+        delete process.env.MIRAI_GATEWAY_TOKEN;
+      } else {
+        process.env.MIRAI_GATEWAY_TOKEN = prevToken;
+      }
     }
-    expect(runtime.error).not.toHaveBeenCalled();
   });
 
   it("surfaces channel runtime errors from the gateway", async () => {
-    mockProbeGatewayResult({
+    mocks.probeGateway.mockResolvedValueOnce({
       ok: true,
+      url: "ws://127.0.0.1:18789",
       connectLatencyMs: 10,
       error: null,
+      close: null,
       health: {},
       status: {},
       presence: [],
+      configSnapshot: null,
     });
     mocks.callGateway.mockResolvedValueOnce({
       channelAccounts: {
@@ -598,67 +471,107 @@ describe("statusCommand", () => {
       },
     });
 
-    const joined = await runStatusAndGetJoinedLogs();
-    expect(joined).toMatch(/Signal/i);
-    expect(joined).toMatch(/iMessage/i);
-    expect(joined).toMatch(/gateway:/i);
-    expect(joined).toMatch(/WARN/);
+    runtimeLogMock.mockClear();
+    await statusCommand({}, runtime as never);
+    const logs = runtimeLogMock.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(logs.join("\n")).toMatch(/Signal/i);
+    expect(logs.join("\n")).toMatch(/iMessage/i);
+    expect(logs.join("\n")).toMatch(/gateway:/i);
+    expect(logs.join("\n")).toMatch(/WARN/);
   });
 
-  it.each([
-    {
-      name: "prints requestId-aware recovery guidance when gateway pairing is required",
+  it("prints requestId-aware recovery guidance when gateway pairing is required", async () => {
+    mocks.probeGateway.mockResolvedValueOnce({
+      ok: false,
+      url: "ws://127.0.0.1:18789",
+      connectLatencyMs: null,
       error: "connect failed: pairing required (requestId: req-123)",
-      closeReason: "pairing required (requestId: req-123)",
-      includes: ["devices approve req-123"],
-      excludes: [],
-    },
-    {
-      name: "prints fallback recovery guidance when pairing requestId is unavailable",
-      error: "connect failed: pairing required",
-      closeReason: "connect failed",
-      includes: [],
-      excludes: ["devices approve req-"],
-    },
-    {
-      name: "does not render unsafe requestId content into approval command hints",
-      error: "connect failed: pairing required (requestId: req-123;rm -rf /)",
-      closeReason: "pairing required (requestId: req-123;rm -rf /)",
-      includes: [],
-      excludes: ["devices approve req-123;rm -rf /"],
-    },
-  ])("$name", async ({ error, closeReason, includes, excludes }) => {
-    mockProbeGatewayResult({
-      error,
-      close: { code: 1008, reason: closeReason },
+      close: { code: 1008, reason: "pairing required (requestId: req-123)" },
+      health: null,
+      status: null,
+      presence: null,
+      configSnapshot: null,
     });
-    const joined = await runStatusAndGetJoinedLogs();
+
+    runtimeLogMock.mockClear();
+    await statusCommand({}, runtime as never);
+    const logs = runtimeLogMock.mock.calls.map((c: unknown[]) => String(c[0]));
+    const joined = logs.join("\n");
     expect(joined).toContain("Gateway pairing approval required.");
+    expect(joined).toContain("devices approve req-123");
     expect(joined).toContain("devices approve --latest");
     expect(joined).toContain("devices list");
-    for (const expected of includes) {
-      expect(joined).toContain(expected);
-    }
-    for (const blocked of excludes) {
-      expect(joined).not.toContain(blocked);
-    }
+  });
+
+  it("prints fallback recovery guidance when pairing requestId is unavailable", async () => {
+    mocks.probeGateway.mockResolvedValueOnce({
+      ok: false,
+      url: "ws://127.0.0.1:18789",
+      connectLatencyMs: null,
+      error: "connect failed: pairing required",
+      close: { code: 1008, reason: "connect failed" },
+      health: null,
+      status: null,
+      presence: null,
+      configSnapshot: null,
+    });
+
+    runtimeLogMock.mockClear();
+    await statusCommand({}, runtime as never);
+    const logs = runtimeLogMock.mock.calls.map((c: unknown[]) => String(c[0]));
+    const joined = logs.join("\n");
+    expect(joined).toContain("Gateway pairing approval required.");
+    expect(joined).not.toContain("devices approve req-");
+    expect(joined).toContain("devices approve --latest");
+    expect(joined).toContain("devices list");
+  });
+
+  it("does not render unsafe requestId content into approval command hints", async () => {
+    mocks.probeGateway.mockResolvedValueOnce({
+      ok: false,
+      url: "ws://127.0.0.1:18789",
+      connectLatencyMs: null,
+      error: "connect failed: pairing required (requestId: req-123;rm -rf /)",
+      close: { code: 1008, reason: "pairing required (requestId: req-123;rm -rf /)" },
+      health: null,
+      status: null,
+      presence: null,
+      configSnapshot: null,
+    });
+
+    runtimeLogMock.mockClear();
+    await statusCommand({}, runtime as never);
+    const joined = runtimeLogMock.mock.calls.map((c: unknown[]) => String(c[0])).join("\n");
+    expect(joined).toContain("Gateway pairing approval required.");
+    expect(joined).not.toContain("devices approve req-123;rm -rf /");
+    expect(joined).toContain("devices approve --latest");
   });
 
   it("extracts requestId from close reason when error text omits it", async () => {
-    mockProbeGatewayResult({
+    mocks.probeGateway.mockResolvedValueOnce({
+      ok: false,
+      url: "ws://127.0.0.1:18789",
+      connectLatencyMs: null,
       error: "connect failed: pairing required",
       close: { code: 1008, reason: "pairing required (requestId: req-close-456)" },
+      health: null,
+      status: null,
+      presence: null,
+      configSnapshot: null,
     });
-    const joined = await runStatusAndGetJoinedLogs();
+
+    runtimeLogMock.mockClear();
+    await statusCommand({}, runtime as never);
+    const joined = runtimeLogMock.mock.calls.map((c: unknown[]) => String(c[0])).join("\n");
     expect(joined).toContain("devices approve req-close-456");
   });
 
   it("includes sessions across agents in JSON output", async () => {
-    const originalAgents = mocks.listGatewayAgentsBasic.getMockImplementation();
+    const originalAgents = mocks.listAgentsForGateway.getMockImplementation();
     const originalResolveStorePath = mocks.resolveStorePath.getMockImplementation();
     const originalLoadSessionStore = mocks.loadSessionStore.getMockImplementation();
 
-    mocks.listGatewayAgentsBasic.mockReturnValue({
+    mocks.listAgentsForGateway.mockReturnValue({
       defaultId: "main",
       mainKey: "agent:main:main",
       scope: "per-sender",
@@ -697,7 +610,7 @@ describe("statusCommand", () => {
     ).toBe(true);
 
     if (originalAgents) {
-      mocks.listGatewayAgentsBasic.mockImplementation(originalAgents);
+      mocks.listAgentsForGateway.mockImplementation(originalAgents);
     }
     if (originalResolveStorePath) {
       mocks.resolveStorePath.mockImplementation(originalResolveStorePath);

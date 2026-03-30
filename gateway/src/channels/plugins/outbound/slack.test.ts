@@ -1,17 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { OpenClawConfig } from "../../../config/config.js";
+import type { MiraiConfig } from "../../../config/config.js";
 
-vi.mock("../../../../extensions/slack/src/send.js", () => ({
+vi.mock("../../../slack/send.js", () => ({
   sendMessageSlack: vi.fn().mockResolvedValue({ messageId: "1234.5678", channelId: "C123" }),
 }));
 
-vi.mock("openclaw/plugin-sdk/plugin-runtime", () => ({
+vi.mock("../../../plugins/hook-runner-global.js", () => ({
   getGlobalHookRunner: vi.fn(),
 }));
 
-import { getGlobalHookRunner } from "openclaw/plugin-sdk/plugin-runtime";
-import { sendMessageSlack } from "../../../../extensions/slack/src/send.js";
-import { slackOutbound } from "../../../../test/channel-outbounds.js";
+import { getGlobalHookRunner } from "../../../plugins/hook-runner-global.js";
+import { sendMessageSlack } from "../../../slack/send.js";
+import { slackOutbound } from "./slack.js";
 
 type SlackSendTextCtx = {
   to: string;
@@ -34,7 +34,7 @@ const BASE_SLACK_SEND_CTX = {
 const sendSlackText = async (ctx: SlackSendTextCtx) => {
   const sendText = slackOutbound.sendText as NonNullable<typeof slackOutbound.sendText>;
   return await sendText({
-    cfg: {} as OpenClawConfig,
+    cfg: {} as MiraiConfig,
     ...ctx,
   });
 };
@@ -58,13 +58,11 @@ const expectSlackSendCalledWith = (
     };
   },
 ) => {
-  const expected = {
+  expect(sendMessageSlack).toHaveBeenCalledWith("C123", text, {
     threadTs: "1111.2222",
     accountId: "default",
-    cfg: expect.any(Object),
-    ...(options?.identity ? { identity: expect.objectContaining(options.identity) } : {}),
-  };
-  expect(sendMessageSlack).toHaveBeenCalledWith("C123", text, expect.objectContaining(expected));
+    ...options,
+  });
 };
 
 describe("slack outbound hook wiring", () => {

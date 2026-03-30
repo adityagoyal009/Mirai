@@ -1,74 +1,51 @@
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
-import type { AssistantMessage, ToolResultMessage, UserMessage } from "@mariozechner/pi-ai";
-import { SessionManager } from "@mariozechner/pi-coding-agent";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { onSessionTranscriptUpdate } from "../../sessions/transcript-events.js";
-import { makeAgentAssistantMessage } from "../test-helpers/agent-message-fixtures.js";
-
-const acquireSessionWriteLockReleaseMock = vi.hoisted(() => vi.fn(async () => {}));
-const acquireSessionWriteLockMock = vi.hoisted(() =>
-  vi.fn(async (_params?: unknown) => ({ release: acquireSessionWriteLockReleaseMock })),
-);
-
-vi.mock("../session-write-lock.js", () => ({
-  acquireSessionWriteLock: (params: unknown) => acquireSessionWriteLockMock(params),
-}));
-
+import { describe, expect, it } from "vitest";
 import {
   truncateToolResultText,
   truncateToolResultMessage,
   calculateMaxToolResultChars,
   getToolResultTextLength,
   truncateOversizedToolResultsInMessages,
-  truncateOversizedToolResultsInSession,
   isOversizedToolResult,
   sessionLikelyHasOversizedToolResults,
   HARD_MAX_TOOL_RESULT_CHARS,
 } from "./tool-result-truncation.js";
 
-let testTimestamp = 1;
-const nextTimestamp = () => testTimestamp++;
-
-beforeEach(() => {
-  testTimestamp = 1;
-  acquireSessionWriteLockMock.mockClear();
-  acquireSessionWriteLockReleaseMock.mockClear();
-});
-
-function makeToolResult(text: string, toolCallId = "call_1"): ToolResultMessage {
+function makeToolResult(text: string, toolCallId = "call_1"): AgentMessage {
   return {
     role: "toolResult",
     toolCallId,
     toolName: "read",
     content: [{ type: "text", text }],
     isError: false,
-    timestamp: nextTimestamp(),
-  };
+    timestamp: Date.now(),
+  } as unknown as AgentMessage;
 }
 
-function makeUserMessage(text: string): UserMessage {
+function makeUserMessage(text: string): AgentMessage {
   return {
     role: "user",
     content: text,
-    timestamp: nextTimestamp(),
-  };
+    timestamp: Date.now(),
+  } as unknown as AgentMessage;
 }
 
-function makeAssistantMessage(text: string): AssistantMessage {
-  return makeAgentAssistantMessage({
+function makeAssistantMessage(text: string): AgentMessage {
+  return {
+    role: "assistant",
     content: [{ type: "text", text }],
-    model: "gpt-5.2",
-    stopReason: "stop",
-    timestamp: nextTimestamp(),
-  });
-}
-
-function getFirstToolResultText(message: AgentMessage | ToolResultMessage): string {
-  if (message.role !== "toolResult") {
-    return "";
-  }
-  const firstBlock = message.content[0];
-  return firstBlock && "text" in firstBlock ? firstBlock.text : "";
+    api: "messages",
+    provider: "anthropic",
+    model: "claude-sonnet-4-20250514",
+    usage: {
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadInputTokens: 0,
+      cacheCreationInputTokens: 0,
+    },
+    stopReason: "end_turn",
+    timestamp: Date.now(),
+  } as unknown as AgentMessage;
 }
 
 describe("truncateToolResultText", () => {
@@ -121,18 +98,14 @@ describe("truncateToolResultText", () => {
 
 describe("getToolResultTextLength", () => {
   it("sums all text blocks in tool results", () => {
-    const msg: ToolResultMessage = {
+    const msg = {
       role: "toolResult",
-      toolCallId: "call_1",
-      toolName: "read",
-      isError: false,
       content: [
         { type: "text", text: "abc" },
-        { type: "image", data: "x", mimeType: "image/png" },
+        { type: "image", source: { type: "base64", mediaType: "image/png", data: "x" } },
         { type: "text", text: "12345" },
       ],
-      timestamp: nextTimestamp(),
-    };
+    } as unknown as AgentMessage;
 
     expect(getToolResultTextLength(msg)).toBe(8);
   });
@@ -144,24 +117,21 @@ describe("getToolResultTextLength", () => {
 
 describe("truncateToolResultMessage", () => {
   it("truncates with a custom suffix", () => {
-    const msg: ToolResultMessage = {
+    const msg = {
       role: "toolResult",
       toolCallId: "call_1",
       toolName: "read",
       content: [{ type: "text", text: "x".repeat(50_000) }],
       isError: false,
-      timestamp: nextTimestamp(),
-    };
+      timestamp: Date.now(),
+    } as unknown as AgentMessage;
 
     const result = truncateToolResultMessage(msg, 10_000, {
       suffix: "\n\n[persist-truncated]",
       minKeepChars: 2_000,
-    });
-    expect(result.role).toBe("toolResult");
-    if (result.role !== "toolResult") {
-      throw new Error("expected toolResult");
-    }
-    expect(getFirstToolResultText(result)).toContain("[persist-truncated]");
+    }) as { content: Array<{ type: string; text: string }> };
+
+    expect(result.content[0]?.text).toContain("[persist-truncated]");
   });
 });
 
@@ -219,7 +189,7 @@ describe("truncateOversizedToolResultsInMessages", () => {
 
   it("truncates oversized tool results", () => {
     const bigContent = "x".repeat(500_000);
-    const messages: AgentMessage[] = [
+    const messages = [
       makeUserMessage("hello"),
       makeAssistantMessage("reading file"),
       makeToolResult(bigContent),
@@ -229,11 +199,9 @@ describe("truncateOversizedToolResultsInMessages", () => {
       128_000,
     );
     expect(truncatedCount).toBe(1);
-    const toolResult = result[2];
-    expect(toolResult?.role).toBe("toolResult");
-    const text = toolResult ? getFirstToolResultText(toolResult) : "";
-    expect(text.length).toBeLessThan(bigContent.length);
-    expect(text).toContain("truncated");
+    const toolResult = result[2] as { content: Array<{ text: string }> };
+    expect(toolResult.content[0].text.length).toBeLessThan(bigContent.length);
+    expect(toolResult.content[0].text).toContain("truncated");
   });
 
   it("preserves non-toolResult messages", () => {
@@ -248,7 +216,7 @@ describe("truncateOversizedToolResultsInMessages", () => {
   });
 
   it("handles multiple oversized tool results", () => {
-    const messages: AgentMessage[] = [
+    const messages = [
       makeUserMessage("hello"),
       makeAssistantMessage("reading files"),
       makeToolResult("x".repeat(500_000), "call_1"),
@@ -260,57 +228,8 @@ describe("truncateOversizedToolResultsInMessages", () => {
     );
     expect(truncatedCount).toBe(2);
     for (const msg of result.slice(2)) {
-      expect(msg.role).toBe("toolResult");
-      const text = getFirstToolResultText(msg);
-      expect(text.length).toBeLessThan(500_000);
-    }
-  });
-});
-
-describe("truncateOversizedToolResultsInSession", () => {
-  it("acquires the session write lock before rewriting oversized tool results", async () => {
-    const sessionFile = "/tmp/tool-result-truncation-session.jsonl";
-    const sessionManager = SessionManager.inMemory();
-    sessionManager.appendMessage(makeUserMessage("hello"));
-    sessionManager.appendMessage(makeAssistantMessage("reading file"));
-    sessionManager.appendMessage(makeToolResult("x".repeat(500_000)));
-
-    const openSpy = vi
-      .spyOn(SessionManager, "open")
-      .mockReturnValue(sessionManager as unknown as ReturnType<typeof SessionManager.open>);
-    const listener = vi.fn();
-    const cleanup = onSessionTranscriptUpdate(listener);
-
-    try {
-      const result = await truncateOversizedToolResultsInSession({
-        sessionFile,
-        contextWindowTokens: 128_000,
-        sessionKey: "agent:main:test",
-      });
-
-      expect(result.truncated).toBe(true);
-      expect(result.truncatedCount).toBe(1);
-      expect(acquireSessionWriteLockMock).toHaveBeenCalledWith({ sessionFile });
-      expect(acquireSessionWriteLockReleaseMock).toHaveBeenCalledTimes(1);
-      expect(listener).toHaveBeenCalledWith({ sessionFile });
-
-      const branch = sessionManager.getBranch();
-      const rewrittenToolResult = branch.find(
-        (entry) => entry.type === "message" && entry.message.role === "toolResult",
-      );
-      expect(rewrittenToolResult?.type).toBe("message");
-      if (
-        rewrittenToolResult?.type !== "message" ||
-        rewrittenToolResult.message.role !== "toolResult"
-      ) {
-        throw new Error("expected rewritten tool result");
-      }
-      const rewrittenText = getFirstToolResultText(rewrittenToolResult.message);
-      expect(rewrittenText.length).toBeLessThan(500_000);
-      expect(rewrittenText).toContain("truncated");
-    } finally {
-      cleanup();
-      openSpy.mockRestore();
+      const tr = msg as { content: Array<{ text: string }> };
+      expect(tr.content[0].text.length).toBeLessThan(500_000);
     }
   });
 });
@@ -343,27 +262,5 @@ describe("sessionLikelyHasOversizedToolResults", () => {
         contextWindowTokens: 200_000,
       }),
     ).toBe(false);
-  });
-});
-
-describe("truncateToolResultText head+tail strategy", () => {
-  it("preserves error content at the tail when present", () => {
-    const head = "Line 1\n".repeat(500);
-    const middle = "data data data\n".repeat(500);
-    const tail = "\nError: something failed\nStack trace: at foo.ts:42\n";
-    const text = head + middle + tail;
-    const result = truncateToolResultText(text, 5000);
-    // Should contain both the beginning and the error at the end
-    expect(result).toContain("Line 1");
-    expect(result).toContain("Error: something failed");
-    expect(result).toContain("middle content omitted");
-  });
-
-  it("uses simple head truncation when tail has no important content", () => {
-    const text = "normal line\n".repeat(1000);
-    const result = truncateToolResultText(text, 5000);
-    expect(result).toContain("normal line");
-    expect(result).not.toContain("middle content omitted");
-    expect(result).toContain("truncated");
   });
 });

@@ -6,24 +6,11 @@ import * as archive from "./archive.js";
 import { resolveExistingInstallPath, withExtractedArchiveRoot } from "./install-flow.js";
 import * as installSource from "./install-source-utils.js";
 
-async function runExtractedArchiveFailureCase(configureArchive: () => void) {
-  vi.spyOn(installSource, "withTempDir").mockImplementation(
-    async (_prefix, fn) => await fn("/tmp/openclaw-install-flow"),
-  );
-  configureArchive();
-  return await withExtractedArchiveRoot({
-    archivePath: "/tmp/plugin.tgz",
-    tempDirPrefix: "openclaw-plugin-",
-    timeoutMs: 1000,
-    onExtracted: async () => ({ ok: true as const }),
-  });
-}
-
 describe("resolveExistingInstallPath", () => {
   let fixtureRoot = "";
 
   beforeEach(async () => {
-    fixtureRoot = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-install-flow-"));
+    fixtureRoot = await fs.mkdtemp(path.join(os.tmpdir(), "mirai-install-flow-"));
   });
 
   afterEach(async () => {
@@ -64,7 +51,7 @@ describe("withExtractedArchiveRoot", () => {
   });
 
   it("extracts archive and passes root directory to callback", async () => {
-    const tmpRoot = path.join(path.sep, "tmp", "openclaw-install-flow");
+    const tmpRoot = path.join(path.sep, "tmp", "mirai-install-flow");
     const archivePath = path.join(path.sep, "tmp", "plugin.tgz");
     const extractDir = path.join(tmpRoot, "extract");
     const packageRoot = path.join(extractDir, "package");
@@ -77,12 +64,12 @@ describe("withExtractedArchiveRoot", () => {
     const onExtracted = vi.fn(async (rootDir: string) => ({ ok: true as const, rootDir }));
     const result = await withExtractedArchiveRoot({
       archivePath,
-      tempDirPrefix: "openclaw-plugin-",
+      tempDirPrefix: "mirai-plugin-",
       timeoutMs: 1000,
       onExtracted,
     });
 
-    expect(withTempDirSpy).toHaveBeenCalledWith("openclaw-plugin-", expect.any(Function));
+    expect(withTempDirSpy).toHaveBeenCalledWith("mirai-plugin-", expect.any(Function));
     expect(extractSpy).toHaveBeenCalledWith(
       expect.objectContaining({
         archivePath,
@@ -97,8 +84,16 @@ describe("withExtractedArchiveRoot", () => {
   });
 
   it("returns extract failure when extraction throws", async () => {
-    const result = await runExtractedArchiveFailureCase(() => {
-      vi.spyOn(archive, "extractArchive").mockRejectedValue(new Error("boom"));
+    vi.spyOn(installSource, "withTempDir").mockImplementation(
+      async (_prefix, fn) => await fn("/tmp/mirai-install-flow"),
+    );
+    vi.spyOn(archive, "extractArchive").mockRejectedValue(new Error("boom"));
+
+    const result = await withExtractedArchiveRoot({
+      archivePath: "/tmp/plugin.tgz",
+      tempDirPrefix: "mirai-plugin-",
+      timeoutMs: 1000,
+      onExtracted: async () => ({ ok: true as const }),
     });
 
     expect(result).toEqual({
@@ -108,9 +103,17 @@ describe("withExtractedArchiveRoot", () => {
   });
 
   it("returns root-resolution failure when archive layout is invalid", async () => {
-    const result = await runExtractedArchiveFailureCase(() => {
-      vi.spyOn(archive, "extractArchive").mockResolvedValue(undefined);
-      vi.spyOn(archive, "resolvePackedRootDir").mockRejectedValue(new Error("invalid layout"));
+    vi.spyOn(installSource, "withTempDir").mockImplementation(
+      async (_prefix, fn) => await fn("/tmp/mirai-install-flow"),
+    );
+    vi.spyOn(archive, "extractArchive").mockResolvedValue(undefined);
+    vi.spyOn(archive, "resolvePackedRootDir").mockRejectedValue(new Error("invalid layout"));
+
+    const result = await withExtractedArchiveRoot({
+      archivePath: "/tmp/plugin.tgz",
+      tempDirPrefix: "mirai-plugin-",
+      timeoutMs: 1000,
+      onExtracted: async () => ({ ok: true as const }),
     });
 
     expect(result).toEqual({

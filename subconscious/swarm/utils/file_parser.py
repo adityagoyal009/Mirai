@@ -3,9 +3,17 @@ File Parsing Utility
 Supports text extraction from PDF, Markdown, and TXT files
 """
 
+import logging
 import os
 from pathlib import Path
 from typing import List, Optional
+
+logger = logging.getLogger(__name__)
+
+
+class FileParserError(Exception):
+    """Raised when a file cannot be parsed. Contains the originating exception."""
+    pass
 
 
 def _read_text_with_fallback(file_path: str) -> str:
@@ -55,7 +63,14 @@ def _read_text_with_fallback(file_path: str) -> str:
     if not encoding:
         encoding = 'utf-8'
 
-    return data.decode(encoding, errors='replace')
+    text = data.decode(encoding, errors='replace')
+    if '\ufffd' in text:
+        logger.warning(
+            f"[FileParser] Text contains Unicode replacement characters (\ufffd) — "
+            f"encoding detection failed for the file being processed. "
+            "LLM extraction quality may be degraded."
+        )
+    return text
 
 
 class FileParser:
@@ -139,7 +154,13 @@ class FileParser:
                 filename = Path(file_path).name
                 all_texts.append(f"=== Document {i}: {filename} ===\n{text}")
             except Exception as e:
-                all_texts.append(f"=== Document {i}: {file_path} (extraction failed: {str(e)}) ===")
+                logger.error(
+                    f"[FileParser] Failed to extract document {i} ({file_path}): {e}. "
+                    "Raising to prevent error text from being processed as document content."
+                )
+                raise FileParserError(
+                    f"Failed to extract document {i} ({file_path}): {e}"
+                ) from e
 
         return "\n\n".join(all_texts)
 

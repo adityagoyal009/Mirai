@@ -8,11 +8,10 @@ import { resolveModelRefFromString } from "../../agents/model-selection.js";
 import { resolveAgentTimeoutMs } from "../../agents/timeout.js";
 import { DEFAULT_AGENT_WORKSPACE_DIR, ensureAgentWorkspace } from "../../agents/workspace.js";
 import { resolveChannelModelOverride } from "../../channels/model-overrides.js";
-import { type OpenClawConfig, loadConfig } from "../../config/config.js";
+import { type MiraiConfig, loadConfig } from "../../config/config.js";
 import { applyLinkUnderstanding } from "../../link-understanding/apply.js";
 import { applyMediaUnderstanding } from "../../media-understanding/apply.js";
 import { defaultRuntime } from "../../runtime.js";
-import { normalizeStringEntries } from "../../shared/string-normalization.js";
 import { resolveCommandAuthorization } from "../command-auth.js";
 import type { MsgContext } from "../templating.js";
 import { SILENT_REPLY_TOKEN } from "../tokens.js";
@@ -23,7 +22,6 @@ import { resolveReplyDirectives } from "./get-reply-directives.js";
 import { handleInlineActions } from "./get-reply-inline-actions.js";
 import { runPreparedReply } from "./get-reply-run.js";
 import { finalizeInboundContext } from "./inbound-context.js";
-import { emitPreAgentMessageHooks } from "./message-preprocess-hooks.js";
 import { applyResetModelOverride } from "./session-reset-model.js";
 import { initSessionState } from "./session.js";
 import { stageSandboxMedia } from "./stage-sandbox-media.js";
@@ -34,7 +32,7 @@ function mergeSkillFilters(channelFilter?: string[], agentFilter?: string[]): st
     if (!Array.isArray(list)) {
       return undefined;
     }
-    return normalizeStringEntries(list);
+    return list.map((entry) => String(entry).trim()).filter(Boolean);
   };
   const channel = normalize(channelFilter);
   const agent = normalize(agentFilter);
@@ -57,9 +55,9 @@ function mergeSkillFilters(channelFilter?: string[], agentFilter?: string[]): st
 export async function getReplyFromConfig(
   ctx: MsgContext,
   opts?: GetReplyOptions,
-  configOverride?: OpenClawConfig,
+  configOverride?: MiraiConfig,
 ): Promise<ReplyPayload | ReplyPayload[] | undefined> {
-  const isFastTestEnv = process.env.OPENCLAW_TEST_FAST === "1";
+  const isFastTestEnv = process.env.MIRAI_TEST_FAST === "1";
   const cfg = configOverride ?? loadConfig();
   const targetSessionKey =
     ctx.CommandSource === "native" ? ctx.CommandTargetSessionKey?.trim() : undefined;
@@ -137,11 +135,6 @@ export async function getReplyFromConfig(
       cfg,
     });
   }
-  emitPreAgentMessageHooks({
-    ctx: finalized,
-    cfg,
-    isFastTestEnv,
-  });
 
   const commandAuthorized = finalized.CommandAuthorized;
   resolveCommandAuthorization({
@@ -175,7 +168,6 @@ export async function getReplyFromConfig(
 
   await applyResetModelOverride({
     cfg,
-    agentId,
     resetTriggered,
     bodyStripped,
     sessionCtx,
@@ -332,8 +324,6 @@ export async function getReplyFromConfig(
     resolvedVerboseLevel,
     resolvedReasoningLevel,
     resolvedElevatedLevel,
-    blockReplyChunking,
-    resolvedBlockStreamingBreak,
     resolveDefaultThinkingLevel: modelState.resolveDefaultThinkingLevel,
     provider,
     model,

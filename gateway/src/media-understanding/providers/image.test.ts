@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const hoisted = vi.hoisted(() => ({
   completeMock: vi.fn(),
   minimaxUnderstandImageMock: vi.fn(),
-  ensureOpenClawModelsJsonMock: vi.fn(async () => {}),
+  ensureMiraiModelsJsonMock: vi.fn(async () => {}),
   getApiKeyForModelMock: vi.fn(async () => ({
     apiKey: "oauth-test", // pragma: allowlist secret
     source: "test",
@@ -21,7 +21,7 @@ const hoisted = vi.hoisted(() => ({
 const {
   completeMock,
   minimaxUnderstandImageMock,
-  ensureOpenClawModelsJsonMock,
+  ensureMiraiModelsJsonMock,
   getApiKeyForModelMock,
   resolveApiKeyForProviderMock,
   requireApiKeyMock,
@@ -46,7 +46,7 @@ vi.mock("../../agents/minimax-vlm.js", () => ({
 }));
 
 vi.mock("../../agents/models-config.js", () => ({
-  ensureOpenClawModelsJson: ensureOpenClawModelsJsonMock,
+  ensureMiraiModelsJson: ensureMiraiModelsJsonMock,
 }));
 
 vi.mock("../../agents/model-auth.js", () => ({
@@ -81,7 +81,7 @@ describe("describeImageWithModel", () => {
   it("routes minimax-portal image models through the MiniMax VLM endpoint", async () => {
     const result = await describeImageWithModel({
       cfg: {},
-      agentDir: "/tmp/openclaw-agent",
+      agentDir: "/tmp/mirai-agent",
       provider: "minimax-portal",
       model: "MiniMax-VL-01",
       buffer: Buffer.from("png-bytes"),
@@ -95,7 +95,7 @@ describe("describeImageWithModel", () => {
       text: "portal ok",
       model: "MiniMax-VL-01",
     });
-    expect(ensureOpenClawModelsJsonMock).toHaveBeenCalled();
+    expect(ensureMiraiModelsJsonMock).toHaveBeenCalled();
     expect(getApiKeyForModelMock).toHaveBeenCalled();
     expect(requireApiKeyMock).toHaveBeenCalled();
     expect(setRuntimeApiKeyMock).toHaveBeenCalledWith("minimax-portal", "oauth-test");
@@ -129,7 +129,7 @@ describe("describeImageWithModel", () => {
 
     const result = await describeImageWithModel({
       cfg: {},
-      agentDir: "/tmp/openclaw-agent",
+      agentDir: "/tmp/mirai-agent",
       provider: "minimax-portal",
       model: "custom-vision",
       buffer: Buffer.from("png-bytes"),
@@ -171,7 +171,7 @@ describe("describeImageWithModel", () => {
 
     const result = await describeImageWithModel({
       cfg: {},
-      agentDir: "/tmp/openclaw-agent",
+      agentDir: "/tmp/mirai-agent",
       provider: "google",
       model: "gemini-3.1-flash-preview",
       profile: "google:default",
@@ -219,7 +219,7 @@ describe("describeImageWithModel", () => {
 
     const result = await describeImageWithModel({
       cfg: {},
-      agentDir: "/tmp/openclaw-agent",
+      agentDir: "/tmp/mirai-agent",
       provider: "google",
       model: "gemini-3.1-flash-lite",
       profile: "google:default",

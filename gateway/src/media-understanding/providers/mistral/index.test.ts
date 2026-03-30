@@ -1,26 +1,26 @@
 import { describe, expect, it } from "vitest";
-import { mistralMediaUnderstandingProvider } from "../../../../extensions/mistral/media-understanding-provider.js";
 import {
   createRequestCaptureJsonFetch,
   installPinnedHostnameTestHooks,
 } from "../audio.test-helpers.js";
+import { mistralProvider } from "./index.js";
 
 installPinnedHostnameTestHooks();
 
-describe("mistralMediaUnderstandingProvider", () => {
+describe("mistralProvider", () => {
   it("has expected provider metadata", () => {
-    expect(mistralMediaUnderstandingProvider.id).toBe("mistral");
-    expect(mistralMediaUnderstandingProvider.capabilities).toEqual(["audio"]);
-    expect(mistralMediaUnderstandingProvider.transcribeAudio).toBeDefined();
+    expect(mistralProvider.id).toBe("mistral");
+    expect(mistralProvider.capabilities).toEqual(["audio"]);
+    expect(mistralProvider.transcribeAudio).toBeDefined();
   });
 
   it("uses Mistral base URL by default", async () => {
     const { fetchFn, getRequest } = createRequestCaptureJsonFetch({ text: "bonjour" });
 
-    const result = await mistralMediaUnderstandingProvider.transcribeAudio!({
+    const result = await mistralProvider.transcribeAudio!({
       buffer: Buffer.from("audio-bytes"),
       fileName: "voice.ogg",
-      apiKey: "test-mistral-key", // pragma: allowlist secret
+      apiKey: "test-mistral-key",
       timeoutMs: 5000,
       fetchFn,
     });
@@ -32,10 +32,10 @@ describe("mistralMediaUnderstandingProvider", () => {
   it("allows overriding baseUrl", async () => {
     const { fetchFn, getRequest } = createRequestCaptureJsonFetch({ text: "ok" });
 
-    await mistralMediaUnderstandingProvider.transcribeAudio!({
+    await mistralProvider.transcribeAudio!({
       buffer: Buffer.from("audio"),
       fileName: "note.mp3",
-      apiKey: "key", // pragma: allowlist secret
+      apiKey: "key",
       timeoutMs: 1000,
       baseUrl: "https://custom.mistral.example/v1",
       fetchFn,

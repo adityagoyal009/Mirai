@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { parseSlackTarget } from "../../../extensions/slack/src/targets.js";
 import { parseTelegramTarget } from "../../../extensions/telegram/src/targets.js";
 import type { ChannelThreadingToolContext } from "../../channels/plugins/types.js";
-import type { OpenClawConfig } from "../../config/config.js";
+import type { MiraiConfig } from "../../config/config.js";
 import {
   hydrateAttachmentParamsForAction,
   normalizeSandboxMediaList,
@@ -13,7 +13,7 @@ import {
   resolveAttachmentMediaPolicy,
 } from "./message-action-params.js";
 
-const cfg = {} as OpenClawConfig;
+const cfg = {} as MiraiConfig;
 const maybeIt = process.platform === "win32" ? it.skip : it;
 
 function createToolContext(

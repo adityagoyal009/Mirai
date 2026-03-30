@@ -10,10 +10,7 @@ function expectGeneratedTokenFromInput(token: string | undefined, literalToAvoid
   expect(result?.token).toBeDefined();
   expect(result?.token).not.toBe(literalToAvoid);
   expect(typeof result?.token).toBe("string");
-  if (typeof result?.token !== "string") {
-    throw new Error("Expected generated token to be a string.");
-  }
-  expect(result.token.length).toBeGreaterThan(0);
+  expect(result?.token?.length).toBeGreaterThan(0);
 }
 
 describe("buildGatewayAuthConfig", () => {
@@ -21,7 +18,7 @@ describe("buildGatewayAuthConfig", () => {
     const result = buildGatewayAuthConfig({
       existing: {
         mode: "password",
-        password: "secret", // pragma: allowlist secret
+        password: "secret",
         allowTailscale: true,
       },
       mode: "token",
@@ -35,7 +32,7 @@ describe("buildGatewayAuthConfig", () => {
     const result = buildGatewayAuthConfig({
       existing: {
         mode: "password",
-        password: "secret", // pragma: allowlist secret
+        password: "secret",
         allowTailscale: false,
       },
       mode: "token",
@@ -53,19 +50,19 @@ describe("buildGatewayAuthConfig", () => {
     const result = buildGatewayAuthConfig({
       existing: { mode: "token", token: "abc" },
       mode: "password",
-      password: "secret", // pragma: allowlist secret
+      password: "secret",
     });
 
-    expect(result).toEqual({ mode: "password", password: "secret" }); // pragma: allowlist secret
+    expect(result).toEqual({ mode: "password", password: "secret" });
   });
 
   it("does not silently omit password when literal string is provided", () => {
     const result = buildGatewayAuthConfig({
       mode: "password",
-      password: "undefined", // pragma: allowlist secret
+      password: "undefined",
     });
 
-    expect(result).toEqual({ mode: "password", password: "undefined" }); // pragma: allowlist secret
+    expect(result).toEqual({ mode: "password", password: "undefined" });
   });
 
   it("generates random token for missing, empty, and coerced-literal token inputs", () => {
@@ -74,23 +71,6 @@ describe("buildGatewayAuthConfig", () => {
     expectGeneratedTokenFromInput("   ");
     expectGeneratedTokenFromInput("undefined");
     expectGeneratedTokenFromInput("null", "null");
-  });
-
-  it("preserves SecretRef tokens when token mode is selected", () => {
-    const tokenRef = {
-      source: "env",
-      provider: "default",
-      id: "OPENCLAW_GATEWAY_TOKEN",
-    } as const;
-    const result = buildGatewayAuthConfig({
-      mode: "token",
-      token: tokenRef,
-    });
-
-    expect(result).toEqual({
-      mode: "token",
-      token: tokenRef,
-    });
   });
 
   it("builds trusted-proxy config with all options", () => {
@@ -165,7 +145,7 @@ describe("buildGatewayAuthConfig", () => {
       existing: {
         mode: "token",
         token: "abc",
-        password: "secret", // pragma: allowlist secret
+        password: "secret",
       },
       mode: "trusted-proxy",
       trustedProxy: {

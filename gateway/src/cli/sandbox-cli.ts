@@ -67,7 +67,7 @@ export function registerSandboxCli(program: Command) {
     .addHelpText(
       "after",
       () =>
-        `\n${theme.muted("Docs:")} ${formatDocsLink("/cli/sandbox", "github.com/adityagoyal009/Mirai/tree/main/gateway/docs/cli/sandbox")}\n`,
+        `\n${theme.muted("Docs:")} ${formatDocsLink("/cli/sandbox", "docs.mirai.ai/cli/sandbox")}\n`,
     )
     .action(() => {
       sandbox.help({ error: true });

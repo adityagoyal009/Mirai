@@ -1,4 +1,3 @@
-import { countPendingDescendantRuns } from "../../../agents/subagent-registry.js";
 import { loadSessionStore, resolveStorePath } from "../../../config/sessions.js";
 import { formatDurationCompact } from "../../../shared/subagents-format.js";
 import type { CommandHandlerResult } from "../commands-types.js";
@@ -39,7 +38,7 @@ export function handleSubagentsInfoAction(ctx: SubagentsCommandContext): Command
 
   const lines = [
     "ℹ️ Subagent info",
-    `Status: ${resolveDisplayStatus(run, { pendingDescendants: countPendingDescendantRuns(run.childSessionKey) })}`,
+    `Status: ${resolveDisplayStatus(run)}`,
     `Label: ${formatRunLabel(run)}`,
     `Task: ${run.task}`,
     `Run: ${run.runId}`,

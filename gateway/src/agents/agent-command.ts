@@ -337,7 +337,7 @@ async function persistAcpTurnTranscript(params: {
       role: "assistant",
       content: [{ type: "text", text: replyText }],
       api: "openai-responses",
-      provider: "openclaw",
+      provider: "mirai",
       model: "acp-runtime",
       usage: ACP_TRANSCRIPT_USAGE,
       stopReason: "stop",

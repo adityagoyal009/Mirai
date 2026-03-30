@@ -10,7 +10,7 @@ export function registerDaemonCli(program: Command) {
     .addHelpText(
       "after",
       () =>
-        `\n${theme.muted("Docs:")} ${formatDocsLink("/cli/gateway", "github.com/adityagoyal009/Mirai/tree/main/gateway/docs/cli/gateway")}\n`,
+        `\n${theme.muted("Docs:")} ${formatDocsLink("/cli/gateway", "docs.mirai.ai/cli/gateway")}\n`,
     );
 
   addGatewayServiceCommands(daemon, {

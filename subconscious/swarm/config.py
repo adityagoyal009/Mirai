@@ -3,8 +3,11 @@ Configuration Management
 Loads configuration from the project root .env file
 """
 
+import logging
 import os
 from dotenv import load_dotenv
+
+_config_logger = logging.getLogger('mirofish.config')
 
 # Load the .env file from the project root
 # Path: MiroFish/.env (relative to backend/app/config.py)
@@ -18,41 +21,29 @@ else:
 
 
 class Config:
-    """Flask Configuration Class"""
+    """Mirai Configuration Class"""
 
-    # Flask configuration
-    SECRET_KEY = os.environ.get('SECRET_KEY', 'mirofish-secret-key')
-    DEBUG = os.environ.get('FLASK_DEBUG', 'True').lower() == 'true'
+    # App configuration
+    _secret_key_raw = os.environ.get('MIRAI_SECRET_KEY') or os.environ.get('SECRET_KEY')
+    if _secret_key_raw:
+        SECRET_KEY = _secret_key_raw
+    else:
+        SECRET_KEY = os.urandom(32).hex()
+        _config_logger.warning(
+            "[Config] SECRET_KEY not set — using random key. "
+            "All sessions WILL be invalidated on every server restart. "
+            "Set MIRAI_SECRET_KEY env var to fix this."
+        )
+    DEBUG = os.environ.get('MIRAI_DEBUG', os.environ.get('DEBUG', 'True')).lower() == 'true'
 
     # JSON configuration - disable ASCII escaping to display CJK characters directly (instead of \uXXXX format)
     JSON_AS_ASCII = False
 
-    # LLM configuration (unified OpenAI format)
-    # Auto-discovered from gateway config (~/.openclaw/openclaw.json)
-    # Override with env vars if needed
-    @staticmethod
-    def _discover_gateway_llm():
-        """Read gateway config to get auth token, port, and default model."""
-        import json as _json
-        config_path = os.path.join(os.path.expanduser('~'), '.openclaw', 'openclaw.json')
-        try:
-            with open(config_path, 'r') as f:
-                config = _json.load(f)
-            gw = config.get('gateway', {})
-            port = gw.get('port', 3000)
-            token = gw.get('auth', {}).get('token', '')
-            model = config.get('agents', {}).get('defaults', {}).get('model', '')
-            if token:
-                return token, f'http://localhost:{port}/v1', model or 'anthropic/claude-opus-4-6'
-        except (IOError, _json.JSONDecodeError, KeyError):
-            pass
-        return '', '', ''
-
-    _gw_token, _gw_url, _gw_model = _discover_gateway_llm.__func__()
-
-    LLM_API_KEY = os.environ.get('LLM_API_KEY', '') or _gw_token or 'openclaw'
-    LLM_BASE_URL = os.environ.get('LLM_BASE_URL', '') or _gw_url or 'http://localhost:3000/v1'
-    LLM_MODEL_NAME = os.environ.get('LLM_MODEL_NAME', '') or _gw_model or 'anthropic/claude-opus-4-6'
+    # LLM configuration — uses CLI headless calls (no proxy server needed)
+    # Routes through Claude Code CLI, Codex CLI, and Gemini CLI subscriptions
+    LLM_API_KEY = os.environ.get('LLM_API_KEY', '') or 'cli-mode'
+    LLM_BASE_URL = os.environ.get('LLM_BASE_URL', '') or 'cli://local'
+    LLM_MODEL_NAME = os.environ.get('LLM_MODEL_NAME', '') or 'claude-opus-4-6'
 
     # ChromaDB configuration (replaces Zep Cloud)
     CHROMADB_PERSIST_PATH = os.environ.get(
@@ -60,8 +51,10 @@ class Config:
         os.path.join(os.path.dirname(__file__), '../../memory/.chromadb_data')
     )
 
-    # ── SearXNG configuration ────────────────────────────────────
-    SEARXNG_URL = os.environ.get('SEARXNG_URL', 'http://localhost:8888')
+    # SearXNG + Brave Search removed — all search via Claude CLI web search through gateway
+
+    # ── Jina Grounding API (optional, for fact-checking) ──────
+    JINA_API_KEY = os.environ.get('JINA_API_KEY', '')
 
     # ── Mem0 configuration ───────────────────────────────────────
     MEM0_API_KEY = os.environ.get('MEM0_API_KEY', '')
@@ -99,22 +92,17 @@ class Config:
     # Tier 2 (standard): good quality, used for Wave 2 batches
     # Tier 3 (cheap): volume diversity, used for large batch runs
     MODEL_TIERS = {
-        "tier1": [  # Premium — Wave 1 individual calls
-            {"model": "anthropic/claude-opus-4-6", "label": "Claude Opus 4.6", "cost_per_1k": 0.075},
-            {"model": "openai/gpt-4o", "label": "GPT-4o", "cost_per_1k": 0.025},
+        "tier1": [  # Premium — Wave 1 individual calls (best quality)
+            {"model": "claude-opus-4-6", "label": "Claude Opus 4.6", "cost_per_1k": 0},
+            {"model": "gpt-5.4", "label": "GPT-5.4", "cost_per_1k": 0},
+            {"model": "claude-sonnet-4-6", "label": "Claude Sonnet 4.6", "cost_per_1k": 0},
         ],
         "tier2": [  # Standard — Wave 2 batches
-            {"model": "anthropic/claude-sonnet-4-6", "label": "Claude Sonnet 4.6", "cost_per_1k": 0.015},
-            {"model": "openai/gpt-4o-mini", "label": "GPT-4o-mini", "cost_per_1k": 0.0075},
-            {"model": "google/gemini-2.5-pro", "label": "Gemini 2.5 Pro", "cost_per_1k": 0.01},
-            {"model": "mistralai/mistral-large", "label": "Mistral Large", "cost_per_1k": 0.012},
-            {"model": "x-ai/grok-3", "label": "Grok 3", "cost_per_1k": 0.01},
-            {"model": "together/meta-llama/Meta-Llama-3.1-70B", "label": "Llama 3.1 70B", "cost_per_1k": 0.009},
+            {"model": "claude-sonnet-4-6", "label": "Claude Sonnet 4.6", "cost_per_1k": 0},
+            {"model": "gpt-5.4", "label": "GPT-5.4", "cost_per_1k": 0},
         ],
-        "tier3": [  # Cheap — volume batch agents
-            {"model": "anthropic/claude-haiku-4-5", "label": "Claude Haiku 4.5", "cost_per_1k": 0.005},
-            {"model": "google/gemini-2.5-flash", "label": "Gemini 2.5 Flash", "cost_per_1k": 0.003},
-            {"model": "mistralai/mistral-small", "label": "Mistral Small", "cost_per_1k": 0.005},
+        "tier3": [  # Volume batch agents
+            {"model": "claude-sonnet-4-6", "label": "Claude Sonnet 4.6", "cost_per_1k": 0},
         ],
     }
 
@@ -123,10 +111,10 @@ class Config:
         """Get models per tier, filtered to only those available in gateway config."""
         available = cls.get_council_models()
         if not available:
-            # Fallback: use gateway default for all tiers
+            # Fallback: use default model via CLI
             default = {
                 'model': cls.LLM_MODEL_NAME, 'label': 'Default',
-                'base_url': cls.LLM_BASE_URL, 'api_key': cls.LLM_API_KEY,
+                'provider': 'claude', 'cli': 'claude',
             }
             return {"tier1": [default], "tier2": [default], "tier3": [default]}
 
@@ -214,8 +202,12 @@ class Config:
                     config = json.load(f)
             else:
                 return []
-        except (json.JSONDecodeError, IOError):
-            return []
+        except (json.JSONDecodeError, IOError) as e:
+            _config_logger.error(
+                f"[Config] Failed to parse council config — analysis will have no council models. "
+                f"Error: {e}"
+            )
+            raise
 
         models_cfg = config.get('models', config)
         providers = models_cfg.get('providers', {})
@@ -231,27 +223,27 @@ class Config:
                 model_id = cm.get('model', '')
                 label = cm.get('label', f"{provider_key}/{model_id}")
                 provider_cfg = providers.get(provider_key, {})
-                base_url = provider_cfg.get('baseUrl', cls.LLM_BASE_URL)
-                api_key = cls._resolve_api_key(provider_cfg)
-                result.append({
-                    'model': model_id if '/' in model_id else f"{provider_key}/{model_id}",
+                entry = {
+                    'model': model_id,
                     'label': label,
-                    'base_url': base_url,
-                    'api_key': api_key,
-                })
+                    'provider': provider_key,
+                    'cli': provider_cfg.get('cli', provider_key),
+                }
+                # Pass through optional fields
+                if cm.get('system_prompt_suffix'):
+                    entry['system_prompt_suffix'] = cm['system_prompt_suffix']
+                result.append(entry)
         else:
             # Fallback: use ALL providers with their first model
             for provider_key, provider_cfg in providers.items():
-                base_url = provider_cfg.get('baseUrl', '')
-                api_key = cls._resolve_api_key(provider_cfg)
                 for model_def in provider_cfg.get('models', []):
                     model_id = model_def.get('id', '')
                     if model_id:
                         result.append({
-                            'model': f"{provider_key}/{model_id}",
+                            'model': model_id,
                             'label': model_def.get('name', model_id),
-                            'base_url': base_url,
-                            'api_key': api_key,
+                            'provider': provider_key,
+                            'cli': provider_cfg.get('cli', provider_key),
                         })
 
         return result
@@ -261,6 +253,7 @@ class Config:
         """
         Read swarm-specific models (fast models for persona agents).
         Falls back to council models if no swarm config exists.
+        Resolves provider base_url and api_key from council.json providers.
         """
         import json
         try:
@@ -277,15 +270,20 @@ class Config:
         if not swarm_models_raw:
             return cls.get_council_models()
 
+        # Build provider lookup from council.json for base_url / api_key resolution
+        providers = config.get('models', config).get('providers', {})
+
         result = []
         for cm in swarm_models_raw:
             model_id = cm.get('model', '')
             label = cm.get('label', model_id)
+            provider_key = cm.get('provider', '')
+            provider_cfg = providers.get(provider_key, {})
             result.append({
                 'model': model_id,
                 'label': label,
-                'base_url': cls.LLM_BASE_URL,
-                'api_key': cls.LLM_API_KEY,
+                'provider': provider_key,
+                'cli': provider_cfg.get('cli', provider_key),
             })
         return result
 
@@ -306,3 +304,49 @@ class Config:
         if not cls.LLM_API_KEY:
             errors.append("LLM_API_KEY not configured (set env var or start the gateway: cd gateway && node mirai.mjs gateway run)")
         return errors
+
+
+# ── Researcher model config helper ───────────────────────────────────────────
+# Allows model strings to be overridden via ~/.mirai/research.json without
+# code edits. Useful for swapping to newer models as they become available.
+_RESEARCHER_MODEL_DEFAULTS = {
+    "researcher_a": "claude-opus-4-6",
+    "researcher_b": "claude-sonnet-4-6",
+    "verifier": "gpt-5.4",
+    "chairman": "claude-opus-4-6",
+}
+
+_RESEARCH_CONFIG_PATH = os.path.join(os.path.expanduser("~"), ".mirai", "research.json")
+
+
+def get_researcher_models() -> dict:
+    """
+    Return the researcher model configuration.
+
+    Loads from ~/.mirai/research.json if it exists; otherwise returns defaults.
+    Expected JSON format:
+        {
+            "researcher_a": "claude-opus-4-6",
+            "researcher_b": "claude-sonnet-4-6",
+            "verifier": "gpt-5.4",
+            "chairman": "claude-opus-4-6"
+        }
+
+    Returns:
+        dict with keys: researcher_a, researcher_b, verifier, chairman
+    """
+    import json
+    config = dict(_RESEARCHER_MODEL_DEFAULTS)
+    try:
+        if os.path.exists(_RESEARCH_CONFIG_PATH):
+            with open(_RESEARCH_CONFIG_PATH, "r") as f:
+                overrides = json.load(f)
+            # Only override known keys; ignore unknown entries
+            for key in _RESEARCHER_MODEL_DEFAULTS:
+                if key in overrides and isinstance(overrides[key], str) and overrides[key].strip():
+                    config[key] = overrides[key].strip()
+    except (json.JSONDecodeError, IOError, OSError) as e:
+        logging.getLogger('mirofish.config').info(
+            f"[Config] Using default researcher models (research.json unreadable: {e})"
+        )
+    return config

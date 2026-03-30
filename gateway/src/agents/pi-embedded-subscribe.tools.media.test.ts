@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  extractToolResultMediaPaths,
-  isToolResultMediaTrusted,
-} from "./pi-embedded-subscribe.tools.js";
+import { extractToolResultMediaPaths } from "./pi-embedded-subscribe.tools.js";
 
 describe("extractToolResultMediaPaths", () => {
   it("returns empty array for null/undefined", () => {
@@ -52,7 +49,7 @@ describe("extractToolResultMediaPaths", () => {
   });
 
   it("falls back to details.path when image content exists but no MEDIA: text", () => {
-    // Pi SDK read tool doesn't include MEDIA: but OpenClaw imageResult
+    // Pi SDK read tool doesn't include MEDIA: but Mirai imageResult
     // sets details.path as fallback.
     const result = {
       content: [
@@ -231,9 +228,5 @@ describe("extractToolResultMediaPaths", () => {
       ],
     };
     expect(extractToolResultMediaPaths(result)).toEqual(["/tmp/page1.png", "/tmp/page2.png"]);
-  });
-
-  it("trusts image_generate local MEDIA paths", () => {
-    expect(isToolResultMediaTrusted("image_generate")).toBe(true);
   });
 });

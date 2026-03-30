@@ -3,19 +3,20 @@ import { resolveStateDir } from "../config/paths.js";
 import { DEFAULT_AGENT_ID } from "../routing/session-key.js";
 import { resolveUserPath } from "../utils.js";
 
-export function resolveOpenClawAgentDir(env: NodeJS.ProcessEnv = process.env): string {
-  const override = env.OPENCLAW_AGENT_DIR?.trim() || env.PI_CODING_AGENT_DIR?.trim();
+export function resolveMiraiAgentDir(): string {
+  const override =
+    process.env.MIRAI_AGENT_DIR?.trim() || process.env.PI_CODING_AGENT_DIR?.trim();
   if (override) {
-    return resolveUserPath(override, env);
+    return resolveUserPath(override);
   }
-  const defaultAgentDir = path.join(resolveStateDir(env), "agents", DEFAULT_AGENT_ID, "agent");
-  return resolveUserPath(defaultAgentDir, env);
+  const defaultAgentDir = path.join(resolveStateDir(), "agents", DEFAULT_AGENT_ID, "agent");
+  return resolveUserPath(defaultAgentDir);
 }
 
-export function ensureOpenClawAgentEnv(): string {
-  const dir = resolveOpenClawAgentDir();
-  if (!process.env.OPENCLAW_AGENT_DIR) {
-    process.env.OPENCLAW_AGENT_DIR = dir;
+export function ensureMiraiAgentEnv(): string {
+  const dir = resolveMiraiAgentDir();
+  if (!process.env.MIRAI_AGENT_DIR) {
+    process.env.MIRAI_AGENT_DIR = dir;
   }
   if (!process.env.PI_CODING_AGENT_DIR) {
     process.env.PI_CODING_AGENT_DIR = dir;

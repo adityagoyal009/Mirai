@@ -1,13 +1,13 @@
 // Default service labels (canonical + legacy compatibility)
-export const GATEWAY_LAUNCH_AGENT_LABEL = "ai.openclaw.gateway";
-export const GATEWAY_SYSTEMD_SERVICE_NAME = "openclaw-gateway";
+export const GATEWAY_LAUNCH_AGENT_LABEL = "ai.mirai.gateway";
+export const GATEWAY_SYSTEMD_SERVICE_NAME = "mirai-gateway";
 export const GATEWAY_WINDOWS_TASK_NAME = "Mirai Gateway";
-export const GATEWAY_SERVICE_MARKER = "openclaw";
+export const GATEWAY_SERVICE_MARKER = "mirai";
 export const GATEWAY_SERVICE_KIND = "gateway";
-export const NODE_LAUNCH_AGENT_LABEL = "ai.openclaw.node";
-export const NODE_SYSTEMD_SERVICE_NAME = "openclaw-node";
+export const NODE_LAUNCH_AGENT_LABEL = "ai.mirai.node";
+export const NODE_SYSTEMD_SERVICE_NAME = "mirai-node";
 export const NODE_WINDOWS_TASK_NAME = "Mirai Node";
-export const NODE_SERVICE_MARKER = "openclaw";
+export const NODE_SERVICE_MARKER = "mirai";
 export const NODE_SERVICE_KIND = "node";
 export const NODE_WINDOWS_TASK_SCRIPT_NAME = "node.cmd";
 export const LEGACY_GATEWAY_LAUNCH_AGENT_LABELS: string[] = [];
@@ -35,7 +35,7 @@ export function resolveGatewayLaunchAgentLabel(profile?: string): string {
   if (!normalized) {
     return GATEWAY_LAUNCH_AGENT_LABEL;
   }
-  return `ai.openclaw.${normalized}`;
+  return `ai.mirai.${normalized}`;
 }
 
 export function resolveLegacyGatewayLaunchAgentLabels(profile?: string): string[] {
@@ -48,7 +48,7 @@ export function resolveGatewaySystemdServiceName(profile?: string): string {
   if (!suffix) {
     return GATEWAY_SYSTEMD_SERVICE_NAME;
   }
-  return `openclaw-gateway${suffix}`;
+  return `mirai-gateway${suffix}`;
 }
 
 export function resolveGatewayWindowsTaskName(profile?: string): string {
@@ -86,8 +86,8 @@ export function resolveGatewayServiceDescription(params: {
   return (
     params.description ??
     formatGatewayServiceDescription({
-      profile: params.env.OPENCLAW_PROFILE,
-      version: params.environment?.OPENCLAW_SERVICE_VERSION ?? params.env.OPENCLAW_SERVICE_VERSION,
+      profile: params.env.MIRAI_PROFILE,
+      version: params.environment?.MIRAI_SERVICE_VERSION ?? params.env.MIRAI_SERVICE_VERSION,
     })
   );
 }

@@ -46,7 +46,7 @@ ${formatHelpExamples([
   ],
 ])}
 
-${theme.muted("Docs:")} ${formatDocsLink("/cli/message", "github.com/adityagoyal009/Mirai/tree/main/gateway/docs/cli/message")}`,
+${theme.muted("Docs:")} ${formatDocsLink("/cli/message", "docs.mirai.ai/cli/message")}`,
     )
     .action(() => {
       message.help({ error: true });

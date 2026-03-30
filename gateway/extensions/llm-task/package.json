@@ -1,0 +1,16 @@
+{
+  "name": "@mirai/llm-task",
+  "version": "2026.3.13",
+  "private": true,
+  "description": "Mirai JSON-only LLM task plugin",
+  "type": "module",
+  "dependencies": {
+    "@sinclair/typebox": "0.34.48",
+    "ajv": "^8.18.0"
+  },
+  "mirai": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}

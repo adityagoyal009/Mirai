@@ -4,17 +4,14 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
-  VERSION,
   readVersionFromBuildInfoForModuleUrl,
   readVersionFromPackageJsonForModuleUrl,
-  resolveBinaryVersion,
   resolveRuntimeServiceVersion,
-  resolveUsableRuntimeVersion,
   resolveVersionFromModuleUrl,
 } from "./version.js";
 
 async function withTempDir<T>(run: (dir: string) => Promise<T>): Promise<T> {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-version-"));
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mirai-version-"));
   try {
     return await run(dir);
   } finally {
@@ -46,7 +43,7 @@ function expectVersionMetadataToBeMissing(moduleUrl: string) {
 describe("version resolution", () => {
   it("resolves package version from nested dist/plugin-sdk module URL", async () => {
     await withTempDir(async (root) => {
-      await writeJsonFixture(root, "package.json", { name: "openclaw", version: "1.2.3" });
+      await writeJsonFixture(root, "package.json", { name: "mirai", version: "1.2.3" });
       const moduleUrl = await ensureModuleFixture(root);
       expect(readVersionFromPackageJsonForModuleUrl(moduleUrl)).toBe("1.2.3");
       expect(resolveVersionFromModuleUrl(moduleUrl)).toBe("1.2.3");
@@ -55,7 +52,7 @@ describe("version resolution", () => {
 
   it("ignores unrelated nearby package.json files", async () => {
     await withTempDir(async (root) => {
-      await writeJsonFixture(root, "package.json", { name: "openclaw", version: "2.3.4" });
+      await writeJsonFixture(root, "package.json", { name: "mirai", version: "2.3.4" });
       await writeJsonFixture(root, "dist/package.json", {
         name: "other-package",
         version: "9.9.9",
@@ -82,7 +79,7 @@ describe("version resolution", () => {
     });
   });
 
-  it("ignores non-openclaw package and blank build-info versions", async () => {
+  it("ignores non-mirai package and blank build-info versions", async () => {
     await withTempDir(async (root) => {
       await writeJsonFixture(root, "package.json", { name: "other-package", version: "9.9.9" });
       await writeJsonFixture(root, "build-info.json", { version: "  " });
@@ -97,88 +94,42 @@ describe("version resolution", () => {
     expect(resolveVersionFromModuleUrl("not-a-valid-url")).toBeNull();
   });
 
-  it("resolves binary version with explicit precedence", async () => {
-    await withTempDir(async (root) => {
-      await writeJsonFixture(root, "package.json", { name: "openclaw", version: "2.3.4" });
-      const moduleUrl = await ensureModuleFixture(root);
-      expect(
-        resolveBinaryVersion({
-          moduleUrl,
-          injectedVersion: "9.9.9",
-          bundledVersion: "8.8.8",
-          fallback: "0.0.0",
-        }),
-      ).toBe("9.9.9");
-      expect(
-        resolveBinaryVersion({
-          moduleUrl,
-          bundledVersion: "8.8.8",
-          fallback: "0.0.0",
-        }),
-      ).toBe("2.3.4");
-      expect(
-        resolveBinaryVersion({
-          moduleUrl: "not-a-valid-url",
-          bundledVersion: "8.8.8",
-          fallback: "0.0.0",
-        }),
-      ).toBe("8.8.8");
-      expect(
-        resolveBinaryVersion({
-          moduleUrl: "not-a-valid-url",
-          bundledVersion: "   ",
-          fallback: "0.0.0",
-        }),
-      ).toBe("0.0.0");
-    });
-  });
-
-  it("prefers OPENCLAW_VERSION over service and package versions", () => {
+  it("prefers MIRAI_VERSION over service and package versions", () => {
     expect(
       resolveRuntimeServiceVersion({
-        OPENCLAW_VERSION: "9.9.9",
-        OPENCLAW_SERVICE_VERSION: "2.2.2",
+        MIRAI_VERSION: "9.9.9",
+        MIRAI_SERVICE_VERSION: "2.2.2",
         npm_package_version: "1.1.1",
       }),
     ).toBe("9.9.9");
   });
 
-  it("normalizes runtime version candidate for fallback handling", () => {
-    expect(resolveUsableRuntimeVersion(undefined)).toBeUndefined();
-    expect(resolveUsableRuntimeVersion("")).toBeUndefined();
-    expect(resolveUsableRuntimeVersion(" \t ")).toBeUndefined();
-    expect(resolveUsableRuntimeVersion("0.0.0")).toBeUndefined();
-    expect(resolveUsableRuntimeVersion(" 0.0.0 ")).toBeUndefined();
-    expect(resolveUsableRuntimeVersion("2026.3.2")).toBe("2026.3.2");
-    expect(resolveUsableRuntimeVersion(" 2026.3.2 ")).toBe("2026.3.2");
-  });
-
-  it("prefers runtime VERSION over service/package markers and ignores blank env values", () => {
+  it("uses service and package fallbacks and ignores blank env values", () => {
     expect(
       resolveRuntimeServiceVersion({
-        OPENCLAW_VERSION: "   ",
-        OPENCLAW_SERVICE_VERSION: "  2.0.0  ",
+        MIRAI_VERSION: "   ",
+        MIRAI_SERVICE_VERSION: "  2.0.0  ",
         npm_package_version: "1.0.0",
       }),
-    ).toBe(VERSION);
+    ).toBe("2.0.0");
 
     expect(
       resolveRuntimeServiceVersion({
-        OPENCLAW_VERSION: " ",
-        OPENCLAW_SERVICE_VERSION: "\t",
+        MIRAI_VERSION: " ",
+        MIRAI_SERVICE_VERSION: "\t",
         npm_package_version: " 1.0.0-package ",
       }),
-    ).toBe(VERSION);
+    ).toBe("1.0.0-package");
 
     expect(
       resolveRuntimeServiceVersion(
         {
-          OPENCLAW_VERSION: "",
-          OPENCLAW_SERVICE_VERSION: " ",
+          MIRAI_VERSION: "",
+          MIRAI_SERVICE_VERSION: " ",
           npm_package_version: "",
         },
         "fallback",
       ),
-    ).toBe(VERSION);
+    ).toBe("fallback");
   });
 });

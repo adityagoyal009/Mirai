@@ -8,6 +8,7 @@ import {
   ensureDir,
   jidToE164,
   normalizeE164,
+  normalizePath,
   resolveConfigDir,
   resolveHomeDir,
   resolveJidToE164,
@@ -16,23 +17,41 @@ import {
   shortenHomePath,
   sleep,
   toWhatsappJid,
+  withWhatsAppPrefix,
 } from "./utils.js";
 
-async function withTempDir<T>(
-  prefix: string,
-  run: (dir: string) => T | Promise<T>,
-): Promise<Awaited<T>> {
+function withTempDirSync<T>(prefix: string, run: (dir: string) => T): T {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   try {
-    return await run(dir);
+    return run(dir);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 }
 
+describe("normalizePath", () => {
+  it("adds leading slash when missing", () => {
+    expect(normalizePath("foo")).toBe("/foo");
+  });
+
+  it("keeps existing slash", () => {
+    expect(normalizePath("/bar")).toBe("/bar");
+  });
+});
+
+describe("withWhatsAppPrefix", () => {
+  it("adds whatsapp prefix", () => {
+    expect(withWhatsAppPrefix("+1555")).toBe("whatsapp:+1555");
+  });
+
+  it("leaves prefixed intact", () => {
+    expect(withWhatsAppPrefix("whatsapp:+1555")).toBe("whatsapp:+1555");
+  });
+});
+
 describe("ensureDir", () => {
   it("creates nested directory", async () => {
-    await withTempDir("openclaw-test-", async (tmp) => {
+    await withTempDirSync("mirai-test-", async (tmp) => {
       const target = path.join(tmp, "nested", "dir");
       await ensureDir(target);
       expect(fs.existsSync(target)).toBe(true);
@@ -87,16 +106,16 @@ describe("jidToE164", () => {
     spy.mockRestore();
   });
 
-  it("maps @lid from authDir mapping files", async () => {
-    await withTempDir("openclaw-auth-", (authDir) => {
+  it("maps @lid from authDir mapping files", () => {
+    withTempDirSync("mirai-auth-", (authDir) => {
       const mappingPath = path.join(authDir, "lid-mapping-456_reverse.json");
       fs.writeFileSync(mappingPath, JSON.stringify("5559876"));
       expect(jidToE164("456@lid", { authDir })).toBe("+5559876");
     });
   });
 
-  it("maps @hosted.lid from authDir mapping files", async () => {
-    await withTempDir("openclaw-auth-", (authDir) => {
+  it("maps @hosted.lid from authDir mapping files", () => {
+    withTempDirSync("mirai-auth-", (authDir) => {
       const mappingPath = path.join(authDir, "lid-mapping-789_reverse.json");
       fs.writeFileSync(mappingPath, JSON.stringify(4440001));
       expect(jidToE164("789@hosted.lid", { authDir })).toBe("+4440001");
@@ -107,9 +126,9 @@ describe("jidToE164", () => {
     expect(jidToE164("1555000:2@hosted")).toBe("+1555000");
   });
 
-  it("falls back through lidMappingDirs in order", async () => {
-    await withTempDir("openclaw-lid-a-", async (first) => {
-      await withTempDir("openclaw-lid-b-", (second) => {
+  it("falls back through lidMappingDirs in order", () => {
+    withTempDirSync("mirai-lid-a-", (first) => {
+      withTempDirSync("mirai-lid-b-", (second) => {
         const mappingPath = path.join(second, "lid-mapping-321_reverse.json");
         fs.writeFileSync(mappingPath, JSON.stringify("123321"));
         expect(jidToE164("321@lid", { lidMappingDirs: [first, second] })).toBe("+123321");
@@ -119,10 +138,10 @@ describe("jidToE164", () => {
 });
 
 describe("resolveConfigDir", () => {
-  it("prefers ~/.openclaw when legacy dir is missing", async () => {
-    const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), "openclaw-config-dir-"));
+  it("prefers ~/.mirai when legacy dir is missing", async () => {
+    const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), "mirai-config-dir-"));
     try {
-      const newDir = path.join(root, ".openclaw");
+      const newDir = path.join(root, ".mirai");
       await fs.promises.mkdir(newDir, { recursive: true });
       const resolved = resolveConfigDir({} as NodeJS.ProcessEnv, () => root);
       expect(resolved).toBe(newDir);
@@ -130,35 +149,26 @@ describe("resolveConfigDir", () => {
       await fs.promises.rm(root, { recursive: true, force: true });
     }
   });
-
-  it("expands OPENCLAW_STATE_DIR using the provided env", () => {
-    const env = {
-      HOME: "/tmp/openclaw-home",
-      OPENCLAW_STATE_DIR: "~/state",
-    } as NodeJS.ProcessEnv;
-
-    expect(resolveConfigDir(env)).toBe(path.resolve("/tmp/openclaw-home", "state"));
-  });
 });
 
 describe("resolveHomeDir", () => {
-  it("prefers OPENCLAW_HOME over HOME", () => {
-    vi.stubEnv("OPENCLAW_HOME", "/srv/openclaw-home");
+  it("prefers MIRAI_HOME over HOME", () => {
+    vi.stubEnv("MIRAI_HOME", "/srv/mirai-home");
     vi.stubEnv("HOME", "/home/other");
 
-    expect(resolveHomeDir()).toBe(path.resolve("/srv/openclaw-home"));
+    expect(resolveHomeDir()).toBe(path.resolve("/srv/mirai-home"));
 
     vi.unstubAllEnvs();
   });
 });
 
 describe("shortenHomePath", () => {
-  it("uses $OPENCLAW_HOME prefix when OPENCLAW_HOME is set", () => {
-    vi.stubEnv("OPENCLAW_HOME", "/srv/openclaw-home");
+  it("uses $MIRAI_HOME prefix when MIRAI_HOME is set", () => {
+    vi.stubEnv("MIRAI_HOME", "/srv/mirai-home");
     vi.stubEnv("HOME", "/home/other");
 
-    expect(shortenHomePath(`${path.resolve("/srv/openclaw-home")}/.openclaw/openclaw.json`)).toBe(
-      "$OPENCLAW_HOME/.openclaw/openclaw.json",
+    expect(shortenHomePath(`${path.resolve("/srv/mirai-home")}/.mirai/mirai.json`)).toBe(
+      "$MIRAI_HOME/.mirai/mirai.json",
     );
 
     vi.unstubAllEnvs();
@@ -166,13 +176,13 @@ describe("shortenHomePath", () => {
 });
 
 describe("shortenHomeInString", () => {
-  it("uses $OPENCLAW_HOME replacement when OPENCLAW_HOME is set", () => {
-    vi.stubEnv("OPENCLAW_HOME", "/srv/openclaw-home");
+  it("uses $MIRAI_HOME replacement when MIRAI_HOME is set", () => {
+    vi.stubEnv("MIRAI_HOME", "/srv/mirai-home");
     vi.stubEnv("HOME", "/home/other");
 
     expect(
-      shortenHomeInString(`config: ${path.resolve("/srv/openclaw-home")}/.openclaw/openclaw.json`),
-    ).toBe("config: $OPENCLAW_HOME/.openclaw/openclaw.json");
+      shortenHomeInString(`config: ${path.resolve("/srv/mirai-home")}/.mirai/mirai.json`),
+    ).toBe("config: $MIRAI_HOME/.mirai/mirai.json");
 
     vi.unstubAllEnvs();
   });
@@ -206,35 +216,24 @@ describe("resolveJidToE164", () => {
 
 describe("resolveUserPath", () => {
   it("expands ~ to home dir", () => {
-    expect(resolveUserPath("~", {}, () => "/Users/thoffman")).toBe(path.resolve("/Users/thoffman"));
+    expect(resolveUserPath("~")).toBe(path.resolve(os.homedir()));
   });
 
   it("expands ~/ to home dir", () => {
-    expect(resolveUserPath("~/openclaw", {}, () => "/Users/thoffman")).toBe(
-      path.resolve("/Users/thoffman", "openclaw"),
-    );
+    expect(resolveUserPath("~/mirai")).toBe(path.resolve(os.homedir(), "mirai"));
   });
 
   it("resolves relative paths", () => {
     expect(resolveUserPath("tmp/dir")).toBe(path.resolve("tmp/dir"));
   });
 
-  it("prefers OPENCLAW_HOME for tilde expansion", () => {
-    vi.stubEnv("OPENCLAW_HOME", "/srv/openclaw-home");
+  it("prefers MIRAI_HOME for tilde expansion", () => {
+    vi.stubEnv("MIRAI_HOME", "/srv/mirai-home");
     vi.stubEnv("HOME", "/home/other");
 
-    expect(resolveUserPath("~/openclaw")).toBe(path.resolve("/srv/openclaw-home", "openclaw"));
+    expect(resolveUserPath("~/mirai")).toBe(path.resolve("/srv/mirai-home", "mirai"));
 
     vi.unstubAllEnvs();
-  });
-
-  it("uses the provided env for tilde expansion", () => {
-    const env = {
-      HOME: "/tmp/openclaw-home",
-      OPENCLAW_HOME: "/srv/openclaw-home",
-    } as NodeJS.ProcessEnv;
-
-    expect(resolveUserPath("~/openclaw", env)).toBe(path.resolve("/srv/openclaw-home", "openclaw"));
   });
 
   it("keeps blank paths blank", () => {

@@ -1,7 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { createOpenClawTools } from "../agents/openclaw-tools.js";
-import { runBeforeToolCallHook } from "../agents/pi-tools.before-tool-call.js";
-import { resolveToolLoopDetectionConfig } from "../agents/pi-tools.js";
+import { createMiraiTools } from "../agents/mirai-tools.js";
 import {
   resolveEffectiveToolPolicy,
   resolveGroupToolPolicy,
@@ -212,11 +210,11 @@ export async function handleToolsInvokeHttpRequest(
 
   // Resolve message channel/account hints (optional headers) for policy inheritance.
   const messageChannel = normalizeMessageChannel(
-    getHeader(req, "x-openclaw-message-channel") ?? "",
+    getHeader(req, "x-mirai-message-channel") ?? "",
   );
-  const accountId = getHeader(req, "x-openclaw-account-id")?.trim() || undefined;
-  const agentTo = getHeader(req, "x-openclaw-message-to")?.trim() || undefined;
-  const agentThreadId = getHeader(req, "x-openclaw-thread-id")?.trim() || undefined;
+  const accountId = getHeader(req, "x-mirai-account-id")?.trim() || undefined;
+  const agentTo = getHeader(req, "x-mirai-message-to")?.trim() || undefined;
+  const agentThreadId = getHeader(req, "x-mirai-thread-id")?.trim() || undefined;
 
   const {
     agentId,
@@ -248,15 +246,12 @@ export async function handleToolsInvokeHttpRequest(
     : undefined;
 
   // Build tool list (core + plugin tools).
-  const allTools = createOpenClawTools({
+  const allTools = createMiraiTools({
     agentSessionKey: sessionKey,
     agentChannel: messageChannel ?? undefined,
     agentAccountId: accountId,
     agentTo,
     agentThreadId,
-    allowGatewaySubagentBinding: true,
-    // HTTP callers consume tool output directly; preserve raw media invoke payloads.
-    allowMediaInvokeCommands: true,
     config: cfg,
     pluginToolAllowlist: collectExplicitAllowlist([
       profilePolicy,
@@ -314,32 +309,14 @@ export async function handleToolsInvokeHttpRequest(
   }
 
   try {
-    const toolCallId = `http-${Date.now()}`;
     const toolArgs = mergeActionIntoArgsIfSupported({
       // oxlint-disable-next-line typescript/no-explicit-any
       toolSchema: (tool as any).parameters,
       action,
       args,
     });
-    const hookResult = await runBeforeToolCallHook({
-      toolName,
-      params: toolArgs,
-      toolCallId,
-      ctx: {
-        agentId,
-        sessionKey,
-        loopDetection: resolveToolLoopDetectionConfig({ cfg, agentId }),
-      },
-    });
-    if (hookResult.blocked) {
-      sendJson(res, 403, {
-        ok: false,
-        error: { type: "tool_call_blocked", message: hookResult.reason },
-      });
-      return true;
-    }
     // oxlint-disable-next-line typescript/no-explicit-any
-    const result = await (tool as any).execute?.(toolCallId, hookResult.params);
+    const result = await (tool as any).execute?.(`http-${Date.now()}`, toolArgs);
     sendJson(res, 200, { ok: true, result });
   } catch (err) {
     const inputStatus = resolveToolInputErrorStatus(err);

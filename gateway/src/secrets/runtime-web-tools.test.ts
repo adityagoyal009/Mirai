@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { OpenClawConfig } from "../config/config.js";
+import type { MiraiConfig } from "../config/config.js";
 import type { PluginWebSearchProviderEntry } from "../plugins/types.js";
 import * as bundledWebSearchProviders from "../plugins/web-search-providers.js";
 import * as runtimeWebSearchProviders from "../plugins/web-search-providers.runtime.js";
@@ -25,8 +25,8 @@ vi.mock("../plugins/web-search-providers.runtime.js", () => ({
   resolvePluginWebSearchProviders: resolvePluginWebSearchProvidersMock,
 }));
 
-function asConfig(value: unknown): OpenClawConfig {
-  return value as OpenClawConfig;
+function asConfig(value: unknown): MiraiConfig {
+  return value as MiraiConfig;
 }
 
 function providerPluginId(provider: ProviderUnderTest): string {
@@ -53,7 +53,7 @@ function ensureRecord(target: Record<string, unknown>, key: string): Record<stri
 }
 
 function setConfiguredProviderKey(
-  configTarget: OpenClawConfig,
+  configTarget: MiraiConfig,
   pluginId: string,
   value: unknown,
 ): void {
@@ -115,7 +115,7 @@ function buildTestWebSearchProviders(): PluginWebSearchProviderEntry[] {
   ];
 }
 
-async function runRuntimeWebTools(params: { config: OpenClawConfig; env?: NodeJS.ProcessEnv }) {
+async function runRuntimeWebTools(params: { config: MiraiConfig; env?: NodeJS.ProcessEnv }) {
   const sourceConfig = structuredClone(params.config);
   const resolvedConfig = structuredClone(params.config);
   const context = createResolverContext({
@@ -133,7 +133,7 @@ async function runRuntimeWebTools(params: { config: OpenClawConfig; env?: NodeJS
 function createProviderSecretRefConfig(
   provider: ProviderUnderTest,
   envRefId: string,
-): OpenClawConfig {
+): MiraiConfig {
   return asConfig({
     tools: {
       web: {
@@ -158,7 +158,7 @@ function createProviderSecretRefConfig(
   });
 }
 
-function readProviderKey(config: OpenClawConfig, provider: ProviderUnderTest): unknown {
+function readProviderKey(config: MiraiConfig, provider: ProviderUnderTest): unknown {
   const pluginConfig = config.plugins?.entries?.[providerPluginId(provider)]?.config as
     | { webSearch?: { apiKey?: unknown } }
     | undefined;

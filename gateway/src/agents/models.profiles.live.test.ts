@@ -3,7 +3,7 @@ import { Type } from "@sinclair/typebox";
 import { describe, expect, it } from "vitest";
 import { loadConfig } from "../config/config.js";
 import { isTruthyEnvValue } from "../infra/env.js";
-import { resolveOpenClawAgentDir } from "./agent-paths.js";
+import { resolveMiraiAgentDir } from "./agent-paths.js";
 import {
   collectAnthropicApiKeys,
   isAnthropicBillingError,
@@ -11,14 +11,13 @@ import {
 } from "./live-auth-keys.js";
 import { isModernModelRef } from "./live-model-filter.js";
 import { getApiKeyForModel, requireApiKey } from "./model-auth.js";
-import { shouldSuppressBuiltInModel } from "./model-suppression.js";
-import { ensureOpenClawModelsJson } from "./models-config.js";
+import { ensureMiraiModelsJson } from "./models-config.js";
 import { isRateLimitErrorMessage } from "./pi-embedded-helpers/errors.js";
 import { discoverAuthStorage, discoverModels } from "./pi-model-discovery.js";
 
-const LIVE = isTruthyEnvValue(process.env.LIVE) || isTruthyEnvValue(process.env.OPENCLAW_LIVE_TEST);
-const DIRECT_ENABLED = Boolean(process.env.OPENCLAW_LIVE_MODELS?.trim());
-const REQUIRE_PROFILE_KEYS = isTruthyEnvValue(process.env.OPENCLAW_LIVE_REQUIRE_PROFILE_KEYS);
+const LIVE = isTruthyEnvValue(process.env.LIVE) || isTruthyEnvValue(process.env.MIRAI_LIVE_TEST);
+const DIRECT_ENABLED = Boolean(process.env.MIRAI_LIVE_MODELS?.trim());
+const REQUIRE_PROFILE_KEYS = isTruthyEnvValue(process.env.MIRAI_LIVE_REQUIRE_PROFILE_KEYS);
 
 const describeLive = LIVE ? describe : describe.skip;
 
@@ -88,37 +87,21 @@ function isModelNotFoundErrorMessage(raw: string): boolean {
   if (!msg) {
     return false;
   }
-  if (/\b404\b/.test(msg) && /not(?:[\s_-]+)?found/i.test(msg)) {
+  if (/\b404\b/.test(msg) && /not[_-]?found/i.test(msg)) {
     return true;
   }
   if (/not_found_error/i.test(msg)) {
     return true;
   }
-  if (/model:\s*[a-z0-9._-]+/i.test(msg) && /not(?:[\s_-]+)?found/i.test(msg)) {
+  if (/model:\s*[a-z0-9._-]+/i.test(msg) && /not[_-]?found/i.test(msg)) {
     return true;
   }
   return false;
 }
 
-describe("isModelNotFoundErrorMessage", () => {
-  it("matches whitespace-separated not found errors", () => {
-    expect(isModelNotFoundErrorMessage("404 model not found")).toBe(true);
-    expect(isModelNotFoundErrorMessage("model: minimax-text-01 not found")).toBe(true);
-  });
-
-  it("still matches underscore and hyphen variants", () => {
-    expect(isModelNotFoundErrorMessage("404 model not_found")).toBe(true);
-    expect(isModelNotFoundErrorMessage("404 model not-found")).toBe(true);
-  });
-});
-
 function isChatGPTUsageLimitErrorMessage(raw: string): boolean {
   const msg = raw.toLowerCase();
   return msg.includes("hit your chatgpt usage limit") && msg.includes("try again in");
-}
-
-function isRefreshTokenReused(raw: string): boolean {
-  return /refresh_token_reused/i.test(raw);
 }
 
 function isInstructionsRequiredError(raw: string): boolean {
@@ -207,31 +190,6 @@ function resolveTestReasoning(
   return "low";
 }
 
-function resolveLiveSystemPrompt(model: Model<Api>): string | undefined {
-  if (model.provider === "openai-codex") {
-    return "You are a concise assistant. Follow the user's instruction exactly.";
-  }
-  return undefined;
-}
-
-describe("resolveLiveSystemPrompt", () => {
-  it("adds instructions for openai-codex probes", () => {
-    expect(
-      resolveLiveSystemPrompt({
-        provider: "openai-codex",
-      } as Model<Api>),
-    ).toContain("Follow the user's instruction exactly.");
-  });
-
-  it("keeps other providers unchanged", () => {
-    expect(
-      resolveLiveSystemPrompt({
-        provider: "openai",
-      } as Model<Api>),
-    ).toBeUndefined();
-  });
-});
-
 async function completeSimpleWithTimeout<TApi extends Api>(
   model: Model<TApi>,
   context: Parameters<typeof completeSimple<TApi>>[1],
@@ -276,7 +234,6 @@ async function completeOkWithRetry(params: {
     const res = await completeSimpleWithTimeout(
       params.model,
       {
-        systemPrompt: resolveLiveSystemPrompt(params.model),
         messages: [
           {
             role: "user",
@@ -313,10 +270,10 @@ describeLive("live models (profile keys)", () => {
     "completes across selected models",
     async () => {
       const cfg = loadConfig();
-      await ensureOpenClawModelsJson(cfg);
+      await ensureMiraiModelsJson(cfg);
       if (!DIRECT_ENABLED) {
         logProgress(
-          "[live-models] skipping (set OPENCLAW_LIVE_MODELS=modern|all|<list>; all=modern)",
+          "[live-models] skipping (set MIRAI_LIVE_MODELS=modern|all|<list>; all=modern)",
         );
         return;
       }
@@ -326,19 +283,19 @@ describeLive("live models (profile keys)", () => {
         logProgress(`[live-models] anthropic keys loaded: ${anthropicKeys.length}`);
       }
 
-      const agentDir = resolveOpenClawAgentDir();
+      const agentDir = resolveMiraiAgentDir();
       const authStorage = discoverAuthStorage(agentDir);
       const modelRegistry = discoverModels(authStorage, agentDir);
       const models = modelRegistry.getAll();
 
-      const rawModels = process.env.OPENCLAW_LIVE_MODELS?.trim();
+      const rawModels = process.env.MIRAI_LIVE_MODELS?.trim();
       const useModern = rawModels === "modern" || rawModels === "all";
       const useExplicit = Boolean(rawModels) && !useModern;
       const filter = useExplicit ? parseModelFilter(rawModels) : null;
       const allowNotFoundSkip = useModern;
-      const providers = parseProviderFilter(process.env.OPENCLAW_LIVE_PROVIDERS);
-      const perModelTimeoutMs = toInt(process.env.OPENCLAW_LIVE_MODEL_TIMEOUT_MS, 30_000);
-      const maxModels = toInt(process.env.OPENCLAW_LIVE_MAX_MODELS, 0);
+      const providers = parseProviderFilter(process.env.MIRAI_LIVE_PROVIDERS);
+      const perModelTimeoutMs = toInt(process.env.MIRAI_LIVE_MODEL_TIMEOUT_MS, 30_000);
+      const maxModels = toInt(process.env.MIRAI_LIVE_MAX_MODELS, 0);
 
       const failures: Array<{ model: string; error: string }> = [];
       const skipped: Array<{ model: string; reason: string }> = [];
@@ -348,9 +305,6 @@ describeLive("live models (profile keys)", () => {
       }> = [];
 
       for (const model of models) {
-        if (shouldSuppressBuiltInModel({ provider: model.provider, id: model.id })) {
-          continue;
-        }
         if (providers && !providers.has(model.provider)) {
           continue;
         }
@@ -391,7 +345,7 @@ describeLive("live models (profile keys)", () => {
       logProgress(`[live-models] selection=${useExplicit ? "explicit" : "modern"}`);
       if (selectedCandidates.length < candidates.length) {
         logProgress(
-          `[live-models] capped to ${selectedCandidates.length}/${candidates.length} via OPENCLAW_LIVE_MAX_MODELS=${maxModels}`,
+          `[live-models] capped to ${selectedCandidates.length}/${candidates.length} via MIRAI_LIVE_MAX_MODELS=${maxModels}`,
         );
       }
       logProgress(`[live-models] running ${selectedCandidates.length} models`);
@@ -542,10 +496,7 @@ describeLive("live models (profile keys)", () => {
               throw new Error(msg || "model returned error with no message");
             }
 
-            if (
-              ok.text.length === 0 &&
-              (model.provider === "google" || model.provider === "google-gemini-cli")
-            ) {
+            if (ok.text.length === 0 && model.provider === "google") {
               skipped.push({
                 model: id,
                 reason: "no text returned (likely unavailable model id)",
@@ -555,9 +506,7 @@ describeLive("live models (profile keys)", () => {
             }
             if (
               ok.text.length === 0 &&
-              (model.provider === "openrouter" ||
-                model.provider === "opencode" ||
-                model.provider === "opencode-go")
+              (model.provider === "openrouter" || model.provider === "opencode")
             ) {
               skipped.push({
                 model: id,
@@ -640,20 +589,11 @@ describeLive("live models (profile keys)", () => {
             }
             if (
               allowNotFoundSkip &&
-              (model.provider === "opencode" || model.provider === "opencode-go") &&
+              model.provider === "opencode" &&
               isRateLimitErrorMessage(message)
             ) {
               skipped.push({ model: id, reason: message });
               logProgress(`${progressLabel}: skip (rate limit)`);
-              break;
-            }
-            if (
-              allowNotFoundSkip &&
-              model.provider === "openai-codex" &&
-              isRefreshTokenReused(message)
-            ) {
-              skipped.push({ model: id, reason: message });
-              logProgress(`${progressLabel}: skip (codex refresh token reused)`);
               break;
             }
             if (

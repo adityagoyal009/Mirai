@@ -2,10 +2,10 @@ import fs from "node:fs";
 import { tmpdir as getOsTmpDir } from "node:os";
 import path from "node:path";
 
-export const POSIX_OPENCLAW_TMP_DIR = "/tmp/openclaw";
+export const POSIX_MIRAI_TMP_DIR = "/tmp/mirai";
 const TMP_DIR_ACCESS_MODE = fs.constants.W_OK | fs.constants.X_OK;
 
-type ResolvePreferredOpenClawTmpDirOptions = {
+type ResolvePreferredMiraiTmpDirOptions = {
   accessSync?: (path: string, mode?: number) => void;
   chmodSync?: (path: string, mode: number) => void;
   lstatSync?: (path: string) => {
@@ -31,8 +31,8 @@ function isNodeErrorWithCode(err: unknown, code: string): err is MaybeNodeError 
   );
 }
 
-export function resolvePreferredOpenClawTmpDir(
-  options: ResolvePreferredOpenClawTmpDirOptions = {},
+export function resolvePreferredMiraiTmpDir(
+  options: ResolvePreferredMiraiTmpDirOptions = {},
 ): string {
   const accessSync = options.accessSync ?? fs.accessSync;
   const chmodSync = options.chmodSync ?? fs.chmodSync;
@@ -67,7 +67,7 @@ export function resolvePreferredOpenClawTmpDir(
 
   const fallback = (): string => {
     const base = tmpdir();
-    const suffix = uid === undefined ? "openclaw" : `openclaw-${uid}`;
+    const suffix = uid === undefined ? "mirai" : `mirai-${uid}`;
     return path.join(base, suffix);
   };
 
@@ -140,13 +140,13 @@ export function resolvePreferredOpenClawTmpDir(
     return fallbackPath;
   };
 
-  const existingPreferredState = resolveDirState(POSIX_OPENCLAW_TMP_DIR);
+  const existingPreferredState = resolveDirState(POSIX_MIRAI_TMP_DIR);
   if (existingPreferredState === "available") {
-    return POSIX_OPENCLAW_TMP_DIR;
+    return POSIX_MIRAI_TMP_DIR;
   }
   if (existingPreferredState === "invalid") {
-    if (tryRepairWritableBits(POSIX_OPENCLAW_TMP_DIR)) {
-      return POSIX_OPENCLAW_TMP_DIR;
+    if (tryRepairWritableBits(POSIX_MIRAI_TMP_DIR)) {
+      return POSIX_MIRAI_TMP_DIR;
     }
     return ensureTrustedFallbackDir();
   }
@@ -154,15 +154,15 @@ export function resolvePreferredOpenClawTmpDir(
   try {
     accessSync("/tmp", TMP_DIR_ACCESS_MODE);
     // Create with a safe default; subsequent callers expect it exists.
-    mkdirSync(POSIX_OPENCLAW_TMP_DIR, { recursive: true, mode: 0o700 });
-    chmodSync(POSIX_OPENCLAW_TMP_DIR, 0o700);
+    mkdirSync(POSIX_MIRAI_TMP_DIR, { recursive: true, mode: 0o700 });
+    chmodSync(POSIX_MIRAI_TMP_DIR, 0o700);
     if (
-      resolveDirState(POSIX_OPENCLAW_TMP_DIR) !== "available" &&
-      !tryRepairWritableBits(POSIX_OPENCLAW_TMP_DIR)
+      resolveDirState(POSIX_MIRAI_TMP_DIR) !== "available" &&
+      !tryRepairWritableBits(POSIX_MIRAI_TMP_DIR)
     ) {
       return ensureTrustedFallbackDir();
     }
-    return POSIX_OPENCLAW_TMP_DIR;
+    return POSIX_MIRAI_TMP_DIR;
   } catch {
     return ensureTrustedFallbackDir();
   }

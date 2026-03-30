@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { OpenClawConfig } from "../config/config.js";
+import type { MiraiConfig } from "../config/config.js";
 import {
   autoMigrateLegacyStateDir,
   autoMigrateLegacyState,
@@ -15,41 +15,9 @@ import {
 let tempRoot: string | null = null;
 
 async function makeTempRoot() {
-  const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), "openclaw-doctor-"));
+  const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), "mirai-doctor-"));
   tempRoot = root;
   return root;
-}
-
-async function makeRootWithEmptyCfg() {
-  const root = await makeTempRoot();
-  const cfg: OpenClawConfig = {};
-  return { root, cfg };
-}
-
-function writeLegacyTelegramAllowFromStore(oauthDir: string) {
-  fs.writeFileSync(
-    path.join(oauthDir, "telegram-allowFrom.json"),
-    JSON.stringify(
-      {
-        version: 1,
-        allowFrom: ["123456"],
-      },
-      null,
-      2,
-    ) + "\n",
-    "utf-8",
-  );
-}
-
-async function runTelegramAllowFromMigration(params: { root: string; cfg: OpenClawConfig }) {
-  const oauthDir = ensureCredentialsDir(params.root);
-  writeLegacyTelegramAllowFromStore(oauthDir);
-  const detected = await detectLegacyStateMigrations({
-    cfg: params.cfg,
-    env: { OPENCLAW_STATE_DIR: params.root } as NodeJS.ProcessEnv,
-  });
-  const result = await runLegacyStateMigrations({ detected, now: () => 123 });
-  return { oauthDir, detected, result };
 }
 
 afterEach(async () => {
@@ -83,12 +51,12 @@ function writeLegacySessionsFixture(params: {
 
 async function detectAndRunMigrations(params: {
   root: string;
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   now?: () => number;
 }) {
   const detected = await detectLegacyStateMigrations({
     cfg: params.cfg,
-    env: { OPENCLAW_STATE_DIR: params.root } as NodeJS.ProcessEnv,
+    env: { MIRAI_STATE_DIR: params.root } as NodeJS.ProcessEnv,
   });
   await runLegacyStateMigrations({ detected, now: params.now });
 }
@@ -102,7 +70,7 @@ function readSessionsStore(targetDir: string) {
 
 async function runAndReadSessionsStore(params: {
   root: string;
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   targetDir: string;
   now?: () => number;
 }) {
@@ -120,7 +88,7 @@ const DIR_LINK_TYPE = process.platform === "win32" ? "junction" : "dir";
 
 function getStateDirMigrationPaths(root: string) {
   return {
-    targetDir: path.join(root, ".openclaw"),
+    targetDir: path.join(root, ".mirai"),
     legacyDir: path.join(root, ".clawdbot"),
   };
 }
@@ -141,13 +109,13 @@ async function runStateDirMigration(root: string, env = {} as NodeJS.ProcessEnv)
 
 async function runAutoMigrateLegacyStateWithLog(params: {
   root: string;
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   now?: () => number;
 }) {
   const log = { info: vi.fn(), warn: vi.fn() };
   const result = await autoMigrateLegacyState({
     cfg: params.cfg,
-    env: { OPENCLAW_STATE_DIR: params.root } as NodeJS.ProcessEnv,
+    env: { MIRAI_STATE_DIR: params.root } as NodeJS.ProcessEnv,
     log,
     now: params.now,
   });
@@ -161,30 +129,10 @@ function expectTargetAlreadyExistsWarning(result: StateDirMigrationResult, targe
   ]);
 }
 
-function expectUnmigratedWithoutWarnings(result: StateDirMigrationResult) {
-  expect(result.migrated).toBe(false);
-  expect(result.warnings).toEqual([]);
-}
-
-function writeLegacyAgentFiles(root: string, files: Record<string, string>) {
-  const legacyAgentDir = path.join(root, "agent");
-  fs.mkdirSync(legacyAgentDir, { recursive: true });
-  for (const [fileName, content] of Object.entries(files)) {
-    fs.writeFileSync(path.join(legacyAgentDir, fileName), content, "utf-8");
-  }
-  return legacyAgentDir;
-}
-
-function ensureCredentialsDir(root: string) {
-  const oauthDir = path.join(root, "credentials");
-  fs.mkdirSync(oauthDir, { recursive: true });
-  return oauthDir;
-}
-
 describe("doctor legacy state migrations", () => {
   it("migrates legacy sessions into agents/<id>/sessions", async () => {
     const root = await makeTempRoot();
-    const cfg: OpenClawConfig = {};
+    const cfg: MiraiConfig = {};
     const legacySessionsDir = writeLegacySessionsFixture({
       root,
       sessions: {
@@ -202,7 +150,7 @@ describe("doctor legacy state migrations", () => {
 
     const detected = await detectLegacyStateMigrations({
       cfg,
-      env: { OPENCLAW_STATE_DIR: root } as NodeJS.ProcessEnv,
+      env: { MIRAI_STATE_DIR: root } as NodeJS.ProcessEnv,
     });
     const result = await runLegacyStateMigrations({
       detected,
@@ -229,17 +177,23 @@ describe("doctor legacy state migrations", () => {
   });
 
   it("migrates legacy agent dir with conflict fallback", async () => {
-    const { root, cfg } = await makeRootWithEmptyCfg();
-    writeLegacyAgentFiles(root, {
-      "foo.txt": "legacy",
-      "baz.txt": "legacy2",
-    });
+    const root = await makeTempRoot();
+    const cfg: MiraiConfig = {};
+
+    const legacyAgentDir = path.join(root, "agent");
+    fs.mkdirSync(legacyAgentDir, { recursive: true });
+    fs.writeFileSync(path.join(legacyAgentDir, "foo.txt"), "legacy", "utf-8");
+    fs.writeFileSync(path.join(legacyAgentDir, "baz.txt"), "legacy2", "utf-8");
 
     const targetAgentDir = path.join(root, "agents", "main", "agent");
     fs.mkdirSync(targetAgentDir, { recursive: true });
     fs.writeFileSync(path.join(targetAgentDir, "foo.txt"), "new", "utf-8");
 
-    await detectAndRunMigrations({ root, cfg, now: () => 123 });
+    const detected = await detectLegacyStateMigrations({
+      cfg,
+      env: { MIRAI_STATE_DIR: root } as NodeJS.ProcessEnv,
+    });
+    await runLegacyStateMigrations({ detected, now: () => 123 });
 
     expect(fs.readFileSync(path.join(targetAgentDir, "baz.txt"), "utf-8")).toBe("legacy2");
     const backupDir = path.join(root, "agents", "main", "agent.legacy-123");
@@ -247,8 +201,12 @@ describe("doctor legacy state migrations", () => {
   });
 
   it("auto-migrates legacy agent dir on startup", async () => {
-    const { root, cfg } = await makeRootWithEmptyCfg();
-    writeLegacyAgentFiles(root, { "auth.json": "{}" });
+    const root = await makeTempRoot();
+    const cfg: MiraiConfig = {};
+
+    const legacyAgentDir = path.join(root, "agent");
+    fs.mkdirSync(legacyAgentDir, { recursive: true });
+    fs.writeFileSync(path.join(legacyAgentDir, "auth.json"), "{}", "utf-8");
 
     const { result, log } = await runAutoMigrateLegacyStateWithLog({ root, cfg });
 
@@ -259,7 +217,8 @@ describe("doctor legacy state migrations", () => {
   });
 
   it("auto-migrates legacy sessions on startup", async () => {
-    const { root, cfg } = await makeRootWithEmptyCfg();
+    const root = await makeTempRoot();
+    const cfg: MiraiConfig = {};
     const legacySessionsDir = writeLegacySessionsFixture({
       root,
       sessions: {
@@ -286,13 +245,20 @@ describe("doctor legacy state migrations", () => {
   });
 
   it("migrates legacy WhatsApp auth files without touching oauth.json", async () => {
-    const { root, cfg } = await makeRootWithEmptyCfg();
-    const oauthDir = ensureCredentialsDir(root);
+    const root = await makeTempRoot();
+    const cfg: MiraiConfig = {};
+
+    const oauthDir = path.join(root, "credentials");
+    fs.mkdirSync(oauthDir, { recursive: true });
     fs.writeFileSync(path.join(oauthDir, "oauth.json"), "{}", "utf-8");
     fs.writeFileSync(path.join(oauthDir, "creds.json"), "{}", "utf-8");
     fs.writeFileSync(path.join(oauthDir, "session-abc.json"), "{}", "utf-8");
 
-    await detectAndRunMigrations({ root, cfg, now: () => 123 });
+    const detected = await detectLegacyStateMigrations({
+      cfg,
+      env: { MIRAI_STATE_DIR: root } as NodeJS.ProcessEnv,
+    });
+    await runLegacyStateMigrations({ detected, now: () => 123 });
 
     const target = path.join(oauthDir, "whatsapp", "default");
     expect(fs.existsSync(path.join(target, "creds.json"))).toBe(true);
@@ -302,12 +268,31 @@ describe("doctor legacy state migrations", () => {
   });
 
   it("migrates legacy Telegram pairing allowFrom store to account-scoped default file", async () => {
-    const { root, cfg } = await makeRootWithEmptyCfg();
-    const { oauthDir, detected, result } = await runTelegramAllowFromMigration({ root, cfg });
+    const root = await makeTempRoot();
+    const cfg: MiraiConfig = {};
+
+    const oauthDir = path.join(root, "credentials");
+    fs.mkdirSync(oauthDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(oauthDir, "telegram-allowFrom.json"),
+      JSON.stringify(
+        {
+          version: 1,
+          allowFrom: ["123456"],
+        },
+        null,
+        2,
+      ) + "\n",
+      "utf-8",
+    );
+
+    const detected = await detectLegacyStateMigrations({
+      cfg,
+      env: { MIRAI_STATE_DIR: root } as NodeJS.ProcessEnv,
+    });
     expect(detected.pairingAllowFrom.hasLegacyTelegram).toBe(true);
-    expect(
-      detected.pairingAllowFrom.copyPlans.map((plan) => path.basename(plan.targetPath)),
-    ).toEqual(["telegram-default-allowFrom.json"]);
+
+    const result = await runLegacyStateMigrations({ detected, now: () => 123 });
     expect(result.warnings).toEqual([]);
 
     const target = path.join(oauthDir, "telegram-default-allowFrom.json");
@@ -318,46 +303,12 @@ describe("doctor legacy state migrations", () => {
     });
   });
 
-  it("fans out legacy Telegram pairing allowFrom store to configured named accounts", async () => {
-    const root = await makeTempRoot();
-    const cfg: OpenClawConfig = {
-      channels: {
-        telegram: {
-          accounts: {
-            bot1: {},
-            bot2: {},
-          },
-        },
-      },
-    };
-    const { oauthDir, detected, result } = await runTelegramAllowFromMigration({ root, cfg });
-    expect(detected.pairingAllowFrom.hasLegacyTelegram).toBe(true);
-    expect(
-      detected.pairingAllowFrom.copyPlans.map((plan) => path.basename(plan.targetPath)).toSorted(),
-    ).toEqual(["telegram-bot1-allowFrom.json", "telegram-bot2-allowFrom.json"]);
-    expect(result.warnings).toEqual([]);
-
-    const bot1Target = path.join(oauthDir, "telegram-bot1-allowFrom.json");
-    const bot2Target = path.join(oauthDir, "telegram-bot2-allowFrom.json");
-    expect(fs.existsSync(bot1Target)).toBe(true);
-    expect(fs.existsSync(bot2Target)).toBe(true);
-    expect(fs.existsSync(path.join(oauthDir, "telegram-default-allowFrom.json"))).toBe(false);
-    expect(JSON.parse(fs.readFileSync(bot1Target, "utf-8"))).toEqual({
-      version: 1,
-      allowFrom: ["123456"],
-    });
-    expect(JSON.parse(fs.readFileSync(bot2Target, "utf-8"))).toEqual({
-      version: 1,
-      allowFrom: ["123456"],
-    });
-  });
-
   it("no-ops when nothing detected", async () => {
     const root = await makeTempRoot();
-    const cfg: OpenClawConfig = {};
+    const cfg: MiraiConfig = {};
     const detected = await detectLegacyStateMigrations({
       cfg,
-      env: { OPENCLAW_STATE_DIR: root } as NodeJS.ProcessEnv,
+      env: { MIRAI_STATE_DIR: root } as NodeJS.ProcessEnv,
     });
     const result = await runLegacyStateMigrations({ detected });
     expect(result.changes).toEqual([]);
@@ -365,7 +316,7 @@ describe("doctor legacy state migrations", () => {
 
   it("routes legacy state to the default agent entry", async () => {
     const root = await makeTempRoot();
-    const cfg: OpenClawConfig = {
+    const cfg: MiraiConfig = {
       agents: { list: [{ id: "alpha", default: true }] },
     };
     writeLegacySessionsFixture({
@@ -387,7 +338,7 @@ describe("doctor legacy state migrations", () => {
 
   it("honors session.mainKey when seeding the direct-chat bucket", async () => {
     const root = await makeTempRoot();
-    const cfg: OpenClawConfig = { session: { mainKey: "work" } };
+    const cfg: MiraiConfig = { session: { mainKey: "work" } };
     writeLegacySessionsFixture({
       root,
       sessions: {
@@ -408,7 +359,8 @@ describe("doctor legacy state migrations", () => {
   });
 
   it("canonicalizes legacy main keys inside the target sessions store", async () => {
-    const { root, cfg } = await makeRootWithEmptyCfg();
+    const root = await makeTempRoot();
+    const cfg: MiraiConfig = {};
     const targetDir = path.join(root, "agents", "main", "sessions");
     writeJson5(path.join(targetDir, "sessions.json"), {
       main: { sessionId: "legacy", updatedAt: 10 },
@@ -427,7 +379,7 @@ describe("doctor legacy state migrations", () => {
 
   it("prefers the newest entry when collapsing main aliases", async () => {
     const root = await makeTempRoot();
-    const cfg: OpenClawConfig = { session: { mainKey: "work" } };
+    const cfg: MiraiConfig = { session: { mainKey: "work" } };
     const targetDir = path.join(root, "agents", "main", "sessions");
     writeJson5(path.join(targetDir, "sessions.json"), {
       "agent:main:main": { sessionId: "legacy", updatedAt: 50 },
@@ -446,7 +398,7 @@ describe("doctor legacy state migrations", () => {
 
   it("lowercases agent session keys during canonicalization", async () => {
     const root = await makeTempRoot();
-    const cfg: OpenClawConfig = {};
+    const cfg: MiraiConfig = {};
     const targetDir = path.join(root, "agents", "main", "sessions");
     writeJson5(path.join(targetDir, "sessions.json"), {
       "agent:main:slack:channel:C123": { sessionId: "legacy", updatedAt: 10 },
@@ -463,7 +415,8 @@ describe("doctor legacy state migrations", () => {
   });
 
   it("auto-migrates when only target sessions contain legacy keys", async () => {
-    const { root, cfg } = await makeRootWithEmptyCfg();
+    const root = await makeTempRoot();
+    const cfg: MiraiConfig = {};
     const targetDir = path.join(root, "agents", "main", "sessions");
     writeJson5(path.join(targetDir, "sessions.json"), {
       main: { sessionId: "legacy", updatedAt: 10 },
@@ -495,7 +448,7 @@ describe("doctor legacy state migrations", () => {
     fs.mkdirSync(legacyDir, { recursive: true });
 
     const result = await runStateDirMigration(root, {
-      OPENCLAW_STATE_DIR: "/custom/state",
+      MIRAI_STATE_DIR: "/custom/state",
     } as NodeJS.ProcessEnv);
 
     expect(result.skipped).toBe(true);
@@ -516,7 +469,9 @@ describe("doctor legacy state migrations", () => {
     fs.symlinkSync(path.join(targetDir, "agent"), path.join(legacyDir, "agent"), DIR_LINK_TYPE);
 
     const result = await runStateDirMigration(root);
-    expectUnmigratedWithoutWarnings(result);
+
+    expect(result.migrated).toBe(false);
+    expect(result.warnings).toEqual([]);
   });
 
   it("warns when legacy state dir is empty and target already exists", async () => {
@@ -549,7 +504,9 @@ describe("doctor legacy state migrations", () => {
     );
 
     const result = await runStateDirMigration(root);
-    expectUnmigratedWithoutWarnings(result);
+
+    expect(result.migrated).toBe(false);
+    expect(result.warnings).toEqual([]);
   });
 
   it("warns when legacy state dir symlink points outside the target tree", async () => {

@@ -31,7 +31,7 @@ export function parseFrontmatterBool(value: string | undefined, fallback: boolea
   return parsed === undefined ? fallback : parsed;
 }
 
-export function resolveOpenClawManifestBlock(params: {
+export function resolveMiraiManifestBlock(params: {
   frontmatter: Record<string, unknown>;
   key?: string;
 }): Record<string, unknown> | undefined {
@@ -59,16 +59,16 @@ export function resolveOpenClawManifestBlock(params: {
   }
 }
 
-export type OpenClawManifestRequires = {
+export type MiraiManifestRequires = {
   bins: string[];
   anyBins: string[];
   env: string[];
   config: string[];
 };
 
-export function resolveOpenClawManifestRequires(
+export function resolveMiraiManifestRequires(
   metadataObj: Record<string, unknown>,
-): OpenClawManifestRequires | undefined {
+): MiraiManifestRequires | undefined {
   const requiresRaw =
     typeof metadataObj.requires === "object" && metadataObj.requires !== null
       ? (metadataObj.requires as Record<string, unknown>)
@@ -84,7 +84,7 @@ export function resolveOpenClawManifestRequires(
   };
 }
 
-export function resolveOpenClawManifestInstall<T>(
+export function resolveMiraiManifestInstall<T>(
   metadataObj: Record<string, unknown>,
   parseInstallSpec: (input: unknown) => T | undefined,
 ): T[] {
@@ -94,11 +94,11 @@ export function resolveOpenClawManifestInstall<T>(
     .filter((entry): entry is T => Boolean(entry));
 }
 
-export function resolveOpenClawManifestOs(metadataObj: Record<string, unknown>): string[] {
+export function resolveMiraiManifestOs(metadataObj: Record<string, unknown>): string[] {
   return normalizeStringList(metadataObj.os);
 }
 
-export type ParsedOpenClawManifestInstallBase = {
+export type ParsedMiraiManifestInstallBase = {
   raw: Record<string, unknown>;
   kind: string;
   id?: string;
@@ -106,10 +106,10 @@ export type ParsedOpenClawManifestInstallBase = {
   bins?: string[];
 };
 
-export function parseOpenClawManifestInstallBase(
+export function parseMiraiManifestInstallBase(
   input: unknown,
   allowedKinds: readonly string[],
-): ParsedOpenClawManifestInstallBase | undefined {
+): ParsedMiraiManifestInstallBase | undefined {
   if (!input || typeof input !== "object") {
     return undefined;
   }
@@ -121,7 +121,7 @@ export function parseOpenClawManifestInstallBase(
     return undefined;
   }
 
-  const spec: ParsedOpenClawManifestInstallBase = {
+  const spec: ParsedMiraiManifestInstallBase = {
     raw,
     kind,
   };
@@ -134,21 +134,6 @@ export function parseOpenClawManifestInstallBase(
   const bins = normalizeStringList(raw.bins);
   if (bins.length > 0) {
     spec.bins = bins;
-  }
-  return spec;
-}
-
-export function applyOpenClawManifestInstallCommonFields<
-  T extends { id?: string; label?: string; bins?: string[] },
->(spec: T, parsed: Pick<ParsedOpenClawManifestInstallBase, "id" | "label" | "bins">): T {
-  if (parsed.id) {
-    spec.id = parsed.id;
-  }
-  if (parsed.label) {
-    spec.label = parsed.label;
-  }
-  if (parsed.bins) {
-    spec.bins = parsed.bins;
   }
   return spec;
 }

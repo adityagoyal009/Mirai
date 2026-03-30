@@ -1,0 +1,14 @@
+{
+  "name": "@mirai/acpx",
+  "version": "2026.3.13",
+  "description": "Mirai ACP runtime backend via acpx",
+  "type": "module",
+  "dependencies": {
+    "acpx": "0.3.0"
+  },
+  "mirai": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}

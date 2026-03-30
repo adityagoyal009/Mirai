@@ -1,4 +1,4 @@
-import type { OpenClawConfig } from "../config/config.js";
+import type { MiraiConfig } from "../config/config.js";
 import {
   DEFAULT_SECRET_PROVIDER_ALIAS,
   type SecretInput,
@@ -17,9 +17,9 @@ import type { WizardPrompter } from "../wizard/prompts.js";
 import type { SecretInputMode } from "./onboard-types.js";
 
 export type SearchProvider = NonNullable<
-  NonNullable<NonNullable<NonNullable<OpenClawConfig["tools"]>["web"]>["search"]>["provider"]
+  NonNullable<NonNullable<NonNullable<MiraiConfig["tools"]>["web"]>["search"]>["provider"]
 >;
-type SearchConfig = NonNullable<NonNullable<NonNullable<OpenClawConfig["tools"]>["web"]>["search"]>;
+type SearchConfig = NonNullable<NonNullable<NonNullable<MiraiConfig["tools"]>["web"]>["search"]>;
 type MutableSearchConfig = SearchConfig & Record<string, unknown>;
 
 export const SEARCH_PROVIDER_OPTIONS: readonly PluginWebSearchProviderEntry[] =
@@ -41,7 +41,7 @@ function sortSearchProviderOptions(
 }
 
 function canRepairBundledProviderSelection(
-  config: OpenClawConfig,
+  config: MiraiConfig,
   provider: Pick<PluginWebSearchProviderEntry, "id" | "pluginId">,
 ): boolean {
   const pluginId = provider.pluginId ?? resolveBundledWebSearchPluginId(provider.id);
@@ -55,7 +55,7 @@ function canRepairBundledProviderSelection(
 }
 
 export function resolveSearchProviderOptions(
-  config?: OpenClawConfig,
+  config?: MiraiConfig,
 ): readonly PluginWebSearchProviderEntry[] {
   if (!config) {
     return SEARCH_PROVIDER_OPTIONS;
@@ -80,7 +80,7 @@ export function resolveSearchProviderOptions(
 }
 
 function resolveSearchProviderEntry(
-  config: OpenClawConfig,
+  config: MiraiConfig,
   provider: SearchProvider,
 ): PluginWebSearchProviderEntry | undefined {
   return resolveSearchProviderOptions(config).find((entry) => entry.id === provider);
@@ -90,7 +90,7 @@ export function hasKeyInEnv(entry: Pick<PluginWebSearchProviderEntry, "envVars">
   return entry.envVars.some((k) => Boolean(process.env[k]?.trim()));
 }
 
-function rawKeyValue(config: OpenClawConfig, provider: SearchProvider): unknown {
+function rawKeyValue(config: MiraiConfig, provider: SearchProvider): unknown {
   const search = config.tools?.web?.search;
   const entry = resolveSearchProviderEntry(config, provider);
   return (
@@ -101,19 +101,19 @@ function rawKeyValue(config: OpenClawConfig, provider: SearchProvider): unknown 
 
 /** Returns the plaintext key string, or undefined for SecretRefs/missing. */
 export function resolveExistingKey(
-  config: OpenClawConfig,
+  config: MiraiConfig,
   provider: SearchProvider,
 ): string | undefined {
   return normalizeSecretInputString(rawKeyValue(config, provider));
 }
 
 /** Returns true if a key is configured (plaintext string or SecretRef). */
-export function hasExistingKey(config: OpenClawConfig, provider: SearchProvider): boolean {
+export function hasExistingKey(config: MiraiConfig, provider: SearchProvider): boolean {
   return hasConfiguredSecretInput(rawKeyValue(config, provider));
 }
 
 /** Build an env-backed SecretRef for a search provider. */
-function buildSearchEnvRef(config: OpenClawConfig, provider: SearchProvider): SecretRef {
+function buildSearchEnvRef(config: MiraiConfig, provider: SearchProvider): SecretRef {
   const entry =
     resolveSearchProviderEntry(config, provider) ??
     SEARCH_PROVIDER_OPTIONS.find((candidate) => candidate.id === provider) ??
@@ -129,7 +129,7 @@ function buildSearchEnvRef(config: OpenClawConfig, provider: SearchProvider): Se
 
 /** Resolve a plaintext key into the appropriate SecretInput based on mode. */
 function resolveSearchSecretInput(
-  config: OpenClawConfig,
+  config: MiraiConfig,
   provider: SearchProvider,
   key: string,
   secretInputMode?: SecretInputMode,
@@ -142,10 +142,10 @@ function resolveSearchSecretInput(
 }
 
 export function applySearchKey(
-  config: OpenClawConfig,
+  config: MiraiConfig,
   provider: SearchProvider,
   key: SecretInput,
-): OpenClawConfig {
+): MiraiConfig {
   const providerEntry = resolveSearchProviderEntry(config, provider);
   if (!providerEntry) {
     return config;
@@ -154,7 +154,7 @@ export function applySearchKey(
   if (!providerEntry.setConfiguredCredentialValue) {
     providerEntry.setCredentialValue(search, key);
   }
-  const nextBase: OpenClawConfig = {
+  const nextBase: MiraiConfig = {
     ...config,
     tools: {
       ...config.tools,
@@ -167,9 +167,9 @@ export function applySearchKey(
 }
 
 export function applySearchProviderSelection(
-  config: OpenClawConfig,
+  config: MiraiConfig,
   provider: SearchProvider,
-): OpenClawConfig {
+): MiraiConfig {
   const providerEntry = resolveSearchProviderEntry(config, provider);
   if (!providerEntry) {
     return config;
@@ -179,7 +179,7 @@ export function applySearchProviderSelection(
     provider,
     enabled: true,
   };
-  const nextBase: OpenClawConfig = {
+  const nextBase: MiraiConfig = {
     ...config,
     tools: {
       ...config.tools,
@@ -192,12 +192,12 @@ export function applySearchProviderSelection(
   return providerEntry.applySelectionConfig?.(nextBase) ?? nextBase;
 }
 
-function preserveDisabledState(original: OpenClawConfig, result: OpenClawConfig): OpenClawConfig {
+function preserveDisabledState(original: MiraiConfig, result: MiraiConfig): MiraiConfig {
   if (original.tools?.web?.search?.enabled !== false) {
     return result;
   }
 
-  const next: OpenClawConfig = {
+  const next: MiraiConfig = {
     ...result,
     tools: {
       ...result.tools,
@@ -246,7 +246,7 @@ function preserveDisabledState(original: OpenClawConfig, result: OpenClawConfig)
 
   return {
     ...next,
-    plugins: nextPlugins as OpenClawConfig["plugins"],
+    plugins: nextPlugins as MiraiConfig["plugins"],
   };
 }
 
@@ -256,11 +256,11 @@ export type SetupSearchOptions = {
 };
 
 export async function setupSearch(
-  config: OpenClawConfig,
+  config: MiraiConfig,
   _runtime: RuntimeEnv,
   prompter: WizardPrompter,
   opts?: SetupSearchOptions,
-): Promise<OpenClawConfig> {
+): Promise<MiraiConfig> {
   const providerOptions = resolveSearchProviderOptions(config);
   if (providerOptions.length === 0) {
     await prompter.note(
@@ -309,7 +309,7 @@ export async function setupSearch(
       {
         value: "__skip__" as const,
         label: "Skip for now",
-        hint: "Configure later with openclaw configure --section web",
+        hint: "Configure later with mirai configure --section web",
       },
     ],
     initialValue: defaultProvider,

@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { withTempHome } from "../../test/helpers/temp-home.js";
-import type { OpenClawConfig } from "../config/config.js";
+import type { MiraiConfig } from "../config/config.js";
 import {
   isMatrixLegacyCryptoInspectorAvailable,
   loadMatrixLegacyCryptoInspector,
@@ -11,7 +11,7 @@ import {
 function writeMatrixPluginFixture(rootDir: string, helperBody: string): void {
   fs.mkdirSync(rootDir, { recursive: true });
   fs.writeFileSync(
-    path.join(rootDir, "openclaw.plugin.json"),
+    path.join(rootDir, "mirai.plugin.json"),
     JSON.stringify({
       id: "matrix",
       configSchema: {
@@ -28,7 +28,7 @@ function writeMatrixPluginFixture(rootDir: string, helperBody: string): void {
 function writeMatrixPluginManifest(rootDir: string): void {
   fs.mkdirSync(rootDir, { recursive: true });
   fs.writeFileSync(
-    path.join(rootDir, "openclaw.plugin.json"),
+    path.join(rootDir, "mirai.plugin.json"),
     JSON.stringify({
       id: "matrix",
       configSchema: {
@@ -78,7 +78,7 @@ describe("matrix plugin helper resolution", () => {
       },
       {
         env: {
-          OPENCLAW_BUNDLED_PLUGINS_DIR: (home) => path.join(home, "bundled"),
+          MIRAI_BUNDLED_PLUGINS_DIR: (home) => path.join(home, "bundled"),
         },
       },
     );
@@ -106,7 +106,7 @@ describe("matrix plugin helper resolution", () => {
           ].join("\n"),
         );
 
-        const cfg: OpenClawConfig = {
+        const cfg: MiraiConfig = {
           plugins: {
             load: {
               paths: [customRoot],
@@ -135,7 +135,7 @@ describe("matrix plugin helper resolution", () => {
       },
       {
         env: {
-          OPENCLAW_BUNDLED_PLUGINS_DIR: (home) => path.join(home, "bundled"),
+          MIRAI_BUNDLED_PLUGINS_DIR: (home) => path.join(home, "bundled"),
         },
       },
     );
@@ -162,7 +162,7 @@ describe("matrix plugin helper resolution", () => {
           "utf8",
         );
 
-        const cfg: OpenClawConfig = {
+        const cfg: MiraiConfig = {
           plugins: {
             load: {
               paths: [customRoot],
@@ -191,7 +191,7 @@ describe("matrix plugin helper resolution", () => {
       },
       {
         env: {
-          OPENCLAW_BUNDLED_PLUGINS_DIR: (home) => path.join(home, "empty-bundled"),
+          MIRAI_BUNDLED_PLUGINS_DIR: (home) => path.join(home, "empty-bundled"),
         },
       },
     );
@@ -205,7 +205,7 @@ describe("matrix plugin helper resolution", () => {
         fs.mkdirSync(customRoot, { recursive: true });
         fs.mkdirSync(outsideRoot, { recursive: true });
         fs.writeFileSync(
-          path.join(customRoot, "openclaw.plugin.json"),
+          path.join(customRoot, "mirai.plugin.json"),
           JSON.stringify({
             id: "matrix",
             configSchema: {
@@ -233,7 +233,7 @@ describe("matrix plugin helper resolution", () => {
           return;
         }
 
-        const cfg: OpenClawConfig = {
+        const cfg: MiraiConfig = {
           plugins: {
             load: {
               paths: [customRoot],
@@ -251,7 +251,7 @@ describe("matrix plugin helper resolution", () => {
       },
       {
         env: {
-          OPENCLAW_BUNDLED_PLUGINS_DIR: (home) => path.join(home, "empty-bundled"),
+          MIRAI_BUNDLED_PLUGINS_DIR: (home) => path.join(home, "empty-bundled"),
         },
       },
     );

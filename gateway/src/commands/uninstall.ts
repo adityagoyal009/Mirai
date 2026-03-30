@@ -1,6 +1,5 @@
 import path from "node:path";
 import { cancel, confirm, isCancel, multiselect } from "@clack/prompts";
-import { formatCliCommand } from "../cli/command-format.js";
 import { isNixMode } from "../config/config.js";
 import { resolveGatewayService } from "../daemon/service.js";
 import type { RuntimeEnv } from "../runtime.js";
@@ -87,14 +86,10 @@ async function removeMacApp(runtime: RuntimeEnv, dryRun?: boolean) {
   if (process.platform !== "darwin") {
     return;
   }
-  await removePath("/Applications/OpenClaw.app", runtime, {
+  await removePath("/Applications/Mirai.app", runtime, {
     dryRun,
-    label: "/Applications/OpenClaw.app",
+    label: "/Applications/Mirai.app",
   });
-}
-
-function logBackupRecommendation(runtime: RuntimeEnv) {
-  runtime.log(`Recommended first: ${formatCliCommand("mirai backup create")}`);
 }
 
 export async function uninstallCommand(runtime: RuntimeEnv, opts: UninstallOptions) {
@@ -120,12 +115,12 @@ export async function uninstallCommand(runtime: RuntimeEnv, opts: UninstallOptio
           label: "Gateway service",
           hint: "launchd / systemd / schtasks",
         },
-        { value: "state", label: "State + config", hint: "~/.openclaw" },
+        { value: "state", label: "State + config", hint: "~/.mirai" },
         { value: "workspace", label: "Workspace", hint: "agent files" },
         {
           value: "app",
           label: "macOS app",
-          hint: "/Applications/OpenClaw.app",
+          hint: "/Applications/Mirai.app",
         },
       ],
       initialValues: ["service", "state", "workspace"],
@@ -159,10 +154,6 @@ export async function uninstallCommand(runtime: RuntimeEnv, opts: UninstallOptio
   const dryRun = Boolean(opts.dryRun);
   const { stateDir, configPath, oauthDir, configInsideState, oauthInsideState, workspaceDirs } =
     resolveCleanupPlanFromDisk();
-
-  if (scopes.has("state") || scopes.has("workspace")) {
-    logBackupRecommendation(runtime);
-  }
 
   if (scopes.has("service")) {
     if (dryRun) {

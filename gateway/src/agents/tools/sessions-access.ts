@@ -1,4 +1,4 @@
-import type { OpenClawConfig } from "../../config/config.js";
+import type { MiraiConfig } from "../../config/config.js";
 import { isSubagentSessionKey, resolveAgentIdFromSessionKey } from "../../routing/session-key.js";
 import {
   listSpawnedSessionKeys,
@@ -14,13 +14,13 @@ export type AgentToAgentPolicy = {
   isAllowed: (requesterAgentId: string, targetAgentId: string) => boolean;
 };
 
-export type SessionAccessAction = "history" | "send" | "list" | "status";
+export type SessionAccessAction = "history" | "send" | "list";
 
 export type SessionAccessResult =
   | { allowed: true }
   | { allowed: false; error: string; status: "forbidden" };
 
-export function resolveSessionToolsVisibility(cfg: OpenClawConfig): SessionToolsVisibility {
+export function resolveSessionToolsVisibility(cfg: MiraiConfig): SessionToolsVisibility {
   const raw = (cfg.tools as { sessions?: { visibility?: unknown } } | undefined)?.sessions
     ?.visibility;
   const value = typeof raw === "string" ? raw.trim().toLowerCase() : "";
@@ -31,7 +31,7 @@ export function resolveSessionToolsVisibility(cfg: OpenClawConfig): SessionTools
 }
 
 export function resolveEffectiveSessionToolsVisibility(params: {
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   sandboxed: boolean;
 }): SessionToolsVisibility {
   const visibility = resolveSessionToolsVisibility(params.cfg);
@@ -45,12 +45,12 @@ export function resolveEffectiveSessionToolsVisibility(params: {
   return visibility;
 }
 
-export function resolveSandboxSessionToolsVisibility(cfg: OpenClawConfig): "spawned" | "all" {
+export function resolveSandboxSessionToolsVisibility(cfg: MiraiConfig): "spawned" | "all" {
   return cfg.agents?.defaults?.sandbox?.sessionToolsVisibility ?? "spawned";
 }
 
 export function resolveSandboxedSessionToolContext(params: {
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   agentSessionKey?: string;
   sandboxed?: boolean;
 }): {
@@ -87,7 +87,7 @@ export function resolveSandboxedSessionToolContext(params: {
   };
 }
 
-export function createAgentToAgentPolicy(cfg: OpenClawConfig): AgentToAgentPolicy {
+export function createAgentToAgentPolicy(cfg: MiraiConfig): AgentToAgentPolicy {
   const routingA2A = cfg.tools?.agentToAgent;
   const enabled = routingA2A?.enabled === true;
   const allowPatterns = Array.isArray(routingA2A?.allow) ? routingA2A.allow : [];
@@ -130,9 +130,6 @@ function actionPrefix(action: SessionAccessAction): string {
   if (action === "send") {
     return "Session send";
   }
-  if (action === "status") {
-    return "Session status";
-  }
   return "Session list";
 }
 
@@ -142,9 +139,6 @@ function a2aDisabledMessage(action: SessionAccessAction): string {
   }
   if (action === "send") {
     return "Agent-to-agent messaging is disabled. Set tools.agentToAgent.enabled=true to allow cross-agent sends.";
-  }
-  if (action === "status") {
-    return "Agent-to-agent status is disabled. Set tools.agentToAgent.enabled=true to allow cross-agent access.";
   }
   return "Agent-to-agent listing is disabled. Set tools.agentToAgent.enabled=true to allow cross-agent visibility.";
 }
@@ -156,9 +150,6 @@ function a2aDeniedMessage(action: SessionAccessAction): string {
   if (action === "send") {
     return "Agent-to-agent messaging denied by tools.agentToAgent.allow.";
   }
-  if (action === "status") {
-    return "Agent-to-agent status denied by tools.agentToAgent.allow.";
-  }
   return "Agent-to-agent listing denied by tools.agentToAgent.allow.";
 }
 
@@ -168,9 +159,6 @@ function crossVisibilityMessage(action: SessionAccessAction): string {
   }
   if (action === "send") {
     return "Session send visibility is restricted. Set tools.sessions.visibility=all to allow cross-agent access.";
-  }
-  if (action === "status") {
-    return "Session status visibility is restricted. Set tools.sessions.visibility=all to allow cross-agent access.";
   }
   return "Session list visibility is restricted. Set tools.sessions.visibility=all to allow cross-agent access.";
 }

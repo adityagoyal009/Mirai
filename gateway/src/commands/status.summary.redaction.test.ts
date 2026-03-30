@@ -22,7 +22,6 @@ function createRecentSessionRow() {
 describe("redactSensitiveStatusSummary", () => {
   it("removes sensitive session and path details while preserving summary structure", () => {
     const input: StatusSummary = {
-      runtimeVersion: "2026.3.8",
       heartbeat: {
         defaultAgentId: "main",
         agents: [{ agentId: "main", enabled: true, every: "5m", everyMs: 300_000 }],
@@ -30,14 +29,14 @@ describe("redactSensitiveStatusSummary", () => {
       channelSummary: ["ok"],
       queuedSystemEvents: ["none"],
       sessions: {
-        paths: ["/tmp/openclaw/sessions.json"],
+        paths: ["/tmp/mirai/sessions.json"],
         count: 1,
         defaults: { model: "gpt-5", contextTokens: 200_000 },
         recent: [createRecentSessionRow()],
         byAgent: [
           {
             agentId: "main",
-            path: "/tmp/openclaw/main-sessions.json",
+            path: "/tmp/mirai/main-sessions.json",
             count: 1,
             recent: [createRecentSessionRow()],
           },
@@ -51,7 +50,6 @@ describe("redactSensitiveStatusSummary", () => {
     expect(redacted.sessions.recent).toEqual([]);
     expect(redacted.sessions.byAgent[0]?.path).toBe("[redacted]");
     expect(redacted.sessions.byAgent[0]?.recent).toEqual([]);
-    expect(redacted.runtimeVersion).toBe("2026.3.8");
     expect(redacted.heartbeat).toEqual(input.heartbeat);
     expect(redacted.channelSummary).toEqual(input.channelSummary);
   });

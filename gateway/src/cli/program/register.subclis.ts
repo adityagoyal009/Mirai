@@ -1,25 +1,21 @@
 import type { Command } from "commander";
-import type { OpenClawConfig } from "../../config/config.js";
+import type { MiraiConfig } from "../../config/config.js";
 import { isTruthyEnvValue } from "../../infra/env.js";
 import { getPrimaryCommand, hasHelpOrVersion } from "../argv.js";
 import { reparseProgramFromActionArgs } from "./action-reparse.js";
 import { removeCommand, removeCommandByName } from "./command-tree.js";
-import {
-  getSubCliCommandsWithSubcommands,
-  getSubCliEntries as getSubCliEntryDescriptors,
-  type SubCliDescriptor,
-} from "./subcli-descriptors.js";
-
-export { getSubCliCommandsWithSubcommands };
 
 type SubCliRegistrar = (program: Command) => Promise<void> | void;
 
-type SubCliEntry = SubCliDescriptor & {
+type SubCliEntry = {
+  name: string;
+  description: string;
+  hasSubcommands: boolean;
   register: SubCliRegistrar;
 };
 
 const shouldRegisterPrimaryOnly = (argv: string[]) => {
-  if (isTruthyEnvValue(process.env.OPENCLAW_DISABLE_LAZY_SUBCOMMANDS)) {
+  if (isTruthyEnvValue(process.env.MIRAI_DISABLE_LAZY_SUBCOMMANDS)) {
     return false;
   }
   if (hasHelpOrVersion(argv)) {
@@ -29,18 +25,13 @@ const shouldRegisterPrimaryOnly = (argv: string[]) => {
 };
 
 const shouldEagerRegisterSubcommands = (_argv: string[]) => {
-  return isTruthyEnvValue(process.env.OPENCLAW_DISABLE_LAZY_SUBCOMMANDS);
+  return isTruthyEnvValue(process.env.MIRAI_DISABLE_LAZY_SUBCOMMANDS);
 };
 
-export const loadValidatedConfigForPluginRegistration =
-  async (): Promise<OpenClawConfig | null> => {
-    const mod = await import("../../config/config.js");
-    const snapshot = await mod.readConfigFileSnapshot();
-    if (!snapshot.valid) {
-      return null;
-    }
-    return mod.loadConfig();
-  };
+const loadConfig = async (): Promise<MiraiConfig> => {
+  const mod = await import("../../config/config.js");
+  return mod.loadConfig();
+};
 
 // Note for humans and agents:
 // If you update the list of commands, also check whether they have subcommands
@@ -226,10 +217,7 @@ const entries: SubCliEntry[] = [
       // The pairing CLI calls listPairingChannels() at registration time,
       // which requires the plugin registry to be populated with channel plugins.
       const { registerPluginCliCommands } = await import("../../plugins/cli.js");
-      const config = await loadValidatedConfigForPluginRegistration();
-      if (config) {
-        registerPluginCliCommands(program, config);
-      }
+      registerPluginCliCommands(program, await loadConfig());
       const mod = await import("../pairing-cli.js");
       mod.registerPairingCli(program);
     },
@@ -242,10 +230,7 @@ const entries: SubCliEntry[] = [
       const mod = await import("../plugins-cli.js");
       mod.registerPluginsCli(program);
       const { registerPluginCliCommands } = await import("../../plugins/cli.js");
-      const config = await loadValidatedConfigForPluginRegistration();
-      if (config) {
-        registerPluginCliCommands(program, config);
-      }
+      registerPluginCliCommands(program, await loadConfig());
     },
   },
   {
@@ -273,15 +258,6 @@ const entries: SubCliEntry[] = [
     register: async (program) => {
       const mod = await import("../security-cli.js");
       mod.registerSecurityCli(program);
-    },
-  },
-  {
-    name: "secrets",
-    description: "Secrets runtime reload controls",
-    hasSubcommands: true,
-    register: async (program) => {
-      const mod = await import("../secrets-cli.js");
-      mod.registerSecretsCli(program);
     },
   },
   {
@@ -313,8 +289,12 @@ const entries: SubCliEntry[] = [
   },
 ];
 
-export function getSubCliEntries(): ReadonlyArray<SubCliDescriptor> {
-  return getSubCliEntryDescriptors();
+export function getSubCliEntries(): SubCliEntry[] {
+  return entries;
+}
+
+export function getSubCliCommandsWithSubcommands(): string[] {
+  return entries.filter((entry) => entry.hasSubcommands).map((entry) => entry.name);
 }
 
 export async function registerSubCliByName(program: Command, name: string): Promise<boolean> {

@@ -1,5 +1,4 @@
 import type { Command } from "commander";
-import { resolveCommitHash } from "../../infra/git-commit.js";
 import { formatDocsLink } from "../../terminal/links.js";
 import { isRich, theme } from "../../terminal/theme.js";
 import { escapeRegExp } from "../../utils.js";
@@ -7,9 +6,9 @@ import { hasFlag, hasRootVersionAlias } from "../argv.js";
 import { formatCliBannerLine, hasEmittedCliBanner } from "../banner.js";
 import { replaceCliName, resolveCliName } from "../cli-name.js";
 import { CLI_LOG_LEVEL_VALUES, parseCliLogLevelOption } from "../log-level-option.js";
+import { getCoreCliCommandsWithSubcommands } from "./command-registry.js";
 import type { ProgramContext } from "./context.js";
-import { getCoreCliCommandsWithSubcommands } from "./core-command-descriptors.js";
-import { getSubCliCommandsWithSubcommands } from "./subcli-descriptors.js";
+import { getSubCliCommandsWithSubcommands } from "./register.subclis.js";
 
 const CLI_NAME = resolveCliName();
 const CLI_NAME_PATTERN = escapeRegExp(CLI_NAME);
@@ -51,11 +50,11 @@ export function configureProgramHelp(program: Command, ctx: ProgramContext) {
     .version(ctx.programVersion)
     .option(
       "--dev",
-      "Dev profile: isolate state under ~/.openclaw-dev, default gateway port 19001, and shift derived ports (browser/canvas)",
+      "Dev profile: isolate state under ~/.mirai-dev, default gateway port 19001, and shift derived ports (browser/canvas)",
     )
     .option(
       "--profile <name>",
-      "Use a named profile (isolates OPENCLAW_STATE_DIR/OPENCLAW_CONFIG_PATH under ~/.openclaw-<name>)",
+      "Use a named profile (isolates MIRAI_STATE_DIR/MIRAI_CONFIG_PATH under ~/.mirai-<name>)",
     )
     .option(
       "--log-level <level>",
@@ -110,10 +109,7 @@ export function configureProgramHelp(program: Command, ctx: ProgramContext) {
     hasFlag(process.argv, "--version") ||
     hasRootVersionAlias(process.argv)
   ) {
-    const commit = resolveCommitHash({ moduleUrl: import.meta.url });
-    console.log(
-      commit ? `Mirai ${ctx.programVersion} (${commit})` : `Mirai ${ctx.programVersion}`,
-    );
+    console.log(ctx.programVersion);
     process.exit(0);
   }
 
@@ -134,7 +130,7 @@ export function configureProgramHelp(program: Command, ctx: ProgramContext) {
     if (command !== program) {
       return "";
     }
-    const docs = formatDocsLink("/cli", "github.com/adityagoyal009/Mirai/tree/main/gateway/docs/cli");
+    const docs = formatDocsLink("/cli", "docs.mirai.ai/cli");
     return `\n${theme.heading("Examples:")}\n${fmtExamples}\n\n${theme.muted("Docs:")} ${docs}\n`;
   });
 }

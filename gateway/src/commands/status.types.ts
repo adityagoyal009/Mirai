@@ -8,7 +8,6 @@ export type SessionStatus = {
   updatedAt: number | null;
   age: number | null;
   thinkingLevel?: string;
-  fastMode?: boolean;
   verboseLevel?: string;
   reasoningLevel?: string;
   elevatedLevel?: string;
@@ -35,7 +34,6 @@ export type HeartbeatStatus = {
 };
 
 export type StatusSummary = {
-  runtimeVersion?: string | null;
   linkChannel?: {
     id: ChannelId;
     label: string;

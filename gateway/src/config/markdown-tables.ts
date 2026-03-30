@@ -1,7 +1,7 @@
 import { normalizeChannelId } from "../channels/plugins/index.js";
 import { resolveAccountEntry } from "../routing/account-lookup.js";
 import { normalizeAccountId } from "../routing/session-key.js";
-import type { OpenClawConfig } from "./config.js";
+import type { MiraiConfig } from "./config.js";
 import type { MarkdownTableMode } from "./types.base.js";
 
 type MarkdownConfigEntry = {
@@ -14,10 +14,9 @@ type MarkdownConfigSection = MarkdownConfigEntry & {
   accounts?: Record<string, MarkdownConfigEntry>;
 };
 
-export const DEFAULT_TABLE_MODES = new Map<string, MarkdownTableMode>([
+const DEFAULT_TABLE_MODES = new Map<string, MarkdownTableMode>([
   ["signal", "bullets"],
   ["whatsapp", "bullets"],
-  ["mattermost", "off"],
 ]);
 
 const isMarkdownTableMode = (value: unknown): value is MarkdownTableMode =>
@@ -44,7 +43,7 @@ function resolveMarkdownModeFromSection(
 }
 
 export function resolveMarkdownTableMode(params: {
-  cfg?: Partial<OpenClawConfig>;
+  cfg?: Partial<MiraiConfig>;
   channel?: string | null;
   accountId?: string | null;
 }): MarkdownTableMode {

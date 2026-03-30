@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_CONTEXT_TOKENS } from "../agents/defaults.js";
 import { applyModelDefaults } from "./defaults.js";
-import type { OpenClawConfig } from "./types.js";
+import type { MiraiConfig } from "./types.js";
 
 describe("applyModelDefaults", () => {
   function buildProxyProviderConfig(overrides?: { contextWindow?: number; maxTokens?: number }) {
@@ -26,7 +26,7 @@ describe("applyModelDefaults", () => {
           },
         },
       },
-    } satisfies OpenClawConfig;
+    } satisfies MiraiConfig;
   }
 
   it("adds default aliases when models are present", () => {
@@ -35,15 +35,15 @@ describe("applyModelDefaults", () => {
         defaults: {
           models: {
             "anthropic/claude-opus-4-6": {},
-            "openai/gpt-5.4": {},
+            "openai/gpt-5.2": {},
           },
         },
       },
-    } satisfies OpenClawConfig;
+    } satisfies MiraiConfig;
     const next = applyModelDefaults(cfg);
 
     expect(next.agents?.defaults?.models?.["anthropic/claude-opus-4-6"]?.alias).toBe("opus");
-    expect(next.agents?.defaults?.models?.["openai/gpt-5.4"]?.alias).toBe("gpt");
+    expect(next.agents?.defaults?.models?.["openai/gpt-5.2"]?.alias).toBe("gpt");
   });
 
   it("does not override existing aliases", () => {
@@ -55,7 +55,7 @@ describe("applyModelDefaults", () => {
           },
         },
       },
-    } satisfies OpenClawConfig;
+    } satisfies MiraiConfig;
 
     const next = applyModelDefaults(cfg);
 
@@ -67,22 +67,18 @@ describe("applyModelDefaults", () => {
       agents: {
         defaults: {
           models: {
-            "google/gemini-3.1-pro-preview": { alias: "" },
+            "google/gemini-3-pro-preview": { alias: "" },
             "google/gemini-3-flash-preview": {},
-            "google/gemini-3.1-flash-lite-preview": {},
           },
         },
       },
-    } satisfies OpenClawConfig;
+    } satisfies MiraiConfig;
 
     const next = applyModelDefaults(cfg);
 
-    expect(next.agents?.defaults?.models?.["google/gemini-3.1-pro-preview"]?.alias).toBe("");
+    expect(next.agents?.defaults?.models?.["google/gemini-3-pro-preview"]?.alias).toBe("");
     expect(next.agents?.defaults?.models?.["google/gemini-3-flash-preview"]?.alias).toBe(
       "gemini-flash",
-    );
-    expect(next.agents?.defaults?.models?.["google/gemini-3.1-flash-lite-preview"]?.alias).toBe(
-      "gemini-flash-lite",
     );
   });
 
@@ -115,7 +111,7 @@ describe("applyModelDefaults", () => {
         providers: {
           anthropic: {
             baseUrl: "https://relay.example.com/api",
-            apiKey: "cr_xxxx", // pragma: allowlist secret
+            apiKey: "cr_xxxx",
             models: [
               {
                 id: "claude-opus-4-6",
@@ -130,7 +126,7 @@ describe("applyModelDefaults", () => {
           },
         },
       },
-    } satisfies OpenClawConfig;
+    } satisfies MiraiConfig;
 
     const next = applyModelDefaults(cfg);
     const provider = next.models?.providers?.anthropic;

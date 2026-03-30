@@ -4,7 +4,6 @@ import { withTempHome as withTempHomeBase } from "../../test/helpers/temp-home.j
 import { loadModelCatalog } from "../agents/model-catalog.js";
 import { runEmbeddedPiAgent } from "../agents/pi-embedded.js";
 import { loadSessionStore } from "../config/sessions.js";
-import { runEmbeddedPiAgentMock } from "./reply.directive.directive-behavior.e2e-mocks.js";
 
 export { loadModelCatalog } from "../agents/model-catalog.js";
 export { runEmbeddedPiAgent } from "../agents/pi-embedded.js";
@@ -58,10 +57,10 @@ export async function withTempHome<T>(fn: (home: string) => Promise<T>): Promise
     },
     {
       env: {
-        OPENCLAW_AGENT_DIR: (home) => path.join(home, ".openclaw", "agent"),
-        PI_CODING_AGENT_DIR: (home) => path.join(home, ".openclaw", "agent"),
+        MIRAI_AGENT_DIR: (home) => path.join(home, ".mirai", "agent"),
+        PI_CODING_AGENT_DIR: (home) => path.join(home, ".mirai", "agent"),
       },
-      prefix: "openclaw-reply-",
+      prefix: "mirai-reply-",
     },
   );
 }
@@ -78,7 +77,7 @@ export function makeWhatsAppDirectiveConfig(
   return {
     agents: {
       defaults: {
-        workspace: path.join(home, "openclaw"),
+        workspace: path.join(home, "mirai"),
         ...defaults,
       },
     },
@@ -135,7 +134,7 @@ export function assertElevatedOffStatusReply(text: string | undefined) {
 
 export function installDirectiveBehaviorE2EHooks() {
   beforeEach(() => {
-    runEmbeddedPiAgentMock.mockReset();
+    vi.mocked(runEmbeddedPiAgent).mockReset();
     vi.mocked(loadModelCatalog).mockResolvedValue(DEFAULT_TEST_MODEL_CATALOG);
   });
 
@@ -149,7 +148,7 @@ export function makeRestrictedElevatedDisabledConfig(home: string) {
     agents: {
       defaults: {
         model: "anthropic/claude-opus-4-5",
-        workspace: path.join(home, "openclaw"),
+        workspace: path.join(home, "mirai"),
       },
       list: [
         {

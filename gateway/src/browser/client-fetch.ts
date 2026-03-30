@@ -9,15 +9,6 @@ import {
 } from "./control-service.js";
 import { createBrowserRouteDispatcher } from "./routes/dispatcher.js";
 
-// Application-level error from the browser control service (service is reachable
-// but returned an error response). Must NOT be wrapped with "Can't reach ..." messaging.
-class BrowserServiceError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "BrowserServiceError";
-  }
-}
-
 type LoopbackBrowserAuthDeps = {
   loadConfig: typeof loadConfig;
   resolveBrowserControlAuth: typeof resolveBrowserControlAuth;
@@ -42,7 +33,7 @@ function withLoopbackBrowserAuthImpl(
   deps: LoopbackBrowserAuthDeps,
 ): RequestInit & { timeoutMs?: number } {
   const headers = new Headers(init?.headers ?? {});
-  if (headers.has("authorization") || headers.has("x-openclaw-password")) {
+  if (headers.has("authorization") || headers.has("x-mirai-password")) {
     return { ...init, headers };
   }
   if (!isLoopbackHttpUrl(url)) {
@@ -57,7 +48,7 @@ function withLoopbackBrowserAuthImpl(
       return { ...init, headers };
     }
     if (auth.password) {
-      headers.set("x-openclaw-password", auth.password);
+      headers.set("x-mirai-password", auth.password);
       return { ...init, headers };
     }
   } catch {
@@ -78,7 +69,7 @@ function withLoopbackBrowserAuthImpl(
     if (bridgeAuth?.token) {
       headers.set("Authorization", `Bearer ${bridgeAuth.token}`);
     } else if (bridgeAuth?.password) {
-      headers.set("x-openclaw-password", bridgeAuth.password);
+      headers.set("x-mirai-password", bridgeAuth.password);
     }
   } catch {
     // ignore
@@ -98,78 +89,17 @@ function withLoopbackBrowserAuth(
   });
 }
 
-const BROWSER_TOOL_MODEL_HINT =
-  "Do NOT retry the browser tool — it will keep failing. " +
-  "Use an alternative approach or inform the user that the browser is currently unavailable.";
-
-const BROWSER_SERVICE_RATE_LIMIT_MESSAGE =
-  "Browser service rate limit reached. " +
-  "Wait for the current session to complete, or retry later.";
-
-const BROWSERBASE_RATE_LIMIT_MESSAGE =
-  "Browserbase rate limit reached (max concurrent sessions). " +
-  "Wait for the current session to complete, or upgrade your plan.";
-
-function isRateLimitStatus(status: number): boolean {
-  return status === 429;
-}
-
-function isBrowserbaseUrl(url: string): boolean {
-  if (!isAbsoluteHttp(url)) {
-    return false;
-  }
-  try {
-    const host = new URL(url).hostname.toLowerCase();
-    return host === "browserbase.com" || host.endsWith(".browserbase.com");
-  } catch {
-    return false;
-  }
-}
-
-export function resolveBrowserRateLimitMessage(url: string): string {
-  return isBrowserbaseUrl(url)
-    ? BROWSERBASE_RATE_LIMIT_MESSAGE
-    : BROWSER_SERVICE_RATE_LIMIT_MESSAGE;
-}
-
-function resolveBrowserFetchOperatorHint(url: string): string {
+function enhanceBrowserFetchError(url: string, err: unknown, timeoutMs: number): Error {
   const isLocal = !isAbsoluteHttp(url);
-  return isLocal
+  // Human-facing hint for logs/diagnostics.
+  const operatorHint = isLocal
     ? `Restart the Mirai gateway (Mirai.app menubar, or \`${formatCliCommand("mirai gateway")}\`).`
     : "If this is a sandboxed session, ensure the sandbox browser is running.";
-}
-
-function normalizeErrorMessage(err: unknown): string {
-  if (err instanceof Error && err.message.trim().length > 0) {
-    return err.message.trim();
-  }
-  return String(err);
-}
-
-function appendBrowserToolModelHint(message: string): string {
-  if (message.includes(BROWSER_TOOL_MODEL_HINT)) {
-    return message;
-  }
-  return `${message} ${BROWSER_TOOL_MODEL_HINT}`;
-}
-
-async function discardResponseBody(res: Response): Promise<void> {
-  try {
-    await res.body?.cancel();
-  } catch {
-    // Best effort only; we're already returning a stable error message.
-  }
-}
-
-function enhanceDispatcherPathError(url: string, err: unknown): Error {
-  const msg = normalizeErrorMessage(err);
-  const suffix = `${resolveBrowserFetchOperatorHint(url)} ${BROWSER_TOOL_MODEL_HINT}`;
-  const normalized = msg.endsWith(".") ? msg : `${msg}.`;
-  return new Error(`${normalized} ${suffix}`, err instanceof Error ? { cause: err } : undefined);
-}
-
-function enhanceBrowserFetchError(url: string, err: unknown, timeoutMs: number): Error {
-  const operatorHint = resolveBrowserFetchOperatorHint(url);
+  // Model-facing suffix: explicitly tell the LLM NOT to retry.
+  // Without this, models see "try again" and enter an infinite tool-call loop.
+  const modelHint =
+    "Do NOT retry the browser tool — it will keep failing. " +
+    "Use an alternative approach or inform the user that the browser is currently unavailable.";
   const msg = String(err);
   const msgLower = msg.toLowerCase();
   const looksLikeTimeout =
@@ -180,15 +110,11 @@ function enhanceBrowserFetchError(url: string, err: unknown, timeoutMs: number):
     msgLower.includes("aborterror");
   if (looksLikeTimeout) {
     return new Error(
-      appendBrowserToolModelHint(
-        `Can't reach the Mirai browser control service (timed out after ${timeoutMs}ms). ${operatorHint}`,
-      ),
+      `Can't reach the Mirai browser control service (timed out after ${timeoutMs}ms). ${operatorHint} ${modelHint}`,
     );
   }
   return new Error(
-    appendBrowserToolModelHint(
-      `Can't reach the Mirai browser control service. ${operatorHint} (${msg})`,
-    ),
+    `Can't reach the Mirai browser control service. ${operatorHint} ${modelHint} (${msg})`,
   );
 }
 
@@ -213,15 +139,8 @@ async function fetchHttpJson<T>(
   try {
     const res = await fetch(url, { ...init, signal: ctrl.signal });
     if (!res.ok) {
-      if (isRateLimitStatus(res.status)) {
-        // Do not reflect upstream response text into the error surface (log/agent injection risk)
-        await discardResponseBody(res);
-        throw new BrowserServiceError(
-          `${resolveBrowserRateLimitMessage(url)} ${BROWSER_TOOL_MODEL_HINT}`,
-        );
-      }
       const text = await res.text().catch(() => "");
-      throw new BrowserServiceError(text || `HTTP ${res.status}`);
+      throw new Error(text || `HTTP ${res.status}`);
     }
     return (await res.json()) as T;
   } finally {
@@ -237,13 +156,11 @@ export async function fetchBrowserJson<T>(
   init?: RequestInit & { timeoutMs?: number },
 ): Promise<T> {
   const timeoutMs = init?.timeoutMs ?? 5000;
-  let isDispatcherPath = false;
   try {
     if (isAbsoluteHttp(url)) {
       const httpInit = withLoopbackBrowserAuth(url, init);
       return await fetchHttpJson<T>(url, { ...httpInit, timeoutMs });
     }
-    isDispatcherPath = true;
     const started = await startBrowserControlServiceFromConfig();
     if (!started) {
       throw new Error("browser control disabled");
@@ -314,28 +231,14 @@ export async function fetchBrowserJson<T>(
     });
 
     if (result.status >= 400) {
-      if (isRateLimitStatus(result.status)) {
-        // Do not reflect upstream response text into the error surface (log/agent injection risk)
-        throw new BrowserServiceError(
-          `${resolveBrowserRateLimitMessage(url)} ${BROWSER_TOOL_MODEL_HINT}`,
-        );
-      }
       const message =
         result.body && typeof result.body === "object" && "error" in result.body
           ? String((result.body as { error?: unknown }).error)
           : `HTTP ${result.status}`;
-      throw new BrowserServiceError(message);
+      throw new Error(message);
     }
     return result.body as T;
   } catch (err) {
-    if (err instanceof BrowserServiceError) {
-      throw err;
-    }
-    // Dispatcher-path failures are service-operation failures, not network
-    // reachability failures. Keep the original context, but retain anti-retry hints.
-    if (isDispatcherPath) {
-      throw enhanceDispatcherPathError(url, err);
-    }
     throw enhanceBrowserFetchError(url, err, timeoutMs);
   }
 }

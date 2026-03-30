@@ -86,7 +86,7 @@ export {
 } from "../../extensions/matrix/thread-bindings-runtime.js";
 export { createTypingCallbacks } from "../channels/typing.js";
 export { createChannelReplyPipeline } from "./channel-reply-pipeline.js";
-export type { OpenClawConfig } from "../config/config.js";
+export type { MiraiConfig } from "../config/config.js";
 export {
   GROUP_POLICY_BLOCKED_LABEL,
   resolveAllowlistProviderRuntimeGroupPolicy,
@@ -124,7 +124,7 @@ export { isPrivateOrLoopbackHost } from "../gateway/net.js";
 export { getAgentScopedMediaLocalRoots } from "../media/local-roots.js";
 export { emptyPluginConfigSchema } from "../plugins/config-schema.js";
 export type { PluginRuntime, RuntimeLogger } from "../plugins/runtime/types.js";
-export type { OpenClawPluginApi } from "../plugins/types.js";
+export type { MiraiPluginApi } from "../plugins/types.js";
 export type { PollInput } from "../polls.js";
 export { normalizePollInput } from "../polls.js";
 export {
@@ -166,7 +166,7 @@ export {
 const matrixSetup = createOptionalChannelSetupSurface({
   channel: "matrix",
   label: "Matrix",
-  npmSpec: "@openclaw/matrix",
+  npmSpec: "@mirai/matrix",
   docsPath: "/channels/matrix",
 });
 

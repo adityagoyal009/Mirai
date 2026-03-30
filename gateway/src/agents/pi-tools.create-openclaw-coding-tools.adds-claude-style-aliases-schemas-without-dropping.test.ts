@@ -5,15 +5,13 @@ import type { AgentTool, AgentToolResult } from "@mariozechner/pi-agent-core";
 import { Type } from "@sinclair/typebox";
 import { describe, expect, it, vi } from "vitest";
 import "./test-helpers/fast-coding-tools.js";
-import { applyXaiModelCompat } from "./model-compat.js";
-import { createOpenClawTools } from "./openclaw-tools.js";
-import { findUnsupportedSchemaKeywords } from "./pi-embedded-runner/google.js";
-import { __testing, createOpenClawCodingTools } from "./pi-tools.js";
-import { createOpenClawReadTool, createSandboxedReadTool } from "./pi-tools.read.js";
+import { createMiraiTools } from "./mirai-tools.js";
+import { __testing, createMiraiCodingTools } from "./pi-tools.js";
+import { createMiraiReadTool, createSandboxedReadTool } from "./pi-tools.read.js";
 import { createHostSandboxFsBridge } from "./test-helpers/host-sandbox-fs-bridge.js";
 import { createBrowserTool } from "./tools/browser-tool.js";
 
-const defaultTools = createOpenClawCodingTools();
+const defaultTools = createMiraiCodingTools();
 
 function findUnionKeywordOffenders(
   tools: Array<{ name: string; parameters: unknown }>,
@@ -79,7 +77,7 @@ function extractToolText(result: unknown): string {
   return textBlock?.text ?? "";
 }
 
-describe("createOpenClawCodingTools", () => {
+describe("createMiraiCodingTools", () => {
   describe("Claude/Gemini alias support", () => {
     it("adds Claude-style aliases to schemas without dropping metadata", () => {
       const base: AgentTool = {
@@ -158,9 +156,10 @@ describe("createOpenClawCodingTools", () => {
     expect(schema.type).toBe("object");
     expect(schema.anyOf).toBeUndefined();
   });
-  it("mentions user browser profile in browser tool description", () => {
+  it("mentions Chrome extension relay in browser tool description", () => {
     const browser = createBrowserTool();
-    expect(browser.description).toMatch(/profile="user"/i);
+    expect(browser.description).toMatch(/Chrome extension/i);
+    expect(browser.description).toMatch(/profile="chrome"/i);
   });
   it("keeps browser tool schema properties after normalization", () => {
     const browser = defaultTools.find((tool) => tool.name === "browser");
@@ -177,7 +176,7 @@ describe("createOpenClawCodingTools", () => {
     expect(parameters.required ?? []).toContain("action");
   });
   it("exposes raw for gateway config.apply tool calls", () => {
-    const gateway = createOpenClawCodingTools({ senderIsOwner: true }).find(
+    const gateway = createMiraiCodingTools({ senderIsOwner: true }).find(
       (tool) => tool.name === "gateway",
     );
     expect(gateway).toBeDefined();
@@ -293,7 +292,7 @@ describe("createOpenClawCodingTools", () => {
     expect(findUnionKeywordOffenders(defaultTools)).toEqual([]);
   });
   it("keeps raw core tool schemas union-free", () => {
-    const tools = createOpenClawTools();
+    const tools = createMiraiTools();
     const coreTools = new Set([
       "browser",
       "canvas",
@@ -313,7 +312,7 @@ describe("createOpenClawCodingTools", () => {
     expect(findUnionKeywordOffenders(tools, { onlyNames: coreTools })).toEqual([]);
   });
   it("does not expose provider-specific message tools", () => {
-    const tools = createOpenClawCodingTools({ messageProvider: "discord" });
+    const tools = createMiraiCodingTools({ messageProvider: "discord" });
     const names = new Set(tools.map((tool) => tool.name));
     expect(names.has("discord")).toBe(false);
     expect(names.has("slack")).toBe(false);
@@ -321,7 +320,7 @@ describe("createOpenClawCodingTools", () => {
     expect(names.has("whatsapp")).toBe(false);
   });
   it("filters session tools for sub-agent sessions by default", () => {
-    const tools = createOpenClawCodingTools({
+    const tools = createMiraiCodingTools({
       sessionKey: "agent:main:subagent:test",
     });
     const names = new Set(tools.map((tool) => tool.name));
@@ -339,7 +338,7 @@ describe("createOpenClawCodingTools", () => {
   });
 
   it("uses stored spawnDepth to apply leaf tool policy for flat depth-2 session keys", async () => {
-    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-depth-policy-"));
+    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "mirai-depth-policy-"));
     const storeTemplate = path.join(tmpDir, "sessions-{agentId}.json");
     const storePath = storeTemplate.replaceAll("{agentId}", "main");
     await fs.writeFile(
@@ -358,7 +357,7 @@ describe("createOpenClawCodingTools", () => {
       "utf-8",
     );
 
-    const tools = createOpenClawCodingTools({
+    const tools = createMiraiCodingTools({
       sessionKey: "agent:main:subagent:flat",
       config: {
         session: {
@@ -380,7 +379,7 @@ describe("createOpenClawCodingTools", () => {
     expect(names.has("subagents")).toBe(true);
   });
   it("supports allow-only sub-agent tool policy", () => {
-    const tools = createOpenClawCodingTools({
+    const tools = createMiraiCodingTools({
       sessionKey: "agent:main:subagent:test",
       // Intentionally partial config; only fields used by pi-tools are provided.
       config: {
@@ -398,7 +397,7 @@ describe("createOpenClawCodingTools", () => {
   });
 
   it("applies tool profiles before allow/deny policies", () => {
-    const tools = createOpenClawCodingTools({
+    const tools = createMiraiCodingTools({
       config: { tools: { profile: "messaging" } },
     });
     const names = new Set(tools.map((tool) => tool.name));
@@ -409,7 +408,7 @@ describe("createOpenClawCodingTools", () => {
     expect(names.has("browser")).toBe(false);
   });
   it("expands group shorthands in global tool policy", () => {
-    const tools = createOpenClawCodingTools({
+    const tools = createMiraiCodingTools({
       config: { tools: { allow: ["group:fs"] } },
     });
     const names = new Set(tools.map((tool) => tool.name));
@@ -420,7 +419,7 @@ describe("createOpenClawCodingTools", () => {
     expect(names.has("browser")).toBe(false);
   });
   it("expands group shorthands in global tool deny policy", () => {
-    const tools = createOpenClawCodingTools({
+    const tools = createMiraiCodingTools({
       config: { tools: { deny: ["group:fs"] } },
     });
     const names = new Set(tools.map((tool) => tool.name));
@@ -430,7 +429,7 @@ describe("createOpenClawCodingTools", () => {
     expect(names.has("exec")).toBe(true);
   });
   it("lets agent profiles override global profiles", () => {
-    const tools = createOpenClawCodingTools({
+    const tools = createMiraiCodingTools({
       sessionKey: "agent:work:main",
       config: {
         tools: { profile: "coding" },
@@ -445,31 +444,81 @@ describe("createOpenClawCodingTools", () => {
     expect(names.has("read")).toBe(false);
   });
   it("removes unsupported JSON Schema keywords for Cloud Code Assist API compatibility", () => {
-    const googleTools = createOpenClawCodingTools({
+    // Helper to recursively check schema for unsupported keywords
+    const unsupportedKeywords = new Set([
+      "patternProperties",
+      "additionalProperties",
+      "$schema",
+      "$id",
+      "$ref",
+      "$defs",
+      "definitions",
+      "examples",
+      "minLength",
+      "maxLength",
+      "minimum",
+      "maximum",
+      "multipleOf",
+      "pattern",
+      "format",
+      "minItems",
+      "maxItems",
+      "uniqueItems",
+      "minProperties",
+      "maxProperties",
+    ]);
+
+    const findUnsupportedKeywords = (schema: unknown, path: string): string[] => {
+      const found: string[] = [];
+      if (!schema || typeof schema !== "object") {
+        return found;
+      }
+      if (Array.isArray(schema)) {
+        schema.forEach((item, i) => {
+          found.push(...findUnsupportedKeywords(item, `${path}[${i}]`));
+        });
+        return found;
+      }
+
+      const record = schema as Record<string, unknown>;
+      const properties =
+        record.properties &&
+        typeof record.properties === "object" &&
+        !Array.isArray(record.properties)
+          ? (record.properties as Record<string, unknown>)
+          : undefined;
+      if (properties) {
+        for (const [key, value] of Object.entries(properties)) {
+          found.push(...findUnsupportedKeywords(value, `${path}.properties.${key}`));
+        }
+      }
+
+      for (const [key, value] of Object.entries(record)) {
+        if (key === "properties") {
+          continue;
+        }
+        if (unsupportedKeywords.has(key)) {
+          found.push(`${path}.${key}`);
+        }
+        if (value && typeof value === "object") {
+          found.push(...findUnsupportedKeywords(value, `${path}.${key}`));
+        }
+      }
+      return found;
+    };
+
+    const googleTools = createMiraiCodingTools({
       modelProvider: "google",
       senderIsOwner: true,
     });
     for (const tool of googleTools) {
-      const violations = findUnsupportedSchemaKeywords(tool.parameters, `${tool.name}.parameters`);
-      expect(violations).toEqual([]);
-    }
-  });
-  it("applies xai model compat for direct Grok tool cleanup", () => {
-    const xaiTools = createOpenClawCodingTools({
-      modelProvider: "xai",
-      modelCompat: applyXaiModelCompat({ compat: {} }).compat,
-      senderIsOwner: true,
-    });
-
-    expect(xaiTools.some((tool) => tool.name === "web_search")).toBe(false);
-    for (const tool of xaiTools) {
-      const violations = findUnsupportedSchemaKeywords(tool.parameters, `${tool.name}.parameters`);
+      const violations = findUnsupportedKeywords(tool.parameters, `${tool.name}.parameters`);
       expect(violations).toEqual([]);
     }
   });
   it("applies sandbox path guards to file_path alias", async () => {
-    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-sbx-"));
-    const outsidePath = path.join(os.tmpdir(), "openclaw-outside.txt");
+    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "mirai-sbx-"));
+    const outsidePath = path.join(os.tmpdir(), "mirai-outside.txt");
     await fs.writeFile(outsidePath, "outside", "utf8");
     try {
       const readTool = createSandboxedReadTool({
@@ -486,7 +535,7 @@ describe("createOpenClawCodingTools", () => {
   });
 
   it("auto-pages read output across chunks when context window budget allows", async () => {
-    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-read-autopage-"));
+    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "mirai-read-autopage-"));
     const filePath = path.join(tmpDir, "big.txt");
     const lines = Array.from(
       { length: 5000 },
@@ -511,7 +560,7 @@ describe("createOpenClawCodingTools", () => {
   });
 
   it("adds capped continuation guidance when aggregated read output reaches budget", async () => {
-    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-read-cap-"));
+    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "mirai-read-cap-"));
     const filePath = path.join(tmpDir, "huge.txt");
     const lines = Array.from(
       { length: 8000 },
@@ -557,8 +606,8 @@ describe("createOpenClawCodingTools", () => {
       execute: vi.fn(async () => readResult),
     };
 
-    const wrapped = createOpenClawReadTool(
-      baseRead as unknown as Parameters<typeof createOpenClawReadTool>[0],
+    const wrapped = createMiraiReadTool(
+      baseRead as unknown as Parameters<typeof createMiraiReadTool>[0],
     );
     const result = await wrapped.execute("read-strip-1", { path: "demo.txt", limit: 1 });
 

@@ -3,7 +3,7 @@ export type {
   ChannelGatewayContext,
   ChannelMessageActionAdapter,
 } from "../channels/plugins/types.js";
-export type { OpenClawConfig } from "../config/config.js";
+export type { MiraiConfig } from "../config/config.js";
 export type { DiscordAccountConfig, DiscordActionConfig } from "../config/types.js";
 export type { DiscordConfig, DiscordPluralKitConfig } from "../config/types.discord.js";
 export type { InspectedDiscordAccount } from "../../extensions/discord/api.js";
@@ -22,7 +22,7 @@ export type {
 export type {
   ChannelMessageActionContext,
   ChannelPlugin,
-  OpenClawPluginApi,
+  MiraiPluginApi,
   PluginRuntime,
 } from "./channel-plugin-common.js";
 export {

@@ -4,7 +4,6 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { sliceUtf16Safe } from "../utils.js";
 import { assertSandboxPath } from "./sandbox-paths.js";
-import type { SandboxBackendExecSpec } from "./sandbox/backend.js";
 
 const CHUNK_LIMIT = 8 * 1024;
 
@@ -13,18 +12,6 @@ export type BashSandboxConfig = {
   workspaceDir: string;
   containerWorkdir: string;
   env?: Record<string, string>;
-  buildExecSpec?: (params: {
-    command: string;
-    workdir?: string;
-    env: Record<string, string>;
-    usePty: boolean;
-  }) => Promise<SandboxBackendExecSpec>;
-  finalizeExec?: (params: {
-    status: "completed" | "failed";
-    exitCode: number | null;
-    timedOut: boolean;
-    token?: unknown;
-  }) => Promise<void>;
 };
 
 export function buildSandboxEnv(params: {
@@ -74,28 +61,21 @@ export function buildDockerExecArgs(params: {
     args.push("-w", params.workdir);
   }
   for (const [key, value] of Object.entries(params.env)) {
-    // Skip PATH — passing a host PATH (e.g. Windows paths) via -e poisons
-    // Docker's executable lookup, causing "sh: not found" on Windows hosts.
-    // PATH is handled separately via OPENCLAW_PREPEND_PATH below.
-    if (key === "PATH") {
-      continue;
-    }
     args.push("-e", `${key}=${value}`);
   }
   const hasCustomPath = typeof params.env.PATH === "string" && params.env.PATH.length > 0;
   if (hasCustomPath) {
     // Avoid interpolating PATH into the shell command; pass it via env instead.
-    args.push("-e", `OPENCLAW_PREPEND_PATH=${params.env.PATH}`);
+    args.push("-e", `MIRAI_PREPEND_PATH=${params.env.PATH}`);
   }
   // Login shell (-l) sources /etc/profile which resets PATH to a minimal set,
   // overriding both Docker ENV and -e PATH=... environment variables.
   // Prepend custom PATH after profile sourcing to ensure custom tools are accessible
   // while preserving system paths that /etc/profile may have added.
   const pathExport = hasCustomPath
-    ? 'export PATH="${OPENCLAW_PREPEND_PATH}:$PATH"; unset OPENCLAW_PREPEND_PATH; '
+    ? 'export PATH="${MIRAI_PREPEND_PATH}:$PATH"; unset MIRAI_PREPEND_PATH; '
     : "";
-  // Use absolute path for sh to avoid dependency on PATH resolution during exec.
-  args.push(params.containerName, "/bin/sh", "-lc", `${pathExport}${params.command}`);
+  args.push(params.containerName, "sh", "-lc", `${pathExport}${params.command}`);
   return args;
 }
 
@@ -105,14 +85,9 @@ export async function resolveSandboxWorkdir(params: {
   warnings: string[];
 }) {
   const fallback = params.sandbox.workspaceDir;
-  const mappedHostWorkdir = mapContainerWorkdirToHost({
-    workdir: params.workdir,
-    sandbox: params.sandbox,
-  });
-  const candidateWorkdir = mappedHostWorkdir ?? params.workdir;
   try {
     const resolved = await assertSandboxPath({
-      filePath: candidateWorkdir,
+      filePath: params.workdir,
       cwd: process.cwd(),
       root: params.sandbox.workspaceDir,
     });
@@ -136,36 +111,6 @@ export async function resolveSandboxWorkdir(params: {
       containerWorkdir: params.sandbox.containerWorkdir,
     };
   }
-}
-
-function mapContainerWorkdirToHost(params: {
-  workdir: string;
-  sandbox: BashSandboxConfig;
-}): string | undefined {
-  const workdir = normalizeContainerPath(params.workdir);
-  const containerRoot = normalizeContainerPath(params.sandbox.containerWorkdir);
-  if (containerRoot === ".") {
-    return undefined;
-  }
-  if (workdir === containerRoot) {
-    return path.resolve(params.sandbox.workspaceDir);
-  }
-  if (!workdir.startsWith(`${containerRoot}/`)) {
-    return undefined;
-  }
-  const rel = workdir
-    .slice(containerRoot.length + 1)
-    .split("/")
-    .filter(Boolean);
-  return path.resolve(params.sandbox.workspaceDir, ...rel);
-}
-
-function normalizeContainerPath(input: string): string {
-  const normalized = input.trim().replace(/\\/g, "/");
-  if (!normalized) {
-    return ".";
-  }
-  return path.posix.normalize(normalized);
 }
 
 export function resolveWorkdir(workdir: string, warnings: string[]) {

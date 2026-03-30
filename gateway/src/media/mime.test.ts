@@ -6,7 +6,6 @@ import {
   extensionForMime,
   imageMimeFromFormat,
   isAudioFileName,
-  kindFromMime,
   normalizeMimeType,
 } from "./mime.js";
 
@@ -60,13 +59,6 @@ describe("mime detection", () => {
       filePath: "/tmp/file.xlsx",
     });
     expect(mime).toBe("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-  });
-
-  it("uses extension mapping for JavaScript assets", async () => {
-    const mime = await detectMime({
-      filePath: "/tmp/a2ui.bundle.js",
-    });
-    expect(mime).toBe("text/javascript");
   });
 });
 
@@ -128,19 +120,8 @@ describe("mediaKindFromMime", () => {
     { mime: "text/plain", expected: "document" },
     { mime: "text/csv", expected: "document" },
     { mime: "text/html; charset=utf-8", expected: "document" },
-    { mime: "model/gltf+json", expected: undefined },
-    { mime: null, expected: undefined },
-    { mime: undefined, expected: undefined },
+    { mime: "model/gltf+json", expected: "unknown" },
   ] as const)("classifies $mime", ({ mime, expected }) => {
     expect(mediaKindFromMime(mime)).toBe(expected);
-  });
-
-  it("normalizes MIME strings before kind classification", () => {
-    expect(kindFromMime(" Audio/Ogg; codecs=opus ")).toBe("audio");
-  });
-
-  it("returns undefined for missing or unrecognized MIME kinds", () => {
-    expect(kindFromMime(undefined)).toBeUndefined();
-    expect(kindFromMime("model/gltf+json")).toBeUndefined();
   });
 });

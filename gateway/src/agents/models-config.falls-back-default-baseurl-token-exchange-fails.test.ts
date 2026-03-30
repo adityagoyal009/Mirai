@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { DEFAULT_COPILOT_API_BASE_URL } from "../../extensions/github-copilot/token.js";
+import { DEFAULT_COPILOT_API_BASE_URL } from "../providers/github-copilot-token.js";
 import { withEnvAsync } from "../test-utils/env.js";
 import {
   installModelsConfigTestHooks,
@@ -9,7 +9,7 @@ import {
   withUnsetCopilotTokenEnv,
   withModelsTempHome as withTempHome,
 } from "./models-config.e2e-harness.js";
-import { ensureOpenClawModelsJson } from "./models-config.js";
+import { ensureMiraiModelsJson } from "./models-config.js";
 
 installModelsConfigTestHooks({ restoreFetch: true });
 
@@ -32,7 +32,7 @@ describe("models-config", () => {
         });
         globalThis.fetch = fetchMock as unknown as typeof fetch;
 
-        const { agentDir } = await ensureOpenClawModelsJson({ models: { providers: {} } });
+        const { agentDir } = await ensureMiraiModelsJson({ models: { providers: {} } });
         expect(await readCopilotBaseUrl(agentDir)).toBe(DEFAULT_COPILOT_API_BASE_URL);
       });
     });
@@ -62,7 +62,7 @@ describe("models-config", () => {
           ),
         );
 
-        await ensureOpenClawModelsJson({ models: { providers: {} } }, agentDir);
+        await ensureMiraiModelsJson({ models: { providers: {} } }, agentDir);
 
         expect(await readCopilotBaseUrl(agentDir)).toBe("https://api.copilot.example");
       });

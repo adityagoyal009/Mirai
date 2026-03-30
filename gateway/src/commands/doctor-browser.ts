@@ -3,7 +3,7 @@ import {
   readBrowserVersion,
   resolveGoogleChromeExecutableForPlatform,
 } from "../browser/chrome.executables.js";
-import type { OpenClawConfig } from "../config/config.js";
+import type { MiraiConfig } from "../config/config.js";
 import { note } from "../terminal/note.js";
 
 const CHROME_MCP_MIN_MAJOR = 144;
@@ -24,7 +24,7 @@ type ExistingSessionProfile = {
   userDataDir?: string;
 };
 
-function collectChromeMcpProfiles(cfg: OpenClawConfig): ExistingSessionProfile[] {
+function collectChromeMcpProfiles(cfg: MiraiConfig): ExistingSessionProfile[] {
   const browser = asRecord(cfg.browser);
   if (!browser) {
     return [];
@@ -56,7 +56,7 @@ function collectChromeMcpProfiles(cfg: OpenClawConfig): ExistingSessionProfile[]
 }
 
 export async function noteChromeMcpBrowserReadiness(
-  cfg: OpenClawConfig,
+  cfg: MiraiConfig,
   deps?: {
     platform?: NodeJS.Platform;
     noteFn?: typeof note;

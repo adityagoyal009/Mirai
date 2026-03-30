@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { OpenClawConfig } from "../config/config.js";
+import type { MiraiConfig } from "../config/config.js";
 import { isToolAllowed, resolveSandboxToolPolicyForAgent } from "./sandbox/tool-policy.js";
 import type { SandboxToolPolicy } from "./sandbox/types.js";
 import { TOOL_POLICY_CONFORMANCE } from "./tool-policy.conformance.js";
@@ -61,8 +61,8 @@ describe("tool-policy", () => {
     expect(resolveToolProfilePolicy("nope")).toBeUndefined();
   });
 
-  it("includes core tool groups in group:openclaw", () => {
-    const group = TOOL_GROUPS["group:openclaw"];
+  it("includes core tool groups in group:mirai", () => {
+    const group = TOOL_GROUPS["group:mirai"];
     expect(group).toContain("browser");
     expect(group).toContain("message");
     expect(group).toContain("subagents");
@@ -80,7 +80,6 @@ describe("tool-policy", () => {
     expect(isOwnerOnlyToolName("whatsapp_login")).toBe(true);
     expect(isOwnerOnlyToolName("cron")).toBe(true);
     expect(isOwnerOnlyToolName("gateway")).toBe(true);
-    expect(isOwnerOnlyToolName("nodes")).toBe(true);
     expect(isOwnerOnlyToolName("read")).toBe(false);
   });
 
@@ -107,27 +106,6 @@ describe("tool-policy", () => {
     ] as unknown as AnyAgentTool[];
     expect(applyOwnerOnlyToolPolicy(tools, false)).toEqual([]);
     expect(applyOwnerOnlyToolPolicy(tools, true)).toHaveLength(1);
-  });
-
-  it("strips nodes for non-owner senders via fallback policy", () => {
-    const tools = [
-      {
-        name: "read",
-        // oxlint-disable-next-line typescript/no-explicit-any
-        execute: async () => ({ content: [], details: {} }) as any,
-      },
-      {
-        name: "nodes",
-        // oxlint-disable-next-line typescript/no-explicit-any
-        execute: async () => ({ content: [], details: {} }) as any,
-      },
-    ] as unknown as AnyAgentTool[];
-
-    expect(applyOwnerOnlyToolPolicy(tools, false).map((tool) => tool.name)).toEqual(["read"]);
-    expect(applyOwnerOnlyToolPolicy(tools, true).map((tool) => tool.name)).toEqual([
-      "read",
-      "nodes",
-    ]);
   });
 });
 
@@ -190,7 +168,7 @@ describe("resolveSandboxToolPolicyForAgent", () => {
   it("keeps allow-all semantics when allow is []", () => {
     const cfg = {
       tools: { sandbox: { tools: { allow: [], deny: ["browser"] } } },
-    } as unknown as OpenClawConfig;
+    } as unknown as MiraiConfig;
 
     const resolved = resolveSandboxToolPolicyForAgent(cfg, undefined);
     expect(resolved.sources.allow).toEqual({
@@ -208,7 +186,7 @@ describe("resolveSandboxToolPolicyForAgent", () => {
   it("auto-adds image to explicit allowlists unless denied", () => {
     const cfg = {
       tools: { sandbox: { tools: { allow: ["read"], deny: ["browser"] } } },
-    } as unknown as OpenClawConfig;
+    } as unknown as MiraiConfig;
 
     const resolved = resolveSandboxToolPolicyForAgent(cfg, undefined);
     expect(resolved.allow).toEqual(["read", "image"]);
@@ -218,7 +196,7 @@ describe("resolveSandboxToolPolicyForAgent", () => {
   it("does not auto-add image when explicitly denied", () => {
     const cfg = {
       tools: { sandbox: { tools: { allow: ["read"], deny: ["image"] } } },
-    } as unknown as OpenClawConfig;
+    } as unknown as MiraiConfig;
 
     const resolved = resolveSandboxToolPolicyForAgent(cfg, undefined);
     expect(resolved.allow).toEqual(["read"]);

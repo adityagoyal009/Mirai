@@ -39,7 +39,7 @@ type InteractiveState = {
   callbackDedupe: ReturnType<typeof createDedupeCache>;
 };
 
-const PLUGIN_INTERACTIVE_STATE_KEY = Symbol.for("openclaw.pluginInteractiveState");
+const PLUGIN_INTERACTIVE_STATE_KEY = Symbol.for("mirai.pluginInteractiveState");
 
 const state = resolveGlobalSingleton<InteractiveState>(PLUGIN_INTERACTIVE_STATE_KEY, () => ({
   interactiveHandlers: new Map<string, RegisteredInteractiveHandler>(),

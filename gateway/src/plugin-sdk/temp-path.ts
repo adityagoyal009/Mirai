@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import path from "node:path";
-import { resolvePreferredOpenClawTmpDir } from "../infra/tmp-openclaw-dir.js";
+import { resolvePreferredMiraiTmpDir } from "../infra/tmp-mirai-dir.js";
 
 function sanitizePrefix(prefix: string): string {
   const normalized = prefix.replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
@@ -28,7 +28,7 @@ function sanitizeFileName(fileName: string): string {
 }
 
 function resolveTempRoot(tmpDir?: string): string {
-  return tmpDir ?? resolvePreferredOpenClawTmpDir();
+  return tmpDir ?? resolvePreferredMiraiTmpDir();
 }
 
 function isNodeErrorWithCode(err: unknown, code: string): boolean {
@@ -40,7 +40,6 @@ function isNodeErrorWithCode(err: unknown, code: string): boolean {
   );
 }
 
-/** Build a unique temp file path with sanitized prefix/extension parts. */
 export function buildRandomTempFilePath(params: {
   prefix: string;
   extension?: string;
@@ -59,7 +58,6 @@ export function buildRandomTempFilePath(params: {
   return path.join(resolveTempRoot(params.tmpDir), `${prefix}-${now}-${uuid}${extension}`);
 }
 
-/** Create a temporary download directory, run the callback, then clean it up best-effort. */
 export async function withTempDownloadPath<T>(
   params: {
     prefix: string;

@@ -51,21 +51,18 @@ beforeAll(async () => {
 const whatsappOutbound: ChannelOutboundAdapter = {
   deliveryMode: "direct",
   sendText: async ({ deps, to, text }) => {
-    if (!deps?.["whatsapp"]) {
+    if (!deps?.sendWhatsApp) {
       throw new Error("Missing sendWhatsApp dep");
     }
-    return {
-      channel: "whatsapp",
-      ...(await (deps["whatsapp"] as Function)(to, text, { verbose: false })),
-    };
+    return { channel: "whatsapp", ...(await deps.sendWhatsApp(to, text, { verbose: false })) };
   },
   sendMedia: async ({ deps, to, text, mediaUrl }) => {
-    if (!deps?.["whatsapp"]) {
+    if (!deps?.sendWhatsApp) {
       throw new Error("Missing sendWhatsApp dep");
     }
     return {
       channel: "whatsapp",
-      ...(await (deps["whatsapp"] as Function)(to, text, { verbose: false, mediaUrl })),
+      ...(await deps.sendWhatsApp(to, text, { verbose: false, mediaUrl })),
     };
   },
 };
@@ -156,9 +153,9 @@ describe("gateway server models + voicewake", () => {
   };
 
   const withModelsConfig = async <T>(config: unknown, run: () => Promise<T>): Promise<T> => {
-    const configPath = process.env.OPENCLAW_CONFIG_PATH;
+    const configPath = process.env.MIRAI_CONFIG_PATH;
     if (!configPath) {
-      throw new Error("Missing OPENCLAW_CONFIG_PATH");
+      throw new Error("Missing MIRAI_CONFIG_PATH");
     }
     let previousConfig: string | undefined;
     try {
@@ -186,35 +183,12 @@ describe("gateway server models + voicewake", () => {
   };
 
   const withTempHome = async <T>(fn: (homeDir: string) => Promise<T>): Promise<T> => {
-    const tempHome = await createTempHomeEnv("openclaw-home-");
+    const tempHome = await createTempHomeEnv("mirai-home-");
     try {
       return await fn(tempHome.home);
     } finally {
       await tempHome.restore();
     }
-  };
-
-  const expectAllowlistedModels = async (options: {
-    primary: string;
-    models: Record<string, object>;
-    expected: ModelCatalogRpcEntry[];
-  }): Promise<void> => {
-    await withModelsConfig(
-      {
-        agents: {
-          defaults: {
-            model: { primary: options.primary },
-            models: options.models,
-          },
-        },
-      },
-      async () => {
-        seedPiCatalog();
-        const res = await listModels();
-        expect(res.ok).toBe(true);
-        expect(res.payload?.models).toEqual(options.expected);
-      },
-    );
   };
 
   test(
@@ -224,7 +198,7 @@ describe("gateway server models + voicewake", () => {
       await withTempHome(async (homeDir) => {
         const initial = await rpcReq<{ triggers: string[] }>(ws, "voicewake.get");
         expect(initial.ok).toBe(true);
-        expect(initial.payload?.triggers).toEqual(["openclaw", "claude", "computer"]);
+        expect(initial.payload?.triggers).toEqual(["mirai", "claude", "computer"]);
 
         const changedP = onceMessage(
           ws,
@@ -249,7 +223,7 @@ describe("gateway server models + voicewake", () => {
         expect(after.payload?.triggers).toEqual(["hi", "there"]);
 
         const onDisk = JSON.parse(
-          await fs.readFile(path.join(homeDir, ".openclaw", "settings", "voicewake.json"), "utf8"),
+          await fs.readFile(path.join(homeDir, ".mirai", "settings", "voicewake.json"), "utf8"),
         ) as { triggers?: unknown; updatedAtMs?: unknown };
         expect(onDisk.triggers).toEqual(["hi", "there"]);
         expect(typeof onDisk.updatedAtMs).toBe("number");
@@ -279,7 +253,7 @@ describe("gateway server models + voicewake", () => {
       const first = (await firstEventP) as { event?: string; payload?: unknown };
       expect(first.event).toBe("voicewake.changed");
       expect((first.payload as { triggers?: unknown } | undefined)?.triggers).toEqual([
-        "openclaw",
+        "mirai",
         "claude",
         "computer",
       ]);
@@ -289,14 +263,14 @@ describe("gateway server models + voicewake", () => {
         (o) => o.type === "event" && o.event === "voicewake.changed",
       );
       const setRes = await rpcReq<{ triggers: string[] }>(ws, "voicewake.set", {
-        triggers: ["openclaw", "computer"],
+        triggers: ["mirai", "computer"],
       });
       expect(setRes.ok).toBe(true);
 
       const broadcast = (await broadcastP) as { event?: string; payload?: unknown };
       expect(broadcast.event).toBe("voicewake.changed");
       expect((broadcast.payload as { triggers?: unknown } | undefined)?.triggers).toEqual([
-        "openclaw",
+        "mirai",
         "computer",
       ]);
 
@@ -320,42 +294,66 @@ describe("gateway server models + voicewake", () => {
   });
 
   test("models.list filters to allowlisted configured models by default", async () => {
-    await expectAllowlistedModels({
-      primary: "openai/gpt-test-z",
-      models: {
-        "openai/gpt-test-z": {},
-        "anthropic/claude-test-a": {},
+    await withModelsConfig(
+      {
+        agents: {
+          defaults: {
+            model: { primary: "openai/gpt-test-z" },
+            models: {
+              "openai/gpt-test-z": {},
+              "anthropic/claude-test-a": {},
+            },
+          },
+        },
       },
-      expected: [
-        {
-          id: "claude-test-a",
-          name: "A-Model",
-          provider: "anthropic",
-          contextWindow: 200_000,
-        },
-        {
-          id: "gpt-test-z",
-          name: "gpt-test-z",
-          provider: "openai",
-        },
-      ],
-    });
+      async () => {
+        seedPiCatalog();
+        const res = await listModels();
+
+        expect(res.ok).toBe(true);
+        expect(res.payload?.models).toEqual([
+          {
+            id: "claude-test-a",
+            name: "A-Model",
+            provider: "anthropic",
+            contextWindow: 200_000,
+          },
+          {
+            id: "gpt-test-z",
+            name: "gpt-test-z",
+            provider: "openai",
+          },
+        ]);
+      },
+    );
   });
 
   test("models.list includes synthetic entries for allowlist models absent from catalog", async () => {
-    await expectAllowlistedModels({
-      primary: "openai/not-in-catalog",
-      models: {
-        "openai/not-in-catalog": {},
-      },
-      expected: [
-        {
-          id: "not-in-catalog",
-          name: "not-in-catalog",
-          provider: "openai",
+    await withModelsConfig(
+      {
+        agents: {
+          defaults: {
+            model: { primary: "openai/not-in-catalog" },
+            models: {
+              "openai/not-in-catalog": {},
+            },
+          },
         },
-      ],
-    });
+      },
+      async () => {
+        seedPiCatalog();
+        const res = await listModels();
+
+        expect(res.ok).toBe(true);
+        expect(res.payload?.models).toEqual([
+          {
+            id: "not-in-catalog",
+            name: "not-in-catalog",
+            provider: "openai",
+          },
+        ]);
+      },
+    );
   });
 
   test("models.list rejects unknown params", async () => {
@@ -370,12 +368,12 @@ describe("gateway server models + voicewake", () => {
 
 describe("gateway server misc", () => {
   test("hello-ok advertises the gateway port for canvas host", async () => {
-    await withEnvAsync({ OPENCLAW_GATEWAY_TOKEN: "secret" }, async () => {
+    await withEnvAsync({ MIRAI_GATEWAY_TOKEN: "secret" }, async () => {
       testTailnetIPv4.value = "100.64.0.1";
       testState.gatewayBind = "lan";
       const canvasPort = await getFreePort();
       testState.canvasHostPort = canvasPort;
-      await withEnvAsync({ OPENCLAW_CANVAS_HOST_PORT: String(canvasPort) }, async () => {
+      await withEnvAsync({ MIRAI_CANVAS_HOST_PORT: String(canvasPort) }, async () => {
         const testPort = await getFreePort();
         const canvasHostUrl = resolveCanvasHostUrl({
           canvasPort,
@@ -424,9 +422,9 @@ describe("gateway server misc", () => {
   });
 
   test("auto-enables configured channel plugins on startup", async () => {
-    const configPath = process.env.OPENCLAW_CONFIG_PATH;
+    const configPath = process.env.MIRAI_CONFIG_PATH;
     if (!configPath) {
-      throw new Error("Missing OPENCLAW_CONFIG_PATH");
+      throw new Error("Missing MIRAI_CONFIG_PATH");
     }
     await fs.mkdir(path.dirname(configPath), { recursive: true });
     await fs.writeFile(

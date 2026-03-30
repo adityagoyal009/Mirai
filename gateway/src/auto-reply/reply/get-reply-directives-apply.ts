@@ -1,4 +1,4 @@
-import type { OpenClawConfig } from "../../config/config.js";
+import type { MiraiConfig } from "../../config/config.js";
 import type { SessionEntry } from "../../config/sessions.js";
 import type { MsgContext } from "../templating.js";
 import type { ElevatedLevel } from "../thinking.js";
@@ -16,7 +16,7 @@ import { clearInlineDirectives } from "./get-reply-directives-utils.js";
 import type { createModelSelectionState } from "./model-selection.js";
 import type { TypingController } from "./typing.js";
 
-type AgentDefaults = NonNullable<OpenClawConfig["agents"]>["defaults"];
+type AgentDefaults = NonNullable<MiraiConfig["agents"]>["defaults"];
 
 export type ApplyDirectiveResult =
   | { kind: "reply"; reply: ReplyPayload | ReplyPayload[] | undefined }
@@ -37,7 +37,7 @@ export type ApplyDirectiveResult =
 
 export async function applyInlineDirectiveOverrides(params: {
   ctx: MsgContext;
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   agentId: string;
   agentDir: string;
   agentCfg: AgentDefaults;
@@ -150,7 +150,6 @@ export async function applyInlineDirectiveOverrides(params: {
     }
     const {
       currentThinkLevel: resolvedDefaultThinkLevel,
-      currentFastMode,
       currentVerboseLevel,
       currentReasoningLevel,
       currentElevatedLevel,
@@ -163,7 +162,6 @@ export async function applyInlineDirectiveOverrides(params: {
     const directiveReply = await handleDirectiveOnly({
       ...createDirectiveHandlingBase(),
       currentThinkLevel,
-      currentFastMode,
       currentVerboseLevel,
       currentReasoningLevel,
       currentElevatedLevel,
@@ -203,7 +201,6 @@ export async function applyInlineDirectiveOverrides(params: {
 
   const hasAnyDirective =
     directives.hasThinkDirective ||
-    directives.hasFastDirective ||
     directives.hasVerboseDirective ||
     directives.hasReasoningDirective ||
     directives.hasElevatedDirective ||

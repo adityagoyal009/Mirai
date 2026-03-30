@@ -16,22 +16,16 @@ import {
 } from "../infra/restart.js";
 import { setCommandLaneConcurrency, getTotalQueueSize } from "../process/command-queue.js";
 import { CommandLane } from "../process/lanes.js";
-import type { ChannelHealthMonitor } from "./channel-health-monitor.js";
-import type { ChannelKind } from "./config-reload-plan.js";
-import type { GatewayReloadPlan } from "./config-reload.js";
+import type { ChannelKind, GatewayReloadPlan } from "./config-reload.js";
 import { resolveHooksConfig } from "./hooks.js";
 import { startBrowserControlServerIfEnabled } from "./server-browser.js";
 import { buildGatewayCronService, type GatewayCronState } from "./server-cron.js";
-import type { HookClientIpConfig } from "./server-http.js";
-import { resolveHookClientIpConfig } from "./server/hooks.js";
 
 type GatewayHotReloadState = {
   hooksConfig: ReturnType<typeof resolveHooksConfig>;
-  hookClientIpConfig: HookClientIpConfig;
   heartbeatRunner: HeartbeatRunner;
   cronState: GatewayCronState;
   browserControl: Awaited<ReturnType<typeof startBrowserControlServerIfEnabled>> | null;
-  channelHealthMonitor: ChannelHealthMonitor | null;
 };
 
 export function createGatewayReloadHandlers(params: {
@@ -50,11 +44,6 @@ export function createGatewayReloadHandlers(params: {
   logChannels: { info: (msg: string) => void; error: (msg: string) => void };
   logCron: { error: (msg: string) => void };
   logReload: { info: (msg: string) => void; warn: (msg: string) => void };
-  createHealthMonitor: (opts: {
-    checkIntervalMs: number;
-    staleEventThresholdMs?: number;
-    maxRestartsPerHour?: number;
-  }) => ChannelHealthMonitor;
 }) {
   const applyHotReload = async (
     plan: GatewayReloadPlan,
@@ -71,7 +60,6 @@ export function createGatewayReloadHandlers(params: {
         params.logHooks.warn(`hooks config reload failed: ${String(err)}`);
       }
     }
-    nextState.hookClientIpConfig = resolveHookClientIpConfig(nextConfig);
 
     if (plan.restartHeartbeat) {
       nextState.heartbeatRunner.updateConfig(nextConfig);
@@ -102,39 +90,23 @@ export function createGatewayReloadHandlers(params: {
       }
     }
 
-    if (plan.restartHealthMonitor) {
-      state.channelHealthMonitor?.stop();
-      const minutes = nextConfig.gateway?.channelHealthCheckMinutes;
-      const staleMinutes = nextConfig.gateway?.channelStaleEventThresholdMinutes;
-      nextState.channelHealthMonitor =
-        minutes === 0
-          ? null
-          : params.createHealthMonitor({
-              checkIntervalMs: (minutes ?? 5) * 60_000,
-              ...(staleMinutes != null && { staleEventThresholdMs: staleMinutes * 60_000 }),
-              ...(nextConfig.gateway?.channelMaxRestartsPerHour != null && {
-                maxRestartsPerHour: nextConfig.gateway.channelMaxRestartsPerHour,
-              }),
-            });
-    }
-
     if (plan.restartGmailWatcher) {
       await stopGmailWatcher().catch(() => {});
       await startGmailWatcherWithLogs({
         cfg: nextConfig,
         log: params.logHooks,
         onSkipped: () =>
-          params.logHooks.info("skipping gmail watcher restart (OPENCLAW_SKIP_GMAIL_WATCHER=1)"),
+          params.logHooks.info("skipping gmail watcher restart (MIRAI_SKIP_GMAIL_WATCHER=1)"),
       });
     }
 
     if (plan.restartChannels.size > 0) {
       if (
-        isTruthyEnvValue(process.env.OPENCLAW_SKIP_CHANNELS) ||
-        isTruthyEnvValue(process.env.OPENCLAW_SKIP_PROVIDERS)
+        isTruthyEnvValue(process.env.MIRAI_SKIP_CHANNELS) ||
+        isTruthyEnvValue(process.env.MIRAI_SKIP_PROVIDERS)
       ) {
         params.logChannels.info(
-          "skipping channel reload (OPENCLAW_SKIP_CHANNELS=1 or OPENCLAW_SKIP_PROVIDERS=1)",
+          "skipping channel reload (MIRAI_SKIP_CHANNELS=1 or MIRAI_SKIP_PROVIDERS=1)",
         );
       } else {
         const restartChannel = async (name: ChannelKind) => {
@@ -219,7 +191,6 @@ export function createGatewayReloadHandlers(params: {
 
       deferGatewayRestartUntilIdle({
         getPendingCount: () => getActiveCounts().totalActive,
-        maxWaitMs: nextConfig.gateway?.reload?.deferralTimeoutMs,
         hooks: {
           onReady: () => {
             restartPending = false;

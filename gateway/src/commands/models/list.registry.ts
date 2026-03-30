@@ -1,16 +1,17 @@
 import type { Api, Model } from "@mariozechner/pi-ai";
-import type { ModelRegistry } from "@mariozechner/pi-coding-agent";
-import { resolveOpenClawAgentDir } from "../../agents/agent-paths.js";
+import { resolveMiraiAgentDir } from "../../agents/agent-paths.js";
 import type { AuthProfileStore } from "../../agents/auth-profiles.js";
 import { listProfilesForProvider } from "../../agents/auth-profiles.js";
 import {
-  hasUsableCustomProviderApiKey,
+  getCustomProviderApiKey,
   resolveAwsSdkEnvVarName,
   resolveEnvApiKey,
 } from "../../agents/model-auth.js";
-import { shouldSuppressBuiltInModel } from "../../agents/model-suppression.js";
+import { ensureMiraiModelsJson } from "../../agents/models-config.js";
+import { ensurePiAuthJsonFromAuthProfiles } from "../../agents/pi-auth-json.js";
+import type { ModelRegistry } from "../../agents/pi-model-discovery.js";
 import { discoverAuthStorage, discoverModels } from "../../agents/pi-model-discovery.js";
-import type { OpenClawConfig } from "../../config/config.js";
+import type { MiraiConfig } from "../../config/config.js";
 import {
   formatErrorWithStack,
   MODEL_AVAILABILITY_UNAVAILABLE_CODE,
@@ -21,7 +22,7 @@ import { isLocalBaseUrl, modelKey } from "./shared.js";
 
 const hasAuthForProvider = (
   provider: string,
-  cfg?: OpenClawConfig,
+  cfg?: MiraiConfig,
   authStore?: AuthProfileStore,
 ) => {
   if (!cfg || !authStore) {
@@ -36,7 +37,7 @@ const hasAuthForProvider = (
   if (resolveEnvApiKey(provider)) {
     return true;
   }
-  if (hasUsableCustomProviderApiKey(cfg, provider)) {
+  if (getCustomProviderApiKey(cfg, provider)) {
     return true;
   }
   return false;
@@ -88,24 +89,19 @@ function loadAvailableModels(registry: ModelRegistry): Model<Api>[] {
     throw normalizeAvailabilityError(err);
   }
   try {
-    return validateAvailableModels(availableModels).filter(
-      (model) => !shouldSuppressBuiltInModel({ provider: model.provider, id: model.id }),
-    );
+    return validateAvailableModels(availableModels);
   } catch (err) {
     throw normalizeAvailabilityError(err);
   }
 }
 
-export async function loadModelRegistry(
-  _cfg: OpenClawConfig,
-  _opts?: { sourceConfig?: OpenClawConfig },
-) {
-  const agentDir = resolveOpenClawAgentDir();
+export async function loadModelRegistry(cfg: MiraiConfig) {
+  await ensureMiraiModelsJson(cfg);
+  const agentDir = resolveMiraiAgentDir();
+  await ensurePiAuthJsonFromAuthProfiles(agentDir);
   const authStorage = discoverAuthStorage(agentDir);
   const registry = discoverModels(authStorage, agentDir);
-  const models = registry
-    .getAll()
-    .filter((model) => !shouldSuppressBuiltInModel({ provider: model.provider, id: model.id }));
+  const models = registry.getAll();
   let availableKeys: Set<string> | undefined;
   let availabilityErrorMessage: string | undefined;
 
@@ -133,20 +129,10 @@ export function toModelRow(params: {
   tags: string[];
   aliases?: string[];
   availableKeys?: Set<string>;
-  cfg?: OpenClawConfig;
+  cfg?: MiraiConfig;
   authStore?: AuthProfileStore;
-  allowProviderAvailabilityFallback?: boolean;
 }): ModelRow {
-  const {
-    model,
-    key,
-    tags,
-    aliases = [],
-    availableKeys,
-    cfg,
-    authStore,
-    allowProviderAvailabilityFallback = false,
-  } = params;
+  const { model, key, tags, aliases = [], availableKeys, cfg, authStore } = params;
   if (!model) {
     return {
       key,
@@ -162,15 +148,14 @@ export function toModelRow(params: {
 
   const input = model.input.join("+") || "text";
   const local = isLocalBaseUrl(model.baseUrl);
-  const modelIsAvailable = availableKeys?.has(modelKey(model.provider, model.id)) ?? false;
   // Prefer model-level registry availability when present.
-  // Fall back to provider-level auth heuristics only if registry availability isn't available,
-  // or if the caller marks this as a synthetic/forward-compat model that won't appear in getAvailable().
+  // Fall back to provider-level auth heuristics only if registry availability isn't available.
   const available =
-    availableKeys !== undefined && !allowProviderAvailabilityFallback
-      ? modelIsAvailable
-      : modelIsAvailable ||
-        (cfg && authStore ? hasAuthForProvider(model.provider, cfg, authStore) : false);
+    availableKeys !== undefined
+      ? availableKeys.has(modelKey(model.provider, model.id))
+      : cfg && authStore
+        ? hasAuthForProvider(model.provider, cfg, authStore)
+        : false;
   const aliasTags = aliases.length > 0 ? [`alias:${aliases.join(",")}`] : [];
   const mergedTags = new Set(tags);
   if (aliasTags.length > 0) {

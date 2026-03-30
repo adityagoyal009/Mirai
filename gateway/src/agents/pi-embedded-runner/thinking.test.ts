@@ -1,32 +1,15 @@
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import { describe, expect, it } from "vitest";
-import { castAgentMessage } from "../test-helpers/agent-message-fixtures.js";
 import { dropThinkingBlocks, isAssistantMessageWithContent } from "./thinking.js";
-
-function dropSingleAssistantContent(content: Array<Record<string, unknown>>) {
-  const messages: AgentMessage[] = [
-    castAgentMessage({
-      role: "assistant",
-      content,
-    }),
-  ];
-
-  const result = dropThinkingBlocks(messages);
-  return {
-    assistant: result[0] as Extract<AgentMessage, { role: "assistant" }>,
-    messages,
-    result,
-  };
-}
 
 describe("isAssistantMessageWithContent", () => {
   it("accepts assistant messages with array content and rejects others", () => {
-    const assistant = castAgentMessage({
+    const assistant = {
       role: "assistant",
       content: [{ type: "text", text: "ok" }],
-    });
-    const user = castAgentMessage({ role: "user", content: "hi" });
-    const malformed = castAgentMessage({ role: "assistant", content: "not-array" });
+    } as AgentMessage;
+    const user = { role: "user", content: "hi" } as AgentMessage;
+    const malformed = { role: "assistant", content: "not-array" } as unknown as AgentMessage;
 
     expect(isAssistantMessageWithContent(assistant)).toBe(true);
     expect(isAssistantMessageWithContent(user)).toBe(false);
@@ -37,8 +20,8 @@ describe("isAssistantMessageWithContent", () => {
 describe("dropThinkingBlocks", () => {
   it("returns the original reference when no thinking blocks are present", () => {
     const messages: AgentMessage[] = [
-      castAgentMessage({ role: "user", content: "hello" }),
-      castAgentMessage({ role: "assistant", content: [{ type: "text", text: "world" }] }),
+      { role: "user", content: "hello" } as AgentMessage,
+      { role: "assistant", content: [{ type: "text", text: "world" }] } as AgentMessage,
     ];
 
     const result = dropThinkingBlocks(messages);
@@ -46,18 +29,32 @@ describe("dropThinkingBlocks", () => {
   });
 
   it("drops thinking blocks while preserving non-thinking assistant content", () => {
-    const { assistant, messages, result } = dropSingleAssistantContent([
-      { type: "thinking", thinking: "internal" },
-      { type: "text", text: "final" },
-    ]);
+    const messages: AgentMessage[] = [
+      {
+        role: "assistant",
+        content: [
+          { type: "thinking", thinking: "internal" },
+          { type: "text", text: "final" },
+        ],
+      } as unknown as AgentMessage,
+    ];
+
+    const result = dropThinkingBlocks(messages);
+    const assistant = result[0] as Extract<AgentMessage, { role: "assistant" }>;
     expect(result).not.toBe(messages);
     expect(assistant.content).toEqual([{ type: "text", text: "final" }]);
   });
 
   it("keeps assistant turn structure when all content blocks were thinking", () => {
-    const { assistant } = dropSingleAssistantContent([
-      { type: "thinking", thinking: "internal-only" },
-    ]);
+    const messages: AgentMessage[] = [
+      {
+        role: "assistant",
+        content: [{ type: "thinking", thinking: "internal-only" }],
+      } as unknown as AgentMessage,
+    ];
+
+    const result = dropThinkingBlocks(messages);
+    const assistant = result[0] as Extract<AgentMessage, { role: "assistant" }>;
     expect(assistant.content).toEqual([{ type: "text", text: "" }]);
   });
 });

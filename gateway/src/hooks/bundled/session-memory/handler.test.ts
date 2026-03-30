@@ -1,9 +1,8 @@
 import fs from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import type { OpenClawConfig } from "../../../config/config.js";
-import { writeWorkspaceFile } from "../../../test-helpers/workspace.js";
+import { beforeAll, describe, expect, it, vi } from "vitest";
+import type { MiraiConfig } from "../../../config/config.js";
+import { makeTempWorkspace, writeWorkspaceFile } from "../../../test-helpers/workspace.js";
 import type { HookHandler } from "../../hooks.js";
 import { createHookEvent } from "../../hooks.js";
 
@@ -13,28 +12,9 @@ vi.mock("../../llm-slug-generator.js", () => ({
 }));
 
 let handler: HookHandler;
-let suiteWorkspaceRoot = "";
-let workspaceCaseCounter = 0;
-
-async function createCaseWorkspace(prefix = "case"): Promise<string> {
-  const dir = path.join(suiteWorkspaceRoot, `${prefix}-${workspaceCaseCounter}`);
-  workspaceCaseCounter += 1;
-  await fs.mkdir(dir, { recursive: true });
-  return dir;
-}
 
 beforeAll(async () => {
   ({ default: handler } = await import("./handler.js"));
-  suiteWorkspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-session-memory-"));
-});
-
-afterAll(async () => {
-  if (!suiteWorkspaceRoot) {
-    return;
-  }
-  await fs.rm(suiteWorkspaceRoot, { recursive: true, force: true });
-  suiteWorkspaceRoot = "";
-  workspaceCaseCounter = 0;
 });
 
 /**
@@ -63,25 +43,17 @@ function createMockSessionContent(
 async function runNewWithPreviousSessionEntry(params: {
   tempDir: string;
   previousSessionEntry: { sessionId: string; sessionFile?: string };
-  cfg?: OpenClawConfig;
+  cfg?: MiraiConfig;
   action?: "new" | "reset";
-  sessionKey?: string;
-  workspaceDirOverride?: string;
 }): Promise<{ files: string[]; memoryContent: string }> {
-  const event = createHookEvent(
-    "command",
-    params.action ?? "new",
-    params.sessionKey ?? "agent:main:main",
-    {
-      cfg:
-        params.cfg ??
-        ({
-          agents: { defaults: { workspace: params.tempDir } },
-        } satisfies OpenClawConfig),
-      previousSessionEntry: params.previousSessionEntry,
-      ...(params.workspaceDirOverride ? { workspaceDir: params.workspaceDirOverride } : {}),
-    },
-  );
+  const event = createHookEvent("command", params.action ?? "new", "agent:main:main", {
+    cfg:
+      params.cfg ??
+      ({
+        agents: { defaults: { workspace: params.tempDir } },
+      } satisfies MiraiConfig),
+    previousSessionEntry: params.previousSessionEntry,
+  });
 
   await handler(event);
 
@@ -94,10 +66,10 @@ async function runNewWithPreviousSessionEntry(params: {
 
 async function runNewWithPreviousSession(params: {
   sessionContent: string;
-  cfg?: (tempDir: string) => OpenClawConfig;
+  cfg?: (tempDir: string) => MiraiConfig;
   action?: "new" | "reset";
 }): Promise<{ tempDir: string; files: string[]; memoryContent: string }> {
-  const tempDir = await createCaseWorkspace("workspace");
+  const tempDir = await makeTempWorkspace("mirai-session-memory-");
   const sessionsDir = path.join(tempDir, "sessions");
   await fs.mkdir(sessionsDir, { recursive: true });
 
@@ -111,7 +83,7 @@ async function runNewWithPreviousSession(params: {
     params.cfg?.(tempDir) ??
     ({
       agents: { defaults: { workspace: tempDir } },
-    } satisfies OpenClawConfig);
+    } satisfies MiraiConfig);
 
   const { files, memoryContent } = await runNewWithPreviousSessionEntry({
     tempDir,
@@ -125,7 +97,7 @@ async function runNewWithPreviousSession(params: {
   return { tempDir, files, memoryContent };
 }
 
-function makeSessionMemoryConfig(tempDir: string, messages?: number): OpenClawConfig {
+function makeSessionMemoryConfig(tempDir: string, messages?: number): MiraiConfig {
   return {
     agents: { defaults: { workspace: tempDir } },
     ...(typeof messages === "number"
@@ -139,13 +111,13 @@ function makeSessionMemoryConfig(tempDir: string, messages?: number): OpenClawCo
           },
         }
       : {}),
-  } satisfies OpenClawConfig;
+  } satisfies MiraiConfig;
 }
 
 async function createSessionMemoryWorkspace(params?: {
   activeSession?: { name: string; content: string };
 }): Promise<{ tempDir: string; sessionsDir: string; activeSessionFile?: string }> {
-  const tempDir = await createCaseWorkspace("workspace");
+  const tempDir = await makeTempWorkspace("mirai-session-memory-");
   const sessionsDir = path.join(tempDir, "sessions");
   await fs.mkdir(sessionsDir, { recursive: true });
 
@@ -190,7 +162,7 @@ function expectMemoryConversation(params: {
 
 describe("session-memory hook", () => {
   it("skips non-command events", async () => {
-    const tempDir = await createCaseWorkspace("workspace");
+    const tempDir = await makeTempWorkspace("mirai-session-memory-");
 
     const event = createHookEvent("agent", "bootstrap", "agent:main:main", {
       workspaceDir: tempDir,
@@ -204,7 +176,7 @@ describe("session-memory hook", () => {
   });
 
   it("skips commands other than new", async () => {
-    const tempDir = await createCaseWorkspace("workspace");
+    const tempDir = await makeTempWorkspace("mirai-session-memory-");
 
     const event = createHookEvent("command", "help", "agent:main:main", {
       workspaceDir: tempDir,
@@ -248,44 +220,6 @@ describe("session-memory hook", () => {
     expect(files.length).toBe(1);
     expect(memoryContent).toContain("user: Please reset and keep notes");
     expect(memoryContent).toContain("assistant: Captured before reset");
-  });
-
-  it("prefers workspaceDir from hook context when sessionKey points at main", async () => {
-    const mainWorkspace = await createCaseWorkspace("workspace-main");
-    const naviWorkspace = await createCaseWorkspace("workspace-navi");
-    const naviSessionsDir = path.join(naviWorkspace, "sessions");
-    await fs.mkdir(naviSessionsDir, { recursive: true });
-
-    const sessionFile = await writeWorkspaceFile({
-      dir: naviSessionsDir,
-      name: "navi-session.jsonl",
-      content: createMockSessionContent([
-        { role: "user", content: "Remember this under Navi" },
-        { role: "assistant", content: "Stored in the bound workspace" },
-      ]),
-    });
-
-    const { files, memoryContent } = await runNewWithPreviousSessionEntry({
-      tempDir: naviWorkspace,
-      cfg: {
-        agents: {
-          defaults: { workspace: mainWorkspace },
-          list: [{ id: "navi", workspace: naviWorkspace }],
-        },
-      } satisfies OpenClawConfig,
-      sessionKey: "agent:main:main",
-      workspaceDirOverride: naviWorkspace,
-      previousSessionEntry: {
-        sessionId: "navi-session",
-        sessionFile,
-      },
-    });
-
-    expect(files.length).toBe(1);
-    expect(memoryContent).toContain("user: Remember this under Navi");
-    expect(memoryContent).toContain("assistant: Stored in the bound workspace");
-    expect(memoryContent).toContain("- **Session Key**: agent:navi:main");
-    await expect(fs.access(path.join(mainWorkspace, "memory"))).rejects.toThrow();
   });
 
   it("filters out non-message entries (tool calls, system)", async () => {

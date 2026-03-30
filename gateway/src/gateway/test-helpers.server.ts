@@ -18,7 +18,7 @@ import { DEFAULT_AGENT_ID, toAgentStoreSessionKey } from "../routing/session-key
 import { captureEnv } from "../test-utils/env.js";
 import { getDeterministicFreePortBlock } from "../test-utils/ports.js";
 import { GATEWAY_CLIENT_MODES, GATEWAY_CLIENT_NAMES } from "../utils/message-channel.js";
-import { buildDeviceAuthPayloadV3 } from "./device-auth.js";
+import { buildDeviceAuthPayload } from "./device-auth.js";
 import { PROTOCOL_VERSION } from "./protocol/index.js";
 import type { GatewayServerOptions } from "./server.js";
 import {
@@ -46,22 +46,21 @@ async function getServerModule() {
 const GATEWAY_TEST_ENV_KEYS = [
   "HOME",
   "USERPROFILE",
-  "OPENCLAW_STATE_DIR",
-  "OPENCLAW_CONFIG_PATH",
-  "OPENCLAW_SKIP_BROWSER_CONTROL_SERVER",
-  "OPENCLAW_SKIP_GMAIL_WATCHER",
-  "OPENCLAW_SKIP_CANVAS_HOST",
-  "OPENCLAW_BUNDLED_PLUGINS_DIR",
-  "OPENCLAW_SKIP_CHANNELS",
-  "OPENCLAW_SKIP_PROVIDERS",
-  "OPENCLAW_SKIP_CRON",
-  "OPENCLAW_TEST_MINIMAL_GATEWAY",
+  "MIRAI_STATE_DIR",
+  "MIRAI_CONFIG_PATH",
+  "MIRAI_SKIP_BROWSER_CONTROL_SERVER",
+  "MIRAI_SKIP_GMAIL_WATCHER",
+  "MIRAI_SKIP_CANVAS_HOST",
+  "MIRAI_BUNDLED_PLUGINS_DIR",
+  "MIRAI_SKIP_CHANNELS",
+  "MIRAI_SKIP_PROVIDERS",
+  "MIRAI_SKIP_CRON",
+  "MIRAI_TEST_MINIMAL_GATEWAY",
 ] as const;
 
 let gatewayEnvSnapshot: ReturnType<typeof captureEnv> | undefined;
 let tempHome: string | undefined;
 let tempConfigRoot: string | undefined;
-let suiteConfigRootSeq = 0;
 
 export async function writeSessionStore(params: {
   entries: Record<string, Partial<SessionEntry>>;
@@ -93,24 +92,24 @@ export async function writeSessionStore(params: {
 
 async function setupGatewayTestHome() {
   gatewayEnvSnapshot = captureEnv([...GATEWAY_TEST_ENV_KEYS]);
-  tempHome = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-gateway-home-"));
+  tempHome = await fs.mkdtemp(path.join(os.tmpdir(), "mirai-gateway-home-"));
   process.env.HOME = tempHome;
   process.env.USERPROFILE = tempHome;
-  process.env.OPENCLAW_STATE_DIR = path.join(tempHome, ".openclaw");
-  delete process.env.OPENCLAW_CONFIG_PATH;
+  process.env.MIRAI_STATE_DIR = path.join(tempHome, ".mirai");
+  delete process.env.MIRAI_CONFIG_PATH;
 }
 
 function applyGatewaySkipEnv() {
-  process.env.OPENCLAW_SKIP_BROWSER_CONTROL_SERVER = "1";
-  process.env.OPENCLAW_SKIP_GMAIL_WATCHER = "1";
-  process.env.OPENCLAW_SKIP_CANVAS_HOST = "1";
-  process.env.OPENCLAW_SKIP_CHANNELS = "1";
-  process.env.OPENCLAW_SKIP_PROVIDERS = "1";
-  process.env.OPENCLAW_SKIP_CRON = "1";
-  process.env.OPENCLAW_TEST_MINIMAL_GATEWAY = "1";
-  process.env.OPENCLAW_BUNDLED_PLUGINS_DIR = tempHome
-    ? path.join(tempHome, "openclaw-test-no-bundled-extensions")
-    : "openclaw-test-no-bundled-extensions";
+  process.env.MIRAI_SKIP_BROWSER_CONTROL_SERVER = "1";
+  process.env.MIRAI_SKIP_GMAIL_WATCHER = "1";
+  process.env.MIRAI_SKIP_CANVAS_HOST = "1";
+  process.env.MIRAI_SKIP_CHANNELS = "1";
+  process.env.MIRAI_SKIP_PROVIDERS = "1";
+  process.env.MIRAI_SKIP_CRON = "1";
+  process.env.MIRAI_TEST_MINIMAL_GATEWAY = "1";
+  process.env.MIRAI_BUNDLED_PLUGINS_DIR = tempHome
+    ? path.join(tempHome, "mirai-test-no-bundled-extensions")
+    : "mirai-test-no-bundled-extensions";
 }
 
 async function resetGatewayTestState(options: { uniqueConfigRoot: boolean }) {
@@ -122,13 +121,9 @@ async function resetGatewayTestState(options: { uniqueConfigRoot: boolean }) {
   }
   applyGatewaySkipEnv();
   if (options.uniqueConfigRoot) {
-    const suiteRoot = path.join(tempHome, ".openclaw-test-suite");
-    await fs.mkdir(suiteRoot, { recursive: true });
-    tempConfigRoot = path.join(suiteRoot, `case-${suiteConfigRootSeq++}`);
-    await fs.rm(tempConfigRoot, { recursive: true, force: true });
-    await fs.mkdir(tempConfigRoot, { recursive: true });
+    tempConfigRoot = await fs.mkdtemp(path.join(tempHome, "mirai-test-"));
   } else {
-    tempConfigRoot = path.join(tempHome, ".openclaw-test");
+    tempConfigRoot = path.join(tempHome, ".mirai-test");
     await fs.rm(tempConfigRoot, { recursive: true, force: true });
     await fs.mkdir(tempConfigRoot, { recursive: true });
   }
@@ -187,9 +182,6 @@ async function cleanupGatewayTestHome(options: { restoreEnv: boolean }) {
     tempHome = undefined;
   }
   tempConfigRoot = undefined;
-  if (options.restoreEnv) {
-    suiteConfigRootSeq = 0;
-  }
 }
 
 export function installGatewayTestHooks(options?: { scope?: "test" | "suite" }) {
@@ -250,8 +242,8 @@ type GatewayTestMessage = {
   [key: string]: unknown;
 };
 
-const CONNECT_CHALLENGE_NONCE_KEY = "__openclawTestConnectChallengeNonce";
-const CONNECT_CHALLENGE_TRACKED_KEY = "__openclawTestConnectChallengeTracked";
+const CONNECT_CHALLENGE_NONCE_KEY = "__miraiTestConnectChallengeNonce";
+const CONNECT_CHALLENGE_TRACKED_KEY = "__miraiTestConnectChallengeTracked";
 type TrackedWs = WebSocket & Record<string, unknown>;
 
 export function getTrackedConnectChallengeNonce(ws: WebSocket): string | undefined {
@@ -339,9 +331,54 @@ async function startGatewayServerWithRetries(params: {
   throw new Error("failed to start gateway server after retries");
 }
 
-async function waitForWebSocketOpen(ws: WebSocket, timeoutMs = 10_000): Promise<void> {
+export async function withGatewayServer<T>(
+  fn: (ctx: { port: number; server: Awaited<ReturnType<typeof startGatewayServer>> }) => Promise<T>,
+  opts?: { port?: number; serverOptions?: GatewayServerOptions },
+): Promise<T> {
+  const started = await startGatewayServerWithRetries({
+    port: opts?.port ?? (await getFreePort()),
+    opts: opts?.serverOptions,
+  });
+  try {
+    return await fn({ port: started.port, server: started.server });
+  } finally {
+    await started.server.close();
+  }
+}
+
+export async function startServerWithClient(
+  token?: string,
+  opts?: GatewayServerOptions & { wsHeaders?: Record<string, string> },
+) {
+  const { wsHeaders, ...gatewayOpts } = opts ?? {};
+  let port = await getFreePort();
+  const envSnapshot = captureEnv(["MIRAI_GATEWAY_TOKEN"]);
+  const prev = process.env.MIRAI_GATEWAY_TOKEN;
+  if (typeof token === "string") {
+    testState.gatewayAuth = { mode: "token", token };
+  }
+  const fallbackToken =
+    token ??
+    (typeof (testState.gatewayAuth as { token?: unknown } | undefined)?.token === "string"
+      ? (testState.gatewayAuth as { token?: string }).token
+      : undefined);
+  if (fallbackToken === undefined) {
+    delete process.env.MIRAI_GATEWAY_TOKEN;
+  } else {
+    process.env.MIRAI_GATEWAY_TOKEN = fallbackToken;
+  }
+
+  const started = await startGatewayServerWithRetries({ port, opts: gatewayOpts });
+  port = started.port;
+  const server = started.server;
+
+  const ws = new WebSocket(
+    `ws://127.0.0.1:${port}`,
+    wsHeaders ? { headers: wsHeaders } : undefined,
+  );
+  trackConnectChallengeNonce(ws);
   await new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error("timeout waiting for ws open")), timeoutMs);
+    const timer = setTimeout(() => reject(new Error("timeout waiting for ws open")), 10_000);
     const cleanup = () => {
       clearTimeout(timer);
       ws.off("open", onOpen);
@@ -364,91 +401,6 @@ async function waitForWebSocketOpen(ws: WebSocket, timeoutMs = 10_000): Promise<
     ws.once("error", onError);
     ws.once("close", onClose);
   });
-}
-
-async function openTrackedWebSocket(params: {
-  port: number;
-  headers?: Record<string, string>;
-}): Promise<WebSocket> {
-  const ws = new WebSocket(
-    `ws://127.0.0.1:${params.port}`,
-    params.headers ? { headers: params.headers } : undefined,
-  );
-  trackConnectChallengeNonce(ws);
-  await waitForWebSocketOpen(ws);
-  return ws;
-}
-
-export async function withGatewayServer<T>(
-  fn: (ctx: { port: number; server: Awaited<ReturnType<typeof startGatewayServer>> }) => Promise<T>,
-  opts?: { port?: number; serverOptions?: GatewayServerOptions },
-): Promise<T> {
-  const started = await startGatewayServerWithRetries({
-    port: opts?.port ?? (await getFreePort()),
-    opts: opts?.serverOptions,
-  });
-  try {
-    return await fn({ port: started.port, server: started.server });
-  } finally {
-    await started.server.close();
-  }
-}
-
-export async function createGatewaySuiteHarness(opts?: {
-  port?: number;
-  serverOptions?: GatewayServerOptions;
-}): Promise<{
-  port: number;
-  server: Awaited<ReturnType<typeof startGatewayServer>>;
-  openWs: (headers?: Record<string, string>) => Promise<WebSocket>;
-  close: () => Promise<void>;
-}> {
-  const started = await startGatewayServerWithRetries({
-    port: opts?.port ?? (await getFreePort()),
-    opts: opts?.serverOptions,
-  });
-  return {
-    port: started.port,
-    server: started.server,
-    openWs: async (headers?: Record<string, string>) => {
-      return await openTrackedWebSocket({
-        port: started.port,
-        headers,
-      });
-    },
-    close: async () => {
-      await started.server.close();
-    },
-  };
-}
-
-export async function startServerWithClient(
-  token?: string,
-  opts?: GatewayServerOptions & { wsHeaders?: Record<string, string> },
-) {
-  const { wsHeaders, ...gatewayOpts } = opts ?? {};
-  let port = await getFreePort();
-  const envSnapshot = captureEnv(["OPENCLAW_GATEWAY_TOKEN"]);
-  const prev = process.env.OPENCLAW_GATEWAY_TOKEN;
-  if (typeof token === "string") {
-    testState.gatewayAuth = { mode: "token", token };
-  }
-  const fallbackToken =
-    token ??
-    (typeof (testState.gatewayAuth as { token?: unknown } | undefined)?.token === "string"
-      ? (testState.gatewayAuth as { token?: string }).token
-      : undefined);
-  if (fallbackToken === undefined) {
-    delete process.env.OPENCLAW_GATEWAY_TOKEN;
-  } else {
-    process.env.OPENCLAW_GATEWAY_TOKEN = fallbackToken;
-  }
-
-  const started = await startGatewayServerWithRetries({ port, opts: gatewayOpts });
-  port = started.port;
-  const server = started.server;
-
-  const ws = await openTrackedWebSocket({ port, headers: wsHeaders });
   return { server, ws, port, prevToken: prev, envSnapshot };
 }
 
@@ -468,21 +420,6 @@ type ConnectResponse = {
   payload?: Record<string, unknown>;
   error?: { message?: string; code?: string; details?: unknown };
 };
-
-function resolveDefaultTestDeviceIdentityPath(params: {
-  clientId: string;
-  clientMode: string;
-  platform: string;
-  deviceFamily?: string;
-  role: string;
-}) {
-  const safe =
-    `${params.clientId}-${params.clientMode}-${params.platform}-${params.deviceFamily ?? "none"}-${params.role}`
-      .replace(/[^a-zA-Z0-9._-]+/g, "_")
-      .toLowerCase();
-  const suiteRoot = process.env.OPENCLAW_STATE_DIR ?? process.env.HOME ?? os.tmpdir();
-  return path.join(suiteRoot, "test-device-identities", `${safe}.json`);
-}
 
 export async function readConnectChallengeNonce(
   ws: WebSocket,
@@ -541,7 +478,6 @@ export async function connectReq(
       signedAt: number;
       nonce?: string;
     } | null;
-    deviceIdentityPath?: string;
     skipConnectChallengeNonce?: boolean;
     timeoutMs?: number;
   },
@@ -560,13 +496,13 @@ export async function connectReq(
       ? undefined
       : typeof (testState.gatewayAuth as { token?: unknown } | undefined)?.token === "string"
         ? ((testState.gatewayAuth as { token?: string }).token ?? undefined)
-        : process.env.OPENCLAW_GATEWAY_TOKEN;
+        : process.env.MIRAI_GATEWAY_TOKEN;
   const defaultPassword =
     opts?.skipDefaultAuth === true
       ? undefined
       : typeof (testState.gatewayAuth as { password?: unknown } | undefined)?.password === "string"
         ? ((testState.gatewayAuth as { password?: string }).password ?? undefined)
-        : process.env.OPENCLAW_GATEWAY_PASSWORD;
+        : process.env.MIRAI_GATEWAY_PASSWORD;
   const token = opts?.token ?? defaultToken;
   const deviceToken = opts?.deviceToken?.trim() || undefined;
   const password = opts?.password ?? defaultPassword;
@@ -591,18 +527,9 @@ export async function connectReq(
     if (!connectChallengeNonce) {
       throw new Error("missing connect.challenge nonce");
     }
-    const identityPath =
-      opts?.deviceIdentityPath ??
-      resolveDefaultTestDeviceIdentityPath({
-        clientId: client.id,
-        clientMode: client.mode,
-        platform: client.platform,
-        deviceFamily: client.deviceFamily,
-        role,
-      });
-    const identity = loadOrCreateDeviceIdentity(identityPath);
+    const identity = loadOrCreateDeviceIdentity();
     const signedAtMs = Date.now();
-    const payload = buildDeviceAuthPayloadV3({
+    const payload = buildDeviceAuthPayload({
       deviceId: identity.deviceId,
       clientId: client.id,
       clientMode: client.mode,
@@ -611,8 +538,6 @@ export async function connectReq(
       signedAtMs,
       token: authTokenForSignature ?? null,
       nonce: connectChallengeNonce,
-      platform: client.platform,
-      deviceFamily: client.deviceFamily,
     });
     return {
       id: identity.deviceId,

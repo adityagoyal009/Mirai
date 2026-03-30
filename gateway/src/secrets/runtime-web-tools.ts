@@ -1,4 +1,4 @@
-import type { OpenClawConfig } from "../config/config.js";
+import type { MiraiConfig } from "../config/config.js";
 import { resolveSecretInputRef } from "../config/types.secrets.js";
 import {
   listBundledWebSearchPluginIds,
@@ -37,7 +37,7 @@ export type {
   RuntimeWebToolsMetadata,
 };
 
-type FetchConfig = NonNullable<OpenClawConfig["tools"]>["web"] extends infer Web
+type FetchConfig = NonNullable<MiraiConfig["tools"]>["web"] extends infer Web
   ? Web extends { fetch?: infer Fetch }
     ? Fetch
     : undefined
@@ -70,7 +70,7 @@ function normalizeProvider(
   return undefined;
 }
 
-function hasCustomWebSearchPluginRisk(config: OpenClawConfig): boolean {
+function hasCustomWebSearchPluginRisk(config: MiraiConfig): boolean {
   const plugins = config.plugins;
   if (!plugins) {
     return false;
@@ -125,7 +125,7 @@ function buildUnresolvedReason(params: {
 }
 
 async function resolveSecretInputWithEnvFallback(params: {
-  sourceConfig: OpenClawConfig;
+  sourceConfig: MiraiConfig;
   context: ResolverContext;
   defaults: SecretDefaults | undefined;
   value: unknown;
@@ -239,7 +239,7 @@ function ensureObject(target: Record<string, unknown>, key: string): Record<stri
 }
 
 function setResolvedWebSearchApiKey(params: {
-  resolvedConfig: OpenClawConfig;
+  resolvedConfig: MiraiConfig;
   provider: PluginWebSearchProviderEntry;
   value: string;
 }): void {
@@ -253,7 +253,7 @@ function setResolvedWebSearchApiKey(params: {
 }
 
 function setResolvedFirecrawlApiKey(params: {
-  resolvedConfig: OpenClawConfig;
+  resolvedConfig: MiraiConfig;
   value: string;
 }): void {
   const tools = ensureObject(params.resolvedConfig as Record<string, unknown>, "tools");
@@ -283,8 +283,8 @@ function hasConfiguredSecretRef(value: unknown, defaults: SecretDefaults | undef
 }
 
 export async function resolveRuntimeWebTools(params: {
-  sourceConfig: OpenClawConfig;
-  resolvedConfig: OpenClawConfig;
+  sourceConfig: MiraiConfig;
+  resolvedConfig: MiraiConfig;
   context: ResolverContext;
 }): Promise<RuntimeWebToolsMetadata> {
   const defaults = params.sourceConfig.secrets?.defaults;

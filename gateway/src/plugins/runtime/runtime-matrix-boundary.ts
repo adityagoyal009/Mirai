@@ -75,7 +75,7 @@ function getJiti(modulePath: string) {
     modulePath,
   });
   const aliasMap = {
-    ...(pluginSdkAlias ? { "openclaw/plugin-sdk": pluginSdkAlias } : {}),
+    ...(pluginSdkAlias ? { "mirai-gateway/plugin-sdk": pluginSdkAlias } : {}),
     ...resolvePluginSdkScopedAliasMap({ modulePath }),
   };
   const loader = createJiti(import.meta.url, {

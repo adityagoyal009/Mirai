@@ -15,6 +15,11 @@ Run:
 import os
 import json
 import asyncio
+import secrets
+import threading
+import time
+import uuid
+import urllib.parse
 from contextlib import asynccontextmanager
 from typing import Dict
 
@@ -22,8 +27,22 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, R
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, RedirectResponse, JSONResponse
+from starlette.middleware.sessions import SessionMiddleware
 
 from .config import Config
+from .services.analytics import analytics
+from .services.portal import (
+    VALID_SUBMISSION_STATUSES,
+    build_google_auth_url,
+    create_submission,
+    exchange_google_code,
+    fetch_google_userinfo,
+    init_portal_db,
+    list_submissions,
+    list_user_submissions,
+    portal_dashboard_data,
+    update_submission_status,
+)
 from .utils.logger import get_logger
 
 logger = get_logger('mirai.app')
@@ -32,6 +51,7 @@ logger = get_logger('mirai.app')
 _BASE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _DASHBOARD_DIST = os.path.join(_BASE, "dashboard", "dist")
 _GAME_DIST = os.path.join(_BASE, "dashboard-game", "dist")
+_WEBSITE_DIR = os.path.join(_BASE, "website")
 
 
 @asynccontextmanager
@@ -42,6 +62,7 @@ async def lifespan(app: FastAPI):
     # so this single patch ensures every call reaches FastAPI WebSocket clients.
     import subconscious.swarm.api.websocket as ws_module
     ws_module.broadcast = _sync_broadcast
+    init_portal_db()
     logger.info("[Mirai] FastAPI server starting (uvicorn)")
     yield
     logger.info("[Mirai] FastAPI server shutting down")
@@ -64,6 +85,30 @@ app.add_middleware(
 )
 
 
+def _bool_env(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _session_secret() -> str:
+    secret = os.environ.get("MIRAI_SESSION_SECRET", "").strip()
+    if secret:
+        return secret
+    logger.warning("[Portal] MIRAI_SESSION_SECRET not set; using local development fallback")
+    return "mirai-dev-session-secret-change-me"
+
+
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=_session_secret(),
+    same_site="lax",
+    https_only=_bool_env("MIRAI_SESSION_HTTPS_ONLY", False),
+    max_age=60 * 60 * 24 * 30,
+)
+
+
 # ══════════════════════════════════════════════════════════════════
 # STATIC FILES — Dashboard + Game
 # ══════════════════════════════════════════════════════════════════
@@ -79,6 +124,261 @@ for subdir in ["sprites", "sounds", "maps"]:
     path = os.path.join(_GAME_DIST, subdir)
     if os.path.isdir(path):
         app.mount(f"/{subdir}", StaticFiles(directory=path), name=f"game-{subdir}")
+
+
+def _google_oauth_configured() -> bool:
+    return bool(
+        os.environ.get("GOOGLE_CLIENT_ID", "").strip()
+        and os.environ.get("GOOGLE_CLIENT_SECRET", "").strip()
+    )
+
+
+def _admin_emails() -> set[str]:
+    raw = os.environ.get("MIRAI_ADMIN_EMAILS") or os.environ.get("MIRAI_ADMIN_EMAIL", "")
+    return {
+        item.strip().lower()
+        for item in raw.split(",")
+        if item.strip()
+    }
+
+
+def _safe_next_url(next_url: str | None) -> str:
+    candidate = (next_url or "/landing/").strip()
+    if not candidate.startswith("/") or candidate.startswith("//"):
+        return "/landing/"
+    return candidate
+
+
+def _google_redirect_uri(request: Request) -> str:
+    configured = os.environ.get("MIRAI_GOOGLE_REDIRECT_URI") or os.environ.get("GOOGLE_REDIRECT_URI")
+    if configured:
+        return configured.strip()
+    return str(request.url_for("google_auth_callback"))
+
+
+def _session_user(request: Request) -> dict | None:
+    user = request.session.get("user")
+    return user if isinstance(user, dict) else None
+
+
+def _public_user(user: dict | None) -> dict | None:
+    if not user:
+        return None
+    return {
+        "email": user.get("email", ""),
+        "name": user.get("name", ""),
+        "picture": user.get("picture", ""),
+        "is_admin": bool(user.get("is_admin")),
+    }
+
+
+def _signin_redirect(next_url: str) -> RedirectResponse:
+    quoted = urllib.parse.quote(_safe_next_url(next_url), safe="")
+    return RedirectResponse(f"/signin/?next={quoted}")
+
+
+@app.get("/landing")
+@app.get("/landing/")
+async def landing_page():
+    return FileResponse(os.path.join(_WEBSITE_DIR, "index.html"))
+
+
+@app.get("/signin")
+@app.get("/signin/")
+async def signin_page():
+    return FileResponse(os.path.join(_WEBSITE_DIR, "signin.html"))
+
+
+@app.get("/admin")
+@app.get("/admin/")
+async def admin_page(request: Request):
+    user = _session_user(request)
+    if not user:
+        return _signin_redirect("/admin/")
+    if not user.get("is_admin"):
+        return JSONResponse({"error": "Admin access required"}, status_code=403)
+    analytics.track("portal_admin_page_view", {"role": "admin"})
+    return FileResponse(os.path.join(_WEBSITE_DIR, "admin.html"))
+
+
+@app.get("/api/auth/session")
+async def auth_session(request: Request):
+    user = _session_user(request)
+    return {
+        "authenticated": bool(user),
+        "google_oauth_configured": _google_oauth_configured(),
+        "user": _public_user(user),
+    }
+
+
+@app.get("/auth/google/start")
+async def google_auth_start(request: Request, next: str = "/landing/"):
+    if not _google_oauth_configured():
+        return RedirectResponse("/signin/?error=google_not_configured")
+
+    state = secrets.token_urlsafe(32)
+    safe_next = _safe_next_url(next)
+    request.session["oauth_state"] = state
+    request.session["oauth_next"] = safe_next
+
+    auth_url = build_google_auth_url(
+        client_id=os.environ.get("GOOGLE_CLIENT_ID", "").strip(),
+        redirect_uri=_google_redirect_uri(request),
+        state=state,
+    )
+    analytics.track("portal_login_started", {"next": safe_next})
+    return RedirectResponse(auth_url)
+
+
+@app.get("/auth/google/callback")
+async def google_auth_callback(request: Request, state: str = "", code: str = "", error: str = ""):
+    if error:
+        return RedirectResponse(f"/signin/?error={urllib.parse.quote(error)}")
+
+    expected_state = request.session.pop("oauth_state", "")
+    next_url = _safe_next_url(request.session.pop("oauth_next", "/landing/"))
+    if not code or not state or state != expected_state:
+        return RedirectResponse("/signin/?error=state_mismatch")
+
+    try:
+        token_data = exchange_google_code(
+            code=code,
+            client_id=os.environ.get("GOOGLE_CLIENT_ID", "").strip(),
+            client_secret=os.environ.get("GOOGLE_CLIENT_SECRET", "").strip(),
+            redirect_uri=_google_redirect_uri(request),
+        )
+        access_token = str(token_data.get("access_token", "")).strip()
+        if not access_token:
+            raise RuntimeError("Missing access token from Google")
+        profile = fetch_google_userinfo(access_token)
+    except Exception as exc:
+        logger.warning(f"[Portal] Google login failed: {exc}")
+        return RedirectResponse("/signin/?error=oauth_failed")
+
+    email = str(profile.get("email", "")).strip().lower()
+    if not email or not profile.get("email_verified", False):
+        return RedirectResponse("/signin/?error=email_not_verified")
+
+    user = {
+        "sub": str(profile.get("sub", "")).strip(),
+        "email": email,
+        "name": str(profile.get("name", "")).strip(),
+        "picture": str(profile.get("picture", "")).strip(),
+        "is_admin": email in _admin_emails(),
+    }
+    request.session["user"] = user
+    analytics.track("portal_login_success", {"is_admin": user["is_admin"]})
+    return RedirectResponse(next_url)
+
+
+@app.get("/auth/logout")
+async def auth_logout(request: Request, next: str = "/landing/"):
+    request.session.clear()
+    return RedirectResponse(_safe_next_url(next))
+
+
+@app.post("/api/portal/submit")
+async def portal_submit(request: Request):
+    user = _session_user(request)
+    if not user:
+        return JSONResponse({"error": "Authentication required"}, status_code=401)
+
+    body = await request.json()
+    payload = {
+        "company_name": body.get("companyName", ""),
+        "website_url": body.get("websiteUrl", ""),
+        "industry": body.get("industry", ""),
+        "stage": body.get("stage", ""),
+        "one_liner": body.get("oneLiner", ""),
+        "customers": body.get("customers", ""),
+        "business_model": body.get("businessModel", ""),
+        "traction": body.get("traction", ""),
+        "advantage": body.get("advantage", ""),
+        "risk": body.get("risk", ""),
+        "deck_url": body.get("deckUrl", ""),
+    }
+    try:
+        submission = await asyncio.to_thread(
+            create_submission,
+            user=user,
+            payload=payload,
+            source_ip=_get_client_ip(request),
+            user_agent=request.headers.get("user-agent", ""),
+        )
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    except Exception as exc:
+        logger.error(f"[Portal] Submission failed: {exc}")
+        return JSONResponse({"error": "Could not save submission"}, status_code=500)
+
+    return {
+        "ok": True,
+        "message": "Request received. We will review it and send the report within 24 hours.",
+        "submission": submission,
+    }
+
+
+@app.get("/api/portal/submissions/mine")
+async def portal_my_submissions(request: Request, limit: int = 10):
+    user = _session_user(request)
+    if not user:
+        return JSONResponse({"error": "Authentication required"}, status_code=401)
+    submissions = await asyncio.to_thread(
+        list_user_submissions,
+        user.get("sub", ""),
+        limit,
+    )
+    return {"submissions": submissions}
+
+
+@app.get("/api/admin/analytics")
+async def admin_analytics(request: Request, days: int = 14, limit: int = 100):
+    user = _session_user(request)
+    if not user:
+        return JSONResponse({"error": "Authentication required"}, status_code=401)
+    if not user.get("is_admin"):
+        return JSONResponse({"error": "Admin access required"}, status_code=403)
+    data = await asyncio.to_thread(portal_dashboard_data, days, limit)
+    return data
+
+
+@app.get("/api/admin/submissions")
+async def admin_submissions(request: Request, limit: int = 100, status: str = ""):
+    user = _session_user(request)
+    if not user:
+        return JSONResponse({"error": "Authentication required"}, status_code=401)
+    if not user.get("is_admin"):
+        return JSONResponse({"error": "Admin access required"}, status_code=403)
+    if status and status not in VALID_SUBMISSION_STATUSES:
+        return JSONResponse({"error": "Invalid status filter"}, status_code=400)
+    submissions = await asyncio.to_thread(list_submissions, limit, status)
+    return {"submissions": submissions}
+
+
+@app.post("/api/admin/submissions/{submission_id}/status")
+async def admin_update_submission_status(request: Request, submission_id: int):
+    user = _session_user(request)
+    if not user:
+        return JSONResponse({"error": "Authentication required"}, status_code=401)
+    if not user.get("is_admin"):
+        return JSONResponse({"error": "Admin access required"}, status_code=403)
+
+    body = await request.json()
+    status = str(body.get("status", "")).strip()
+    admin_notes = body.get("adminNotes")
+    try:
+        submission = await asyncio.to_thread(
+            update_submission_status,
+            submission_id,
+            status=status,
+            admin_notes=admin_notes,
+        )
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+
+    if not submission:
+        return JSONResponse({"error": "Submission not found"}, status_code=404)
+    return {"ok": True, "submission": submission}
 
 
 @app.get("/")
@@ -441,17 +741,297 @@ async def bi_template():
     }
 
 
+# ── Async job store for long-running analyses ──
+_job_results: dict = {}  # job_id -> {"status": "running"|"complete"|"error", "result": ..., "started": float}
+_job_lock = threading.Lock()
+
+def _cleanup_old_jobs():
+    """Remove jobs older than 2 hours."""
+    cutoff = time.time() - 7200
+    with _job_lock:
+        expired = [k for k, v in _job_results.items() if v.get("started", 0) < cutoff]
+        for k in expired:
+            del _job_results[k]
+
+
+@app.get("/api/bi/job/{job_id}")
+async def bi_job_status(job_id: str):
+    """Poll for async analysis result."""
+    with _job_lock:
+        job = _job_results.get(job_id)
+    if not job:
+        return JSONResponse({"error": "Job not found"}, status_code=404)
+    if job["status"] == "running":
+        return {"status": "running", "job_id": job_id, "elapsed": round(time.time() - job["started"], 1)}
+    if job["status"] == "error":
+        return {"status": "error", "job_id": job_id, "error": job.get("error", "Unknown error")}
+    return job["result"]
+
+
 @app.post("/api/bi/analyze")
 async def bi_analyze(request: Request):
     body = await request.json()
     exec_summary = body.get("exec_summary", "")
-    depth = body.get("depth", "standard")
+    depth = body.get("depth", "deep")
+    agent_count = body.get("agent_count", 50)
+    simulate_market = body.get("simulate_market", True)
+    async_mode = body.get("async", True)  # default async for website
     if not exec_summary:
         return JSONResponse({"error": "Missing exec_summary"}, status_code=400)
 
-    from .services.business_intel import BusinessIntelEngine
-    bi = BusinessIntelEngine()
-    result = await asyncio.to_thread(bi.analyze, exec_summary, depth)
+    if len(exec_summary) > 50000:
+        exec_summary = exec_summary[:50000]
+
+    structured_fields = body.get("structured_fields", None)
+
+    def _run_full_pipeline():
+        import threading
+        from .services.business_intel import BusinessIntelEngine, ExtractionResult
+        from .services.swarm_predictor import SwarmPredictor
+
+        bi = BusinessIntelEngine()
+
+        # Phase 0: Extract & Validate
+        # Use structured fields passthrough when available (skips lossy LLM extraction)
+        if structured_fields and isinstance(structured_fields, dict) and structured_fields.get("company"):
+            extraction = ExtractionResult(
+                company=structured_fields.get("company", ""),
+                industry=structured_fields.get("industry", ""),
+                product=structured_fields.get("product", ""),
+                target_market=structured_fields.get("target_market", ""),
+                business_model=structured_fields.get("business_model", ""),
+                stage=structured_fields.get("stage", ""),
+                traction=structured_fields.get("traction", ""),
+                ask=structured_fields.get("ask", ""),
+                claims=[],
+                key_differentiators=[],
+                website_url=structured_fields.get("website_url", ""),
+                year_founded=structured_fields.get("year_founded", ""),
+                location=structured_fields.get("location", ""),
+                revenue=structured_fields.get("revenue", ""),
+                known_competitors=structured_fields.get("known_competitors", []),
+                funding=structured_fields.get("funding", ""),
+                team=structured_fields.get("team", ""),
+                pricing=structured_fields.get("pricing", ""),
+            )
+            extraction = bi._compute_data_quality(extraction)
+            logger.info(f"[BI-REST] Structured passthrough: company={extraction.company}, "
+                       f"data_quality={extraction.data_quality}")
+        else:
+            extraction = bi.extract_and_validate(exec_summary)
+
+        critical_missing = [f for f in ["company", "industry", "product"]
+                           if f in extraction.fields_missing]
+        if critical_missing:
+            return {
+                "status": "needs_more_info",
+                "data_quality": extraction.data_quality,
+                "fields_missing": extraction.fields_missing,
+                "missing_critical": critical_missing,
+                "message": f"Cannot produce a reliable analysis — missing: {', '.join(critical_missing)}.",
+            }
+
+        stage = extraction.stage or ""
+
+        # Start blind scoring in parallel with research (same as dashboard)
+        _blind_scores = [None]
+        _blind_thread = None
+        use_council = depth == "deep"
+        if use_council:
+            from .config import Config as _cfg
+            _council_models = _cfg.get_council_models()
+            if _council_models and len(_council_models) > 1:
+                def _run_blind_scoring():
+                    try:
+                        from .utils.llm_client import LLMClient
+                        from concurrent.futures import ThreadPoolExecutor, as_completed
+                        results = {}
+                        with ThreadPoolExecutor(max_workers=len(_council_models)) as pool:
+                            def _blind_one(mcfg):
+                                llm = LLMClient(model=mcfg["model"])
+                                return mcfg["label"], bi._predict_blind(exec_summary, llm, stage=stage)
+                            futs = [pool.submit(_blind_one, m) for m in _council_models]
+                            for f in as_completed(futs):
+                                try:
+                                    lbl, scores = f.result()
+                                    results[lbl] = scores
+                                except Exception:
+                                    pass
+                        _blind_scores[0] = results
+                        logger.info(f"[BI-REST] Blind scoring: {len(results)} models (parallel with research)")
+                    except Exception as e:
+                        logger.warning(f"[BI-REST] Blind scoring failed: {e}")
+
+                _blind_thread = threading.Thread(target=_run_blind_scoring, daemon=True)
+                _blind_thread.start()
+
+        # Phase 1: Research (OpenClaw primary, Gemini fallback — same as dashboard)
+        research = None
+        try:
+            from .services.agentic_researcher import AgenticResearcher
+            import dataclasses
+            agentic = AgenticResearcher()
+            findings = agentic.research(
+                company=extraction.company,
+                industry=extraction.industry,
+                product=extraction.product,
+                target_market=extraction.target_market,
+                website_url=extraction.website_url,
+                known_competitors=', '.join(extraction.known_competitors or []),
+            )
+            research = dataclasses.asdict(findings) if dataclasses.is_dataclass(findings) else findings
+            logger.info(f"[BI-REST] OpenClaw research: {len(research.get('facts', []))} facts")
+        except Exception as e:
+            logger.warning(f"[BI-REST] OpenClaw failed, trying Gemini: {e}")
+            try:
+                from .services.gemini_researcher import GeminiResearcher
+                gemini = GeminiResearcher()
+                research = gemini.research(
+                    company=extraction.company,
+                    industry=extraction.industry,
+                    product=extraction.product,
+                    target_market=extraction.target_market,
+                    website_url=extraction.website_url,
+                    known_competitors=', '.join(extraction.known_competitors or []),
+                )
+                logger.info(f"[BI-REST] Gemini research: {len(research.get('facts', []))} facts")
+            except Exception as e2:
+                logger.warning(f"[BI-REST] Both research engines failed: {e2}")
+                # Fall back to BI's built-in research
+                research = bi.research(exec_summary, depth=depth, extraction=extraction)
+                if hasattr(research, 'to_dict'):
+                    research = research.to_dict()
+
+        # Wait for blind scoring to fully finish before council/swarm
+        # No timeout — blind scoring has its own per-model timeouts (7 min Claude, 3 min others).
+        # If we time out here, blind thread keeps running and overlaps with swarm = NVIDIA 429s.
+        if _blind_thread is not None:
+            _blind_thread.join()
+            if _blind_scores[0]:
+                logger.info(f"[BI-REST] Blind scores ready: {len(_blind_scores[0])} models")
+
+        # Phase 2: Council prediction (with blind scores from parallel thread)
+        prediction = bi.predict(
+            exec_summary, research, use_council=use_council,
+            industry=extraction.industry, stage=stage,
+            data_quality=extraction.data_quality,
+            blind_scores_cache=_blind_scores[0],
+        )
+
+        # Phase 2b: Swarm prediction
+        swarm_result = None
+        if agent_count > 0:
+            try:
+                swarm = SwarmPredictor()
+                research_context = json.dumps(research, indent=2, default=str)[:6000]
+                enriched_context = (
+                    f"RESEARCH FINDINGS:\n{json.dumps(research, indent=2, default=str)}\n\n"
+                    f"Given this research, evaluate this startup independently from your unique perspective."
+                )
+                swarm_result = swarm.predict(
+                    exec_summary=exec_summary,
+                    research_context=enriched_context,
+                    agent_count=agent_count,
+                    industry=extraction.industry,
+                    product=extraction.product,
+                    stage=stage,
+                    research_data=research if isinstance(research, dict) else None,
+                )
+                logger.info(f"[BI-REST] Swarm: {swarm_result.positive_pct}% positive, "
+                           f"{swarm_result.negative_pct}% negative")
+            except Exception as e:
+                logger.warning(f"[BI-REST] Swarm failed (non-fatal): {e}")
+
+        # Phase 3: Strategy plan
+        plan_dict = {}
+        try:
+            plan = bi.plan(exec_summary, research, prediction)
+            plan_dict = plan.to_dict() if hasattr(plan, 'to_dict') else plan
+        except Exception as e:
+            logger.warning(f"[BI-REST] Plan failed (non-fatal): {e}")
+
+        # Build result (matches dashboard structure)
+        result = {
+            "status": "complete",
+            "id": f"bi_{uuid.uuid4().hex[:12]}",
+            "exec_summary": exec_summary,
+            "extraction": extraction.to_dict() if hasattr(extraction, 'to_dict') else {},
+            "research": research,
+            "prediction": prediction.to_dict() if hasattr(prediction, 'to_dict') else prediction,
+            "plan": plan_dict,
+            "data_quality": extraction.data_quality,
+            "fields_present": extraction.fields_present,
+            "fields_missing": extraction.fields_missing,
+        }
+        if swarm_result:
+            result["swarm"] = swarm_result.to_dict()
+
+        # Generate narrative sections via ReportAgent (same as dashboard WebSocket path)
+        try:
+            from .services.report_agent import ReportAgent
+            report_agent = ReportAgent()
+            report_sections = report_agent.generate_report(result)
+            result["report_sections"] = report_sections
+            result["narrative"] = "\n\n".join(
+                f"{title}\n{content}" for title, content in report_sections.items()
+            ) if report_sections else ""
+            logger.info(f"[BI-REST] ReportAgent: {len(report_sections)} sections generated")
+        except Exception as e:
+            logger.warning(f"[BI-REST] ReportAgent failed (non-fatal): {e}")
+
+        # Generate HTML report (with narrative sections)
+        try:
+            from .services.report_generator import generate_html_report
+            html = generate_html_report(result, narrative=result.get("narrative", ""))
+            if html:
+                result["report_html"] = html
+        except Exception as e:
+            logger.warning(f"[BI-REST] Report generation failed (non-fatal): {e}")
+
+        # Phase 4: OASIS Market Simulation
+        if simulate_market:
+            try:
+                from .services.oasis_simulator import OasisSimulator
+                oasis_sim = OasisSimulator()
+                pred = result.get("prediction", {})
+                council_v = f"{pred.get('overall_score', 0)}/10 - {pred.get('verdict', 'Unknown')}"
+                res_ctx = json.dumps(result.get("research", {}), default=str)
+                stg = result.get("extraction", {}).get("stage", "")
+                oasis_result = oasis_sim.simulate(
+                    exec_summary=exec_summary, research_context=res_ctx,
+                    council_verdict=council_v, stage=stg,
+                )
+                result["oasis"] = oasis_result
+                logger.info(f"[BI-REST] OASIS: {oasis_result.get('trajectory')}")
+            except Exception as e:
+                logger.warning(f"[BI-REST] OASIS failed (non-fatal): {e}")
+                result["oasis"] = {}
+
+        return result
+
+    # ── Async mode: return job ID, run in background ──
+    if async_mode:
+        job_id = f"job_{uuid.uuid4().hex[:12]}"
+        with _job_lock:
+            _job_results[job_id] = {"status": "running", "started": time.time()}
+        _cleanup_old_jobs()
+
+        def _background_job():
+            try:
+                result = _run_full_pipeline()
+                with _job_lock:
+                    _job_results[job_id] = {"status": "complete", "result": result, "started": time.time()}
+                logger.info(f"[BI-REST] Job {job_id} complete")
+            except Exception as e:
+                logger.error(f"[BI-REST] Job {job_id} failed: {e}")
+                with _job_lock:
+                    _job_results[job_id] = {"status": "error", "error": str(e), "started": time.time()}
+
+        threading.Thread(target=_background_job, daemon=True).start()
+        return {"status": "accepted", "job_id": job_id, "poll_url": f"/api/bi/job/{job_id}"}
+
+    # ── Sync mode: block until complete (for backward compat) ──
+    result = await asyncio.to_thread(_run_full_pipeline)
     return result
 
 

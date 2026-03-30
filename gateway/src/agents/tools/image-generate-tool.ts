@@ -1,5 +1,5 @@
 import { Type } from "@sinclair/typebox";
-import type { OpenClawConfig } from "../../config/config.js";
+import type { MiraiConfig } from "../../config/config.js";
 import { loadConfig } from "../../config/config.js";
 import {
   generateImage,
@@ -107,7 +107,7 @@ const ImageGenerateToolSchema = Type.Object({
 });
 
 function resolveImageGenerationModelCandidates(
-  cfg: OpenClawConfig | undefined,
+  cfg: MiraiConfig | undefined,
 ): Array<string | undefined> {
   const providerDefaults = new Map<string, string>();
   for (const provider of listRuntimeImageGenerationProviders({ config: cfg })) {
@@ -139,7 +139,7 @@ function resolveImageGenerationModelCandidates(
 }
 
 export function resolveImageGenerationModelConfigForTool(params: {
-  cfg?: OpenClawConfig;
+  cfg?: MiraiConfig;
   agentDir?: string;
 }): ToolModelConfig | null {
   const explicit = coerceToolModelConfig(params.cfg?.agents?.defaults?.imageGenerationModel);
@@ -248,7 +248,7 @@ function parseImageGenerationModelRef(
 }
 
 function resolveSelectedImageGenerationProvider(params: {
-  config?: OpenClawConfig;
+  config?: MiraiConfig;
   imageGenerationModelConfig: ToolModelConfig;
   modelOverride?: string;
 }): ImageGenerationProvider | undefined {
@@ -466,7 +466,7 @@ async function inferResolutionFromInputImages(
 }
 
 export function createImageGenerateTool(options?: {
-  config?: OpenClawConfig;
+  config?: MiraiConfig;
   agentDir?: string;
   workspaceDir?: string;
   sandbox?: ImageGenerateSandboxConfig;

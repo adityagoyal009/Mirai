@@ -1,13 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createEmptyPluginRegistry } from "./registry.js";
-import type { OpenClawPluginService, OpenClawPluginServiceContext } from "./types.js";
+import type { MiraiPluginService, MiraiPluginServiceContext } from "./types.js";
 
 const mockedLogger = vi.hoisted(() => ({
   info: vi.fn<(msg: string) => void>(),
   warn: vi.fn<(msg: string) => void>(),
   error: vi.fn<(msg: string) => void>(),
   debug: vi.fn<(msg: string) => void>(),
-  child: vi.fn(() => mockedLogger),
 }));
 
 vi.mock("../logging/subsystem.js", () => ({
@@ -17,15 +16,10 @@ vi.mock("../logging/subsystem.js", () => ({
 import { STATE_DIR } from "../config/paths.js";
 import { startPluginServices } from "./services.js";
 
-function createRegistry(services: OpenClawPluginService[]) {
+function createRegistry(services: MiraiPluginService[]) {
   const registry = createEmptyPluginRegistry();
   for (const service of services) {
-    registry.services.push({
-      pluginId: "plugin:test",
-      service,
-      source: "test",
-      rootDir: "/plugins/test-plugin",
-    });
+    registry.services.push({ pluginId: "plugin:test", service, source: "test" });
   }
   return registry;
 }
@@ -38,9 +32,9 @@ describe("startPluginServices", () => {
   it("starts services and stops them in reverse order", async () => {
     const starts: string[] = [];
     const stops: string[] = [];
-    const contexts: OpenClawPluginServiceContext[] = [];
+    const contexts: MiraiPluginServiceContext[] = [];
 
-    const serviceA: OpenClawPluginService = {
+    const serviceA: MiraiPluginService = {
       id: "service-a",
       start: (ctx) => {
         starts.push("a");
@@ -50,14 +44,14 @@ describe("startPluginServices", () => {
         stops.push("a");
       },
     };
-    const serviceB: OpenClawPluginService = {
+    const serviceB: MiraiPluginService = {
       id: "service-b",
       start: (ctx) => {
         starts.push("b");
         contexts.push(ctx);
       },
     };
-    const serviceC: OpenClawPluginService = {
+    const serviceC: MiraiPluginService = {
       id: "service-c",
       start: (ctx) => {
         starts.push("c");
@@ -122,9 +116,7 @@ describe("startPluginServices", () => {
     await handle.stop();
 
     expect(mockedLogger.error).toHaveBeenCalledWith(
-      expect.stringContaining(
-        "plugin service failed (service-start-fail, plugin=plugin:test, root=/plugins/test-plugin):",
-      ),
+      expect.stringContaining("plugin service failed (service-start-fail):"),
     );
     expect(mockedLogger.warn).toHaveBeenCalledWith(
       expect.stringContaining("plugin service stop failed (service-stop-fail):"),

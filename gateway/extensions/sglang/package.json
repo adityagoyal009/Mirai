@@ -1,0 +1,12 @@
+{
+  "name": "@mirai/sglang-provider",
+  "version": "2026.3.13",
+  "private": true,
+  "description": "Mirai SGLang provider plugin",
+  "type": "module",
+  "mirai": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}

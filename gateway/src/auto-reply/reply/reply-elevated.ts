@@ -1,7 +1,7 @@
 import { resolveAgentConfig } from "../../agents/agent-scope.js";
-import { getChannelPlugin, normalizeChannelId } from "../../channels/plugins/index.js";
-import type { AgentElevatedAllowFromConfig, OpenClawConfig } from "../../config/config.js";
-import { normalizeStringEntries } from "../../shared/string-normalization.js";
+import { getChannelDock } from "../../channels/dock.js";
+import { normalizeChannelId } from "../../channels/plugins/index.js";
+import type { AgentElevatedAllowFromConfig, MiraiConfig } from "../../config/config.js";
 import type { MsgContext } from "../templating.js";
 import {
   type AllowFromFormatter,
@@ -28,16 +28,15 @@ function resolveElevatedAllowList(
 }
 
 function resolveAllowFromFormatter(params: {
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   provider: string;
   accountId?: string;
 }): AllowFromFormatter {
   const normalizedProvider = normalizeChannelId(params.provider);
-  const formatAllowFrom = normalizedProvider
-    ? getChannelPlugin(normalizedProvider)?.config?.formatAllowFrom
-    : undefined;
+  const dock = normalizedProvider ? getChannelDock(normalizedProvider) : undefined;
+  const formatAllowFrom = dock?.config?.formatAllowFrom;
   if (!formatAllowFrom) {
-    return (values) => normalizeStringEntries(values);
+    return (values) => values.map((entry) => String(entry).trim()).filter(Boolean);
   }
   return (values) =>
     formatAllowFrom({
@@ -65,7 +64,7 @@ function isApprovedElevatedSender(params: {
     return false;
   }
 
-  const allowTokens = normalizeStringEntries(rawAllow);
+  const allowTokens = rawAllow.map((entry) => String(entry).trim()).filter(Boolean);
   if (allowTokens.length === 0) {
     return false;
   }
@@ -159,7 +158,7 @@ function isApprovedElevatedSender(params: {
 }
 
 export function resolveElevatedPermissions(params: {
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   agentId: string;
   ctx: MsgContext;
   provider: string;
@@ -192,12 +191,11 @@ export function resolveElevatedPermissions(params: {
   }
 
   const normalizedProvider = normalizeChannelId(params.provider);
-  const fallbackAllowFrom = normalizedProvider
-    ? getChannelPlugin(normalizedProvider)?.elevated?.allowFromFallback?.({
-        cfg: params.cfg,
-        accountId: params.ctx.AccountId,
-      })
-    : undefined;
+  const dock = normalizedProvider ? getChannelDock(normalizedProvider) : undefined;
+  const fallbackAllowFrom = dock?.elevated?.allowFromFallback?.({
+    cfg: params.cfg,
+    accountId: params.ctx.AccountId,
+  });
   const formatAllowFrom = resolveAllowFromFormatter({
     cfg: params.cfg,
     provider: params.provider,

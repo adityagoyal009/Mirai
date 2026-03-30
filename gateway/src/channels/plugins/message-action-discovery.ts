@@ -1,5 +1,5 @@
 import type { TSchema } from "@sinclair/typebox";
-import type { OpenClawConfig } from "../../config/config.js";
+import type { MiraiConfig } from "../../config/config.js";
 import { defaultRuntime } from "../../runtime.js";
 import { normalizeAnyChannelId } from "../registry.js";
 import { getChannelPlugin, listChannelPlugins } from "./index.js";
@@ -12,7 +12,7 @@ import type {
 } from "./types.js";
 
 export type ChannelMessageActionDiscoveryInput = {
-  cfg?: OpenClawConfig;
+  cfg?: MiraiConfig;
   channel?: string | null;
   currentChannelProvider?: string | null;
   currentChannelId?: string | null;
@@ -45,7 +45,7 @@ export function createMessageActionDiscoveryContext(
     params.channel ?? params.currentChannelProvider,
   );
   return {
-    cfg: params.cfg ?? ({} as OpenClawConfig),
+    cfg: params.cfg ?? ({} as MiraiConfig),
     currentChannelId: params.currentChannelId,
     currentChannelProvider,
     currentThreadTs: params.currentThreadTs,
@@ -146,7 +146,7 @@ export function resolveMessageActionDiscoveryForPlugin(params: {
   };
 }
 
-export function listChannelMessageActions(cfg: OpenClawConfig): ChannelMessageActionName[] {
+export function listChannelMessageActions(cfg: MiraiConfig): ChannelMessageActionName[] {
   const actions = new Set<ChannelMessageActionName>(["send", "broadcast"]);
   for (const plugin of listChannelPlugins()) {
     for (const action of resolveMessageActionDiscoveryForPlugin({
@@ -161,7 +161,7 @@ export function listChannelMessageActions(cfg: OpenClawConfig): ChannelMessageAc
   return Array.from(actions);
 }
 
-export function listChannelMessageCapabilities(cfg: OpenClawConfig): ChannelMessageCapability[] {
+export function listChannelMessageCapabilities(cfg: MiraiConfig): ChannelMessageCapability[] {
   const capabilities = new Set<ChannelMessageCapability>();
   for (const plugin of listChannelPlugins()) {
     for (const capability of resolveMessageActionDiscoveryForPlugin({
@@ -177,7 +177,7 @@ export function listChannelMessageCapabilities(cfg: OpenClawConfig): ChannelMess
 }
 
 export function listChannelMessageCapabilitiesForChannel(params: {
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   channel?: string;
   currentChannelId?: string | null;
   currentThreadTs?: string | null;
@@ -220,7 +220,7 @@ function mergeToolSchemaProperties(
 }
 
 export function resolveChannelMessageToolSchemaProperties(params: {
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   channel?: string;
   currentChannelId?: string | null;
   currentThreadTs?: string | null;
@@ -260,7 +260,7 @@ export function resolveChannelMessageToolSchemaProperties(params: {
 }
 
 export function channelSupportsMessageCapability(
-  cfg: OpenClawConfig,
+  cfg: MiraiConfig,
   capability: ChannelMessageCapability,
 ): boolean {
   return listChannelMessageCapabilities(cfg).includes(capability);
@@ -268,7 +268,7 @@ export function channelSupportsMessageCapability(
 
 export function channelSupportsMessageCapabilityForChannel(
   params: {
-    cfg: OpenClawConfig;
+    cfg: MiraiConfig;
     channel?: string;
     currentChannelId?: string | null;
     currentThreadTs?: string | null;

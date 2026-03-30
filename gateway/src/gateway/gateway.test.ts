@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -7,22 +8,16 @@ import { startGatewayServer } from "./server.js";
 import { extractPayloadText } from "./test-helpers.agent-results.js";
 import {
   connectDeviceAuthReq,
-  disconnectGatewayClient,
   connectGatewayClient,
   getFreeGatewayPort,
   startGatewayWithClient,
 } from "./test-helpers.e2e.js";
 import { installOpenAiResponsesMock } from "./test-helpers.openai-mock.js";
-import { buildMockOpenAiResponsesProvider } from "./test-openai-responses-model.js";
+import { buildOpenAiResponsesProviderConfig } from "./test-openai-responses-model.js";
 
 let writeConfigFile: typeof import("../config/config.js").writeConfigFile;
 let resolveConfigPath: typeof import("../config/config.js").resolveConfigPath;
 const GATEWAY_E2E_TIMEOUT_MS = 30_000;
-let gatewayTestSeq = 0;
-
-function nextGatewayId(prefix: string): string {
-  return `${prefix}-${process.pid}-${process.env.VITEST_POOL_ID ?? "0"}-${gatewayTestSeq++}`;
-}
 
 describe("gateway e2e", () => {
   beforeAll(async () => {
@@ -35,47 +30,46 @@ describe("gateway e2e", () => {
     async () => {
       const envSnapshot = captureEnv([
         "HOME",
-        "OPENCLAW_CONFIG_PATH",
-        "OPENCLAW_GATEWAY_TOKEN",
-        "OPENCLAW_SKIP_CHANNELS",
-        "OPENCLAW_SKIP_GMAIL_WATCHER",
-        "OPENCLAW_SKIP_CRON",
-        "OPENCLAW_SKIP_CANVAS_HOST",
-        "OPENCLAW_SKIP_BROWSER_CONTROL_SERVER",
+        "MIRAI_CONFIG_PATH",
+        "MIRAI_GATEWAY_TOKEN",
+        "MIRAI_SKIP_CHANNELS",
+        "MIRAI_SKIP_GMAIL_WATCHER",
+        "MIRAI_SKIP_CRON",
+        "MIRAI_SKIP_CANVAS_HOST",
+        "MIRAI_SKIP_BROWSER_CONTROL_SERVER",
       ]);
 
       const { baseUrl: openaiBaseUrl, restore } = installOpenAiResponsesMock();
 
-      const tempHome = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-gw-mock-home-"));
+      const tempHome = await fs.mkdtemp(path.join(os.tmpdir(), "mirai-gw-mock-home-"));
       process.env.HOME = tempHome;
-      process.env.OPENCLAW_SKIP_CHANNELS = "1";
-      process.env.OPENCLAW_SKIP_GMAIL_WATCHER = "1";
-      process.env.OPENCLAW_SKIP_CRON = "1";
-      process.env.OPENCLAW_SKIP_CANVAS_HOST = "1";
-      process.env.OPENCLAW_SKIP_BROWSER_CONTROL_SERVER = "1";
+      process.env.MIRAI_SKIP_CHANNELS = "1";
+      process.env.MIRAI_SKIP_GMAIL_WATCHER = "1";
+      process.env.MIRAI_SKIP_CRON = "1";
+      process.env.MIRAI_SKIP_CANVAS_HOST = "1";
+      process.env.MIRAI_SKIP_BROWSER_CONTROL_SERVER = "1";
 
-      const token = nextGatewayId("test-token");
-      process.env.OPENCLAW_GATEWAY_TOKEN = token;
+      const token = `test-${randomUUID()}`;
+      process.env.MIRAI_GATEWAY_TOKEN = token;
 
-      const workspaceDir = path.join(tempHome, "openclaw");
+      const workspaceDir = path.join(tempHome, "mirai");
       await fs.mkdir(workspaceDir, { recursive: true });
 
-      const nonceA = nextGatewayId("nonce-a");
-      const nonceB = nextGatewayId("nonce-b");
-      const toolProbePath = path.join(workspaceDir, `.openclaw-tool-probe.${nonceA}.txt`);
+      const nonceA = randomUUID();
+      const nonceB = randomUUID();
+      const toolProbePath = path.join(workspaceDir, `.mirai-tool-probe.${nonceA}.txt`);
       await fs.writeFile(toolProbePath, `nonceA=${nonceA}\nnonceB=${nonceB}\n`);
 
-      const configDir = path.join(tempHome, ".openclaw");
+      const configDir = path.join(tempHome, ".mirai");
       await fs.mkdir(configDir, { recursive: true });
-      const configPath = path.join(configDir, "openclaw.json");
-      const mockProvider = buildMockOpenAiResponsesProvider(openaiBaseUrl);
+      const configPath = path.join(configDir, "mirai.json");
 
       const cfg = {
         agents: { defaults: { workspace: workspaceDir } },
         models: {
           mode: "replace",
           providers: {
-            [mockProvider.providerId]: mockProvider.config,
+            openai: buildOpenAiResponsesProviderConfig(openaiBaseUrl),
           },
         },
         gateway: { auth: { token } },
@@ -93,10 +87,10 @@ describe("gateway e2e", () => {
 
         await client.request("sessions.patch", {
           key: sessionKey,
-          model: mockProvider.modelRef,
+          model: "openai/gpt-5.2",
         });
 
-        const runId = nextGatewayId("run");
+        const runId = randomUUID();
         const payload = await client.request<{
           status?: unknown;
           result?: unknown;
@@ -118,7 +112,7 @@ describe("gateway e2e", () => {
         expect(text).toContain(nonceA);
         expect(text).toContain(nonceB);
       } finally {
-        await disconnectGatewayClient(client);
+        client.stop();
         await server.close({ reason: "mock openai test complete" });
         await fs.rm(tempHome, { recursive: true, force: true });
         restore();
@@ -133,29 +127,29 @@ describe("gateway e2e", () => {
     async () => {
       const envSnapshot = captureEnv([
         "HOME",
-        "OPENCLAW_STATE_DIR",
-        "OPENCLAW_CONFIG_PATH",
-        "OPENCLAW_GATEWAY_TOKEN",
-        "OPENCLAW_SKIP_CHANNELS",
-        "OPENCLAW_SKIP_GMAIL_WATCHER",
-        "OPENCLAW_SKIP_CRON",
-        "OPENCLAW_SKIP_CANVAS_HOST",
-        "OPENCLAW_SKIP_BROWSER_CONTROL_SERVER",
+        "MIRAI_STATE_DIR",
+        "MIRAI_CONFIG_PATH",
+        "MIRAI_GATEWAY_TOKEN",
+        "MIRAI_SKIP_CHANNELS",
+        "MIRAI_SKIP_GMAIL_WATCHER",
+        "MIRAI_SKIP_CRON",
+        "MIRAI_SKIP_CANVAS_HOST",
+        "MIRAI_SKIP_BROWSER_CONTROL_SERVER",
       ]);
 
-      process.env.OPENCLAW_SKIP_CHANNELS = "1";
-      process.env.OPENCLAW_SKIP_GMAIL_WATCHER = "1";
-      process.env.OPENCLAW_SKIP_CRON = "1";
-      process.env.OPENCLAW_SKIP_CANVAS_HOST = "1";
-      process.env.OPENCLAW_SKIP_BROWSER_CONTROL_SERVER = "1";
-      delete process.env.OPENCLAW_GATEWAY_TOKEN;
+      process.env.MIRAI_SKIP_CHANNELS = "1";
+      process.env.MIRAI_SKIP_GMAIL_WATCHER = "1";
+      process.env.MIRAI_SKIP_CRON = "1";
+      process.env.MIRAI_SKIP_CANVAS_HOST = "1";
+      process.env.MIRAI_SKIP_BROWSER_CONTROL_SERVER = "1";
+      delete process.env.MIRAI_GATEWAY_TOKEN;
 
-      const tempHome = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-wizard-home-"));
+      const tempHome = await fs.mkdtemp(path.join(os.tmpdir(), "mirai-wizard-home-"));
       process.env.HOME = tempHome;
-      delete process.env.OPENCLAW_STATE_DIR;
-      delete process.env.OPENCLAW_CONFIG_PATH;
+      delete process.env.MIRAI_STATE_DIR;
+      delete process.env.MIRAI_CONFIG_PATH;
 
-      const wizardToken = nextGatewayId("wiz-token");
+      const wizardToken = `wiz-${randomUUID()}`;
       const port = await getFreeGatewayPort();
       const server = await startGatewayServer(port, {
         bind: "loopback",
@@ -218,7 +212,7 @@ describe("gateway e2e", () => {
           | undefined;
         expect((token?.auth as { token?: string } | undefined)?.token).toBe(wizardToken);
       } finally {
-        await disconnectGatewayClient(client);
+        client.stop();
         await server.close({ reason: "wizard e2e complete" });
       }
 

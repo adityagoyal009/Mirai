@@ -3,57 +3,40 @@ import os from "node:os";
 import path from "node:path";
 import type { OAuthCredentials } from "@mariozechner/pi-ai";
 import { afterEach, describe, expect, it } from "vitest";
-import {
-  applyMinimaxApiConfig,
-  applyMinimaxApiProviderConfig,
-} from "../../extensions/minimax/onboard.js";
-import {
-  applyMistralConfig,
-  applyMistralProviderConfig,
-} from "../../extensions/mistral/onboard.js";
-import {
-  applyOpencodeGoConfig,
-  applyOpencodeGoProviderConfig,
-} from "../../extensions/opencode-go/onboard.js";
-import {
-  applyOpencodeZenConfig,
-  applyOpencodeZenProviderConfig,
-} from "../../extensions/opencode/onboard.js";
-import {
-  applyOpenrouterConfig,
-  applyOpenrouterProviderConfig,
-} from "../../extensions/openrouter/onboard.js";
-import {
-  applySyntheticConfig,
-  applySyntheticProviderConfig,
-  SYNTHETIC_DEFAULT_MODEL_REF,
-} from "../../extensions/synthetic/onboard.js";
-import {
-  applyXaiConfig,
-  applyXaiProviderConfig,
-  XAI_DEFAULT_MODEL_REF,
-} from "../../extensions/xai/onboard.js";
-import { applyXiaomiConfig, applyXiaomiProviderConfig } from "../../extensions/xiaomi/onboard.js";
-import { applyZaiConfig, applyZaiProviderConfig } from "../../extensions/zai/onboard.js";
-import { SYNTHETIC_DEFAULT_MODEL_ID } from "../agents/synthetic-models.js";
-import type { OpenClawConfig } from "../config/config.js";
+import type { MiraiConfig } from "../config/config.js";
 import {
   resolveAgentModelFallbackValues,
   resolveAgentModelPrimaryValue,
 } from "../config/model-input.js";
-import type { ModelApi } from "../config/types.models.js";
-import { applyAuthProfileConfig } from "../plugins/provider-auth-helpers.js";
 import {
+  applyAuthProfileConfig,
+  applyLitellmProviderConfig,
+  applyMistralConfig,
+  applyMistralProviderConfig,
+  applyMinimaxApiConfig,
+  applyMinimaxApiProviderConfig,
+  applyOpencodeZenConfig,
+  applyOpencodeZenProviderConfig,
+  applyOpenrouterConfig,
+  applyOpenrouterProviderConfig,
+  applySyntheticConfig,
+  applySyntheticProviderConfig,
+  applyXaiConfig,
+  applyXaiProviderConfig,
+  applyXiaomiConfig,
+  applyXiaomiProviderConfig,
+  applyZaiConfig,
+  applyZaiProviderConfig,
   OPENROUTER_DEFAULT_MODEL_REF,
+  MISTRAL_DEFAULT_MODEL_REF,
+  SYNTHETIC_DEFAULT_MODEL_ID,
+  SYNTHETIC_DEFAULT_MODEL_REF,
+  XAI_DEFAULT_MODEL_REF,
   setMinimaxApiKey,
   writeOAuthCredentials,
-} from "../plugins/provider-auth-storage.js";
-import {
-  MISTRAL_DEFAULT_MODEL_REF,
   ZAI_CODING_CN_BASE_URL,
   ZAI_GLOBAL_BASE_URL,
-} from "../plugins/provider-model-definitions.js";
-import { applyLitellmProviderConfig } from "./onboard-auth.config-litellm.js";
+} from "./onboard-auth.js";
 import {
   createAuthTestLifecycle,
   readAuthProfilesForAgent,
@@ -62,12 +45,12 @@ import {
 
 function createLegacyProviderConfig(params: {
   providerId: string;
-  api: ModelApi;
+  api: "anthropic-messages" | "openai-completions" | "openai-responses";
   modelId?: string;
   modelName?: string;
   baseUrl?: string;
   apiKey?: string;
-}): OpenClawConfig {
+}): MiraiConfig {
   return {
     models: {
       providers: {
@@ -89,7 +72,7 @@ function createLegacyProviderConfig(params: {
         },
       },
     },
-  } as OpenClawConfig;
+  } as MiraiConfig;
 }
 
 const EXPECTED_FALLBACKS = ["anthropic/claude-opus-4-5"] as const;
@@ -134,10 +117,10 @@ function expectAliasPreserved(
 
 describe("writeOAuthCredentials", () => {
   const lifecycle = createAuthTestLifecycle([
-    "OPENCLAW_STATE_DIR",
-    "OPENCLAW_AGENT_DIR",
+    "MIRAI_STATE_DIR",
+    "MIRAI_AGENT_DIR",
     "PI_CODING_AGENT_DIR",
-    "OPENCLAW_OAUTH_DIR",
+    "MIRAI_OAUTH_DIR",
   ]);
 
   let tempStateDir: string;
@@ -147,8 +130,8 @@ describe("writeOAuthCredentials", () => {
     await lifecycle.cleanup();
   });
 
-  it("writes auth-profiles.json under OPENCLAW_AGENT_DIR when set", async () => {
-    const env = await setupAuthTestEnv("openclaw-oauth-");
+  it("writes auth-profiles.json under MIRAI_AGENT_DIR when set", async () => {
+    const env = await setupAuthTestEnv("mirai-oauth-");
     lifecycle.setStateDir(env.stateDir);
 
     const creds = {
@@ -174,8 +157,8 @@ describe("writeOAuthCredentials", () => {
   });
 
   it("writes OAuth credentials to all sibling agent dirs when syncSiblingAgents=true", async () => {
-    tempStateDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-oauth-sync-"));
-    process.env.OPENCLAW_STATE_DIR = tempStateDir;
+    tempStateDir = await fs.mkdtemp(path.join(os.tmpdir(), "mirai-oauth-sync-"));
+    process.env.MIRAI_STATE_DIR = tempStateDir;
 
     const mainAgentDir = path.join(tempStateDir, "agents", "main", "agent");
     const kidAgentDir = path.join(tempStateDir, "agents", "kid", "agent");
@@ -184,7 +167,7 @@ describe("writeOAuthCredentials", () => {
     await fs.mkdir(kidAgentDir, { recursive: true });
     await fs.mkdir(workerAgentDir, { recursive: true });
 
-    process.env.OPENCLAW_AGENT_DIR = kidAgentDir;
+    process.env.MIRAI_AGENT_DIR = kidAgentDir;
     process.env.PI_CODING_AGENT_DIR = kidAgentDir;
 
     const creds = {
@@ -211,15 +194,15 @@ describe("writeOAuthCredentials", () => {
   });
 
   it("writes OAuth credentials only to target dir by default", async () => {
-    tempStateDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-oauth-nosync-"));
-    process.env.OPENCLAW_STATE_DIR = tempStateDir;
+    tempStateDir = await fs.mkdtemp(path.join(os.tmpdir(), "mirai-oauth-nosync-"));
+    process.env.MIRAI_STATE_DIR = tempStateDir;
 
     const mainAgentDir = path.join(tempStateDir, "agents", "main", "agent");
     const kidAgentDir = path.join(tempStateDir, "agents", "kid", "agent");
     await fs.mkdir(mainAgentDir, { recursive: true });
     await fs.mkdir(kidAgentDir, { recursive: true });
 
-    process.env.OPENCLAW_AGENT_DIR = kidAgentDir;
+    process.env.MIRAI_AGENT_DIR = kidAgentDir;
     process.env.PI_CODING_AGENT_DIR = kidAgentDir;
 
     const creds = {
@@ -242,11 +225,11 @@ describe("writeOAuthCredentials", () => {
     await expect(fs.readFile(authProfilePathFor(mainAgentDir), "utf8")).rejects.toThrow();
   });
 
-  it("syncs siblings from explicit agentDir outside OPENCLAW_STATE_DIR", async () => {
-    tempStateDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-oauth-external-"));
-    process.env.OPENCLAW_STATE_DIR = tempStateDir;
+  it("syncs siblings from explicit agentDir outside MIRAI_STATE_DIR", async () => {
+    tempStateDir = await fs.mkdtemp(path.join(os.tmpdir(), "mirai-oauth-external-"));
+    process.env.MIRAI_STATE_DIR = tempStateDir;
 
-    // Create standard-layout agents tree *outside* OPENCLAW_STATE_DIR
+    // Create standard-layout agents tree *outside* MIRAI_STATE_DIR
     const externalRoot = path.join(tempStateDir, "external", "agents");
     const extMain = path.join(externalRoot, "main", "agent");
     const extKid = path.join(externalRoot, "kid", "agent");
@@ -286,8 +269,8 @@ describe("writeOAuthCredentials", () => {
 
 describe("setMinimaxApiKey", () => {
   const lifecycle = createAuthTestLifecycle([
-    "OPENCLAW_STATE_DIR",
-    "OPENCLAW_AGENT_DIR",
+    "MIRAI_STATE_DIR",
+    "MIRAI_AGENT_DIR",
     "PI_CODING_AGENT_DIR",
   ]);
 
@@ -295,8 +278,8 @@ describe("setMinimaxApiKey", () => {
     await lifecycle.cleanup();
   });
 
-  it("writes to OPENCLAW_AGENT_DIR when set", async () => {
-    const env = await setupAuthTestEnv("openclaw-minimax-", { agentSubdir: "custom-agent" });
+  it("writes to MIRAI_AGENT_DIR when set", async () => {
+    const env = await setupAuthTestEnv("mirai-minimax-", { agentSubdir: "custom-agent" });
     lifecycle.setStateDir(env.stateDir);
 
     await setMinimaxApiKey("sk-minimax-test");
@@ -382,13 +365,12 @@ describe("applyMinimaxApiConfig", () => {
     expect(cfg.models?.providers?.minimax).toMatchObject({
       baseUrl: "https://api.minimax.io/anthropic",
       api: "anthropic-messages",
-      authHeader: true,
     });
   });
 
-  it("keeps reasoning enabled for MiniMax-M2.7", () => {
-    const cfg = applyMinimaxApiConfig({}, "MiniMax-M2.7");
-    expect(cfg.models?.providers?.minimax?.models[0]?.reasoning).toBe(true);
+  it("does not set reasoning for non-reasoning models", () => {
+    const cfg = applyMinimaxApiConfig({}, "MiniMax-M2.1");
+    expect(cfg.models?.providers?.minimax?.models[0]?.reasoning).toBe(false);
   });
 
   it("preserves existing model params when adding alias", () => {
@@ -397,7 +379,7 @@ describe("applyMinimaxApiConfig", () => {
         agents: {
           defaults: {
             models: {
-              "minimax/MiniMax-M2.7": {
+              "minimax/MiniMax-M2.1": {
                 alias: "MiniMax",
                 params: { custom: "value" },
               },
@@ -405,9 +387,9 @@ describe("applyMinimaxApiConfig", () => {
           },
         },
       },
-      "MiniMax-M2.7",
+      "MiniMax-M2.1",
     );
-    expect(cfg.agents?.defaults?.models?.["minimax/MiniMax-M2.7"]).toMatchObject({
+    expect(cfg.agents?.defaults?.models?.["minimax/MiniMax-M2.1"]).toMatchObject({
       alias: "Minimax",
       params: { custom: "value" },
     });
@@ -422,11 +404,10 @@ describe("applyMinimaxApiConfig", () => {
     );
     expect(cfg.models?.providers?.minimax?.baseUrl).toBe("https://api.minimax.io/anthropic");
     expect(cfg.models?.providers?.minimax?.api).toBe("anthropic-messages");
-    expect(cfg.models?.providers?.minimax?.authHeader).toBe(true);
     expect(cfg.models?.providers?.minimax?.apiKey).toBe("old-key");
     expect(cfg.models?.providers?.minimax?.models.map((m) => m.id)).toEqual([
       "old-model",
-      "MiniMax-M2.7",
+      "MiniMax-M2.5",
     ]);
   });
 
@@ -436,7 +417,7 @@ describe("applyMinimaxApiConfig", () => {
         providers: {
           anthropic: {
             baseUrl: "https://api.anthropic.com",
-            apiKey: "anthropic-key", // pragma: allowlist secret
+            apiKey: "anthropic-key",
             api: "anthropic-messages",
             models: [
               {
@@ -481,13 +462,12 @@ describe("applyZaiConfig", () => {
   it("adds zai provider with correct settings", () => {
     const cfg = applyZaiConfig({});
     expect(cfg.models?.providers?.zai).toMatchObject({
-      // Default: general (non-coding) endpoint. Coding Plan endpoint is detected during setup.
+      // Default: general (non-coding) endpoint. Coding Plan endpoint is detected during onboarding.
       baseUrl: ZAI_GLOBAL_BASE_URL,
       api: "openai-completions",
     });
     const ids = cfg.models?.providers?.zai?.models?.map((m) => m.id);
     expect(ids).toContain("glm-5");
-    expect(ids).toContain("glm-5-turbo");
     expect(ids).toContain("glm-4.7");
     expect(ids).toContain("glm-4.7-flash");
     expect(ids).toContain("glm-4.7-flashx");
@@ -531,8 +511,8 @@ describe("primary model defaults", () => {
   it("sets correct primary model", () => {
     const configCases = [
       {
-        getConfig: () => applyMinimaxApiConfig({}, "MiniMax-M2.5-highspeed"),
-        primaryModel: "minimax/MiniMax-M2.5-highspeed",
+        getConfig: () => applyMinimaxApiConfig({}, "MiniMax-M2.1-lightning"),
+        primaryModel: "minimax/MiniMax-M2.1-lightning",
       },
       {
         getConfig: () => applyZaiConfig({}, { modelId: "glm-5" }),
@@ -554,14 +534,9 @@ describe("applyXiaomiConfig", () => {
   it("adds Xiaomi provider with correct settings", () => {
     const cfg = applyXiaomiConfig({});
     expect(cfg.models?.providers?.xiaomi).toMatchObject({
-      baseUrl: "https://api.xiaomimimo.com/v1",
-      api: "openai-completions",
+      baseUrl: "https://api.xiaomimimo.com/anthropic",
+      api: "anthropic-messages",
     });
-    expect(cfg.models?.providers?.xiaomi?.models.map((m) => m.id)).toEqual([
-      "mimo-v2-flash",
-      "mimo-v2-pro",
-      "mimo-v2-omni",
-    ]);
     expect(resolveAgentModelPrimaryValue(cfg.agents?.defaults?.model)).toBe("xiaomi/mimo-v2-flash");
   });
 
@@ -575,14 +550,12 @@ describe("applyXiaomiConfig", () => {
       }),
     );
 
-    expect(cfg.models?.providers?.xiaomi?.baseUrl).toBe("https://api.xiaomimimo.com/v1");
-    expect(cfg.models?.providers?.xiaomi?.api).toBe("openai-completions");
+    expect(cfg.models?.providers?.xiaomi?.baseUrl).toBe("https://api.xiaomimimo.com/anthropic");
+    expect(cfg.models?.providers?.xiaomi?.api).toBe("anthropic-messages");
     expect(cfg.models?.providers?.xiaomi?.apiKey).toBe("old-key");
     expect(cfg.models?.providers?.xiaomi?.models.map((m) => m.id)).toEqual([
       "custom-model",
       "mimo-v2-flash",
-      "mimo-v2-pro",
-      "mimo-v2-omni",
     ]);
   });
 });
@@ -612,14 +585,7 @@ describe("applyXaiProviderConfig", () => {
     expect(cfg.models?.providers?.xai?.baseUrl).toBe("https://api.x.ai/v1");
     expect(cfg.models?.providers?.xai?.api).toBe("openai-completions");
     expect(cfg.models?.providers?.xai?.apiKey).toBe("old-key");
-    expect(cfg.models?.providers?.xai?.models.map((m) => m.id)).toEqual(
-      expect.arrayContaining([
-        "custom-model",
-        "grok-4",
-        "grok-4-1-fast-reasoning",
-        "grok-code-fast-1",
-      ]),
-    );
+    expect(cfg.models?.providers?.xai?.models.map((m) => m.id)).toEqual(["custom-model", "grok-4"]);
   });
 });
 
@@ -676,8 +642,8 @@ describe("provider alias defaults", () => {
   it("adds expected alias for provider defaults", () => {
     const aliasCases = [
       {
-        applyConfig: () => applyMinimaxApiConfig({}, "MiniMax-M2.7"),
-        modelRef: "minimax/MiniMax-M2.7",
+        applyConfig: () => applyMinimaxApiConfig({}, "MiniMax-M2.1"),
+        modelRef: "minimax/MiniMax-M2.1",
         alias: "Minimax",
       },
       {
@@ -705,11 +671,6 @@ describe("allowlist provider helpers", () => {
         applyConfig: applyOpencodeZenProviderConfig,
         modelRef: "opencode/claude-opus-4-6",
         alias: "My Opus",
-      },
-      {
-        applyConfig: applyOpencodeGoProviderConfig,
-        modelRef: "opencode-go/kimi-k2.5",
-        alias: "Kimi",
       },
       {
         applyConfig: applyOpenrouterProviderConfig,
@@ -764,10 +725,6 @@ describe("default-model config helpers", () => {
       {
         applyConfig: applyOpencodeZenConfig,
         primaryModel: "opencode/claude-opus-4-6",
-      },
-      {
-        applyConfig: applyOpencodeGoConfig,
-        primaryModel: "opencode-go/kimi-k2.5",
       },
       {
         applyConfig: applyOpenrouterConfig,

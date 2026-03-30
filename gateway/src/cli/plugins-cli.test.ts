@@ -1,11 +1,11 @@
 import { Command } from "commander";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { OpenClawConfig } from "../config/config.js";
+import type { MiraiConfig } from "../config/config.js";
 import { createCliRuntimeCapture } from "./test-runtime-capture.js";
 
-const loadConfig = vi.fn<() => OpenClawConfig>(() => ({}) as OpenClawConfig);
-const writeConfigFile = vi.fn<(config: OpenClawConfig) => Promise<void>>(async () => undefined);
-const resolveStateDir = vi.fn(() => "/tmp/openclaw-state");
+const loadConfig = vi.fn<() => MiraiConfig>(() => ({}) as MiraiConfig);
+const writeConfigFile = vi.fn<(config: MiraiConfig) => Promise<void>>(async () => undefined);
+const resolveStateDir = vi.fn(() => "/tmp/mirai-state");
 const installPluginFromMarketplace = vi.fn();
 const listMarketplacePlugins = vi.fn();
 const resolveMarketplaceInstallShortcut = vi.fn();
@@ -32,7 +32,7 @@ vi.mock("../config/config.js", async (importOriginal) => {
   return {
     ...actual,
     loadConfig: () => loadConfig(),
-    writeConfigFile: (config: OpenClawConfig) => writeConfigFile(config),
+    writeConfigFile: (config: MiraiConfig) => writeConfigFile(config),
   };
 });
 
@@ -127,27 +127,27 @@ describe("plugins cli", () => {
     installPluginFromNpmSpec.mockReset();
     installPluginFromPath.mockReset();
 
-    loadConfig.mockReturnValue({} as OpenClawConfig);
+    loadConfig.mockReturnValue({} as MiraiConfig);
     writeConfigFile.mockResolvedValue(undefined);
-    resolveStateDir.mockReturnValue("/tmp/openclaw-state");
+    resolveStateDir.mockReturnValue("/tmp/mirai-state");
     resolveMarketplaceInstallShortcut.mockResolvedValue(null);
     installPluginFromMarketplace.mockResolvedValue({
       ok: false,
       error: "marketplace install failed",
     });
-    enablePluginInConfig.mockImplementation((cfg: OpenClawConfig) => ({ config: cfg }));
-    recordPluginInstall.mockImplementation((cfg: OpenClawConfig) => cfg);
+    enablePluginInConfig.mockImplementation((cfg: MiraiConfig) => ({ config: cfg }));
+    recordPluginInstall.mockImplementation((cfg: MiraiConfig) => cfg);
     buildPluginStatusReport.mockReturnValue({
       plugins: [],
       diagnostics: [],
     });
-    applyExclusiveSlotSelection.mockImplementation(({ config }: { config: OpenClawConfig }) => ({
+    applyExclusiveSlotSelection.mockImplementation(({ config }: { config: MiraiConfig }) => ({
       config,
       warnings: [],
     }));
     uninstallPlugin.mockResolvedValue({
       ok: true,
-      config: {} as OpenClawConfig,
+      config: {} as MiraiConfig,
       warnings: [],
       actions: {
         entry: false,
@@ -161,7 +161,7 @@ describe("plugins cli", () => {
     updateNpmInstalledPlugins.mockResolvedValue({
       outcomes: [],
       changed: false,
-      config: {} as OpenClawConfig,
+      config: {} as MiraiConfig,
     });
     promptYesNo.mockResolvedValue(true);
     installPluginFromPath.mockResolvedValue({ ok: false, error: "path install disabled in test" });
@@ -199,7 +199,7 @@ describe("plugins cli", () => {
       plugins: {
         entries: {},
       },
-    } as OpenClawConfig;
+    } as MiraiConfig;
     const enabledCfg = {
       plugins: {
         entries: {
@@ -208,7 +208,7 @@ describe("plugins cli", () => {
           },
         },
       },
-    } as OpenClawConfig;
+    } as MiraiConfig;
     const installedCfg = {
       ...enabledCfg,
       plugins: {
@@ -216,17 +216,17 @@ describe("plugins cli", () => {
         installs: {
           alpha: {
             source: "marketplace",
-            installPath: "/tmp/openclaw-state/extensions/alpha",
+            installPath: "/tmp/mirai-state/extensions/alpha",
           },
         },
       },
-    } as OpenClawConfig;
+    } as MiraiConfig;
 
     loadConfig.mockReturnValue(cfg);
     installPluginFromMarketplace.mockResolvedValue({
       ok: true,
       pluginId: "alpha",
-      targetDir: "/tmp/openclaw-state/extensions/alpha",
+      targetDir: "/tmp/mirai-state/extensions/alpha",
       version: "1.2.3",
       marketplaceName: "Claude",
       marketplaceSource: "local/repo",
@@ -262,12 +262,12 @@ describe("plugins cli", () => {
         installs: {
           alpha: {
             source: "path",
-            sourcePath: "/tmp/openclaw-state/extensions/alpha",
-            installPath: "/tmp/openclaw-state/extensions/alpha",
+            sourcePath: "/tmp/mirai-state/extensions/alpha",
+            installPath: "/tmp/mirai-state/extensions/alpha",
           },
         },
       },
-    } as OpenClawConfig);
+    } as MiraiConfig);
     buildPluginStatusReport.mockReturnValue({
       plugins: [{ id: "alpha", name: "alpha" }],
       diagnostics: [],
@@ -289,18 +289,18 @@ describe("plugins cli", () => {
         installs: {
           alpha: {
             source: "path",
-            sourcePath: "/tmp/openclaw-state/extensions/alpha",
-            installPath: "/tmp/openclaw-state/extensions/alpha",
+            sourcePath: "/tmp/mirai-state/extensions/alpha",
+            installPath: "/tmp/mirai-state/extensions/alpha",
           },
         },
       },
-    } as OpenClawConfig;
+    } as MiraiConfig;
     const nextConfig = {
       plugins: {
         entries: {},
         installs: {},
       },
-    } as OpenClawConfig;
+    } as MiraiConfig;
 
     loadConfig.mockReturnValue(baseConfig);
     buildPluginStatusReport.mockReturnValue({
@@ -339,7 +339,7 @@ describe("plugins cli", () => {
         entries: {},
         installs: {},
       },
-    } as OpenClawConfig);
+    } as MiraiConfig);
     buildPluginStatusReport.mockReturnValue({
       plugins: [{ id: "alpha", name: "alpha" }],
       diagnostics: [],
@@ -358,7 +358,7 @@ describe("plugins cli", () => {
       plugins: {
         installs: {},
       },
-    } as OpenClawConfig);
+    } as MiraiConfig);
 
     await expect(runCommand(["plugins", "update"])).rejects.toThrow("__exit__:1");
 
@@ -371,7 +371,7 @@ describe("plugins cli", () => {
       plugins: {
         installs: {},
       },
-    } as OpenClawConfig);
+    } as MiraiConfig);
 
     await runCommand(["plugins", "update", "--all"]);
 
@@ -383,15 +383,15 @@ describe("plugins cli", () => {
     const config = {
       plugins: {
         installs: {
-          "openclaw-codex-app-server": {
+          "mirai-codex-app-server": {
             source: "npm",
-            spec: "openclaw-codex-app-server",
-            installPath: "/tmp/openclaw-codex-app-server",
-            resolvedName: "openclaw-codex-app-server",
+            spec: "mirai-codex-app-server",
+            installPath: "/tmp/mirai-codex-app-server",
+            resolvedName: "mirai-codex-app-server",
           },
         },
       },
-    } as OpenClawConfig;
+    } as MiraiConfig;
     loadConfig.mockReturnValue(config);
     updateNpmInstalledPlugins.mockResolvedValue({
       config,
@@ -399,14 +399,14 @@ describe("plugins cli", () => {
       outcomes: [],
     });
 
-    await runCommand(["plugins", "update", "openclaw-codex-app-server@beta"]);
+    await runCommand(["plugins", "update", "mirai-codex-app-server@beta"]);
 
     expect(updateNpmInstalledPlugins).toHaveBeenCalledWith(
       expect.objectContaining({
         config,
-        pluginIds: ["openclaw-codex-app-server"],
+        pluginIds: ["mirai-codex-app-server"],
         specOverrides: {
-          "openclaw-codex-app-server": "openclaw-codex-app-server@beta",
+          "mirai-codex-app-server": "mirai-codex-app-server@beta",
         },
       }),
     );
@@ -418,13 +418,13 @@ describe("plugins cli", () => {
         installs: {
           "voice-call": {
             source: "npm",
-            spec: "@openclaw/voice-call",
+            spec: "@mirai/voice-call",
             installPath: "/tmp/voice-call",
-            resolvedName: "@openclaw/voice-call",
+            resolvedName: "@mirai/voice-call",
           },
         },
       },
-    } as OpenClawConfig;
+    } as MiraiConfig;
     loadConfig.mockReturnValue(config);
     updateNpmInstalledPlugins.mockResolvedValue({
       config,
@@ -432,14 +432,14 @@ describe("plugins cli", () => {
       outcomes: [],
     });
 
-    await runCommand(["plugins", "update", "@openclaw/voice-call@beta"]);
+    await runCommand(["plugins", "update", "@mirai/voice-call@beta"]);
 
     expect(updateNpmInstalledPlugins).toHaveBeenCalledWith(
       expect.objectContaining({
         config,
         pluginIds: ["voice-call"],
         specOverrides: {
-          "voice-call": "@openclaw/voice-call@beta",
+          "voice-call": "@mirai/voice-call@beta",
         },
       }),
     );
@@ -449,15 +449,15 @@ describe("plugins cli", () => {
     const config = {
       plugins: {
         installs: {
-          "openclaw-codex-app-server": {
+          "mirai-codex-app-server": {
             source: "npm",
-            spec: "openclaw-codex-app-server",
-            installPath: "/tmp/openclaw-codex-app-server",
-            resolvedName: "openclaw-codex-app-server",
+            spec: "mirai-codex-app-server",
+            installPath: "/tmp/mirai-codex-app-server",
+            resolvedName: "mirai-codex-app-server",
           },
         },
       },
-    } as OpenClawConfig;
+    } as MiraiConfig;
     loadConfig.mockReturnValue(config);
     updateNpmInstalledPlugins.mockResolvedValue({
       config,
@@ -465,14 +465,14 @@ describe("plugins cli", () => {
       outcomes: [],
     });
 
-    await runCommand(["plugins", "update", "openclaw-codex-app-server@0.2.0-beta.4"]);
+    await runCommand(["plugins", "update", "mirai-codex-app-server@0.2.0-beta.4"]);
 
     expect(updateNpmInstalledPlugins).toHaveBeenCalledWith(
       expect.objectContaining({
         config,
-        pluginIds: ["openclaw-codex-app-server"],
+        pluginIds: ["mirai-codex-app-server"],
         specOverrides: {
-          "openclaw-codex-app-server": "openclaw-codex-app-server@0.2.0-beta.4",
+          "mirai-codex-app-server": "mirai-codex-app-server@0.2.0-beta.4",
         },
       }),
     );
@@ -482,15 +482,15 @@ describe("plugins cli", () => {
     const config = {
       plugins: {
         installs: {
-          "openclaw-codex-app-server": {
+          "mirai-codex-app-server": {
             source: "npm",
-            spec: "openclaw-codex-app-server@beta",
-            installPath: "/tmp/openclaw-codex-app-server",
-            resolvedName: "openclaw-codex-app-server",
+            spec: "mirai-codex-app-server@beta",
+            installPath: "/tmp/mirai-codex-app-server",
+            resolvedName: "mirai-codex-app-server",
           },
         },
       },
-    } as OpenClawConfig;
+    } as MiraiConfig;
     loadConfig.mockReturnValue(config);
     updateNpmInstalledPlugins.mockResolvedValue({
       config,
@@ -498,12 +498,12 @@ describe("plugins cli", () => {
       outcomes: [],
     });
 
-    await runCommand(["plugins", "update", "openclaw-codex-app-server"]);
+    await runCommand(["plugins", "update", "mirai-codex-app-server"]);
 
     expect(updateNpmInstalledPlugins).toHaveBeenCalledWith(
       expect.objectContaining({
         config,
-        pluginIds: ["openclaw-codex-app-server"],
+        pluginIds: ["mirai-codex-app-server"],
       }),
     );
     expect(updateNpmInstalledPlugins).not.toHaveBeenCalledWith(
@@ -519,21 +519,21 @@ describe("plugins cli", () => {
         installs: {
           alpha: {
             source: "npm",
-            spec: "@openclaw/alpha@1.0.0",
+            spec: "@mirai/alpha@1.0.0",
           },
         },
       },
-    } as OpenClawConfig;
+    } as MiraiConfig;
     const nextConfig = {
       plugins: {
         installs: {
           alpha: {
             source: "npm",
-            spec: "@openclaw/alpha@1.1.0",
+            spec: "@mirai/alpha@1.1.0",
           },
         },
       },
-    } as OpenClawConfig;
+    } as MiraiConfig;
     loadConfig.mockReturnValue(cfg);
     updateNpmInstalledPlugins.mockResolvedValue({
       outcomes: [{ status: "ok", message: "Updated alpha -> 1.1.0" }],

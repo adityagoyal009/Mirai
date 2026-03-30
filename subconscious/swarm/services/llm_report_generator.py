@@ -91,7 +91,9 @@ body {
 
 /* ── Page Layout ──────────────────────────────────────────────────────────── */
 .page {
-  width: 210mm;
+  width: 100%;
+  max-width: 1100px;
+  margin: 0 auto;
   min-height: 297mm;
   padding: 15mm 20mm 18mm 20mm;
   page-break-after: always;
@@ -519,7 +521,7 @@ CRITICAL RULES — FOLLOW EXACTLY
 1. USE ONLY CSS CLASSES defined in the stylesheet. Do NOT use inline styles.
 2. Every number, name, and fact MUST come from the analysis JSON. NO invented data.
 3. If a field is missing or empty, skip that section gracefully (no empty tables, no "N/A", no "Unknown").
-4. Produce ALL pages including all appendices (A through E) in a single output.
+4. Produce ALL pages including appendices A through E in a single output.
 5. Every .page div MUST end with a footer div:
    <div class="footer"><span>Mirai (未来) + Sensei (先生) — VCLabs.org</span><span class="footer-right"></span></div>
 6. ALL agent responses from sample_agents MUST appear in Appendix D, grouped by zone.
@@ -527,6 +529,8 @@ CRITICAL RULES — FOLLOW EXACTLY
 8. Positive growth uses class="green-text", losses use class="red-text" on <td>.
 9. SVG charts must be self-contained, sized to fit, with the color scheme: navy=#0f2440, teal=#2563eb, green=#059669, orange=#f39c12, red=#dc2626.
 10. Keep total report to 12–15 pages. Compress prose; prefer tables.
+11. ANONYMIZATION: Council evaluators are labeled "Elder 1", "Elder 2", etc. NEVER reveal actual model names, providers, or AI company names (no "Claude", "GPT", "Llama", "Qwen", etc.). Use only the Elder labels provided. Swarm agents use their persona names only.
+12. In the Methodology appendix, describe the council as "10 frontier language models across 8 model families" — do NOT list model names.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 DATA FIELD REFERENCE:
@@ -547,7 +551,9 @@ DATA FIELD REFERENCE:
 - Verdict: prediction.verdict
 - Confidence: prediction.confidence
 - Dimensions array: prediction.dimensions (each has .name and .score)
-- Council models: prediction.council_models (array)
+- Council models: prediction.council_models (array of "Elder N" labels)
+- Council scores: prediction.council_scores (object mapping "Elder N" -> overall score float)
+- Research sources: research.sources (array of {url, title} — use count for "Sources Cited" stat, cite in narrative where relevant)
 - Deal history: research.company_profile.deal_history (array of objects)
 - Financials: research.company_profile.financials
 - Team: research.company_profile.team (array)
@@ -1094,17 +1100,17 @@ Structure:
   [page-header]
   <div class="section-header appendix-header">Appendix B — Council Deliberation</div>
 
-  <!-- COMMITTEE TABLE: show council models and their scores if available -->
+  <!-- COMMITTEE TABLE: show anonymized council elders with their overall scores from prediction.council_scores -->
   [If prediction.council_models exists and non-empty:]
   <div class="subsection-label">Committee</div>
   <table>
-    <thead><tr><th>Model / Persona</th><th>Zone</th><th class="right">Score</th></tr></thead>
+    <thead><tr><th>Evaluator</th><th>Zone</th><th class="right">Overall Score</th></tr></thead>
     <tbody>
-      [For each model in prediction.council_models, infer zone from model name:]
+      [For each elder label in prediction.council_models, look up score in prediction.council_scores[elder_label]:]
       <tr>
-        <td class="bold">[model name]</td>
-        <td><span class="zone-badge">[inferred zone or "Council"]</span></td>
-        <td class="num">[score if available, else "—"]</td>
+        <td class="bold">[elder label, e.g. "Elder 1"]</td>
+        <td><span class="zone-badge">Council</span></td>
+        <td class="num">[prediction.council_scores[elder_label] rounded to 1 decimal, e.g. "5.3"]</td>
       </tr>
     </tbody>
   </table>
@@ -1242,29 +1248,41 @@ Structure — first page of Appendix D:
 </div>
 [Continue in additional .page divs if needed]
 
-═══ APPENDIX E (page): METHODOLOGY ═══
+═══ APPENDIX E (page): SCORING FRAMEWORK ═══
 
 Structure:
 <div class="page">
   [page-header]
-  <div class="section-header appendix-header">Appendix E — Methodology</div>
+  <div class="section-header appendix-header">Appendix E — Scoring Framework</div>
 
+  <div class="subsection-label">10-Dimension Scoring Rubric</div>
   <table>
-    <thead><tr><th>Component</th><th>Details</th></tr></thead>
+    <thead><tr><th>Dimension</th><th>What It Measures</th><th>Score Range</th></tr></thead>
     <tbody>
-      <tr><td class="bold">Council Models</td><td>[prediction.council_models joined by ", "]</td></tr>
-      <tr><td class="bold">Swarm Size</td><td>[swarm.total_agents] autonomous agents</td></tr>
-      <tr><td class="bold">Persona Pool</td><td>Investor, Customer, Operator, Analyst, Contrarian, Wildcard</td></tr>
-      <tr><td class="bold">Scoring Method</td><td>Multi-dimensional 0–10 scoring across [count] dimensions, averaged with confidence weighting</td></tr>
-      <tr><td class="bold">Research Sources</td><td>[research.sources joined by "; ", up to 10 sources]</td></tr>
-      <tr><td class="bold">Report Generated</td><td>[today's date and time]</td></tr>
+      <tr><td class="bold">Market Timing</td><td>Alignment of product launch with market readiness, demand signals, and macro trends</td><td>0–10</td></tr>
+      <tr><td class="bold">Competition Landscape</td><td>Density and strength of existing competitors; defensibility of position</td><td>0–10</td></tr>
+      <tr><td class="bold">Business Model Viability</td><td>Unit economics, pricing sustainability, revenue model coherence</td><td>0–10</td></tr>
+      <tr><td class="bold">Team Execution Signals</td><td>Team completeness, domain expertise, track record, and operational capacity</td><td>0–10</td></tr>
+      <tr><td class="bold">Regulatory Environment</td><td>Regulatory tailwinds/headwinds, compliance requirements, government funding signals</td><td>0–10</td></tr>
+      <tr><td class="bold">Social Proof & Demand</td><td>Customer traction, LOIs, pilots, waitlists, partnerships, press coverage</td><td>0–10</td></tr>
+      <tr><td class="bold">Pattern Match</td><td>Similarity to historically successful startups in structure, timing, and approach</td><td>0–10</td></tr>
+      <tr><td class="bold">Capital Efficiency</td><td>Ability to achieve milestones with minimal capital; burn rate discipline</td><td>0–10</td></tr>
+      <tr><td class="bold">Scalability Potential</td><td>Technical and operational ability to grow revenue without proportional cost increases</td><td>0–10</td></tr>
+      <tr><td class="bold">Exit Potential</td><td>Likelihood and attractiveness of acquisition or IPO based on market, IP, and positioning</td><td>0–10</td></tr>
     </tbody>
   </table>
 
-  <div class="subsection-label mt12">About Mirai</div>
-  <div class="narrative">
-    <p>Mirai (未来) is an AI-powered startup prediction platform combining multi-model council deliberation with autonomous swarm intelligence. Sensei (先生) orchestrates research, analysis, and synthesis to produce institutional-grade due diligence reports. VCLabs.org</p>
-  </div>
+  <div class="subsection-label mt12">Verdict Scale</div>
+  <table>
+    <thead><tr><th>Score</th><th>Verdict</th><th>Meaning</th></tr></thead>
+    <tbody>
+      <tr><td class="num">8.0–10.0</td><td><span class="verdict-strong-hit">STRONG HIT</span></td><td>Exceptional fundamentals across all dimensions</td></tr>
+      <tr><td class="num">6.5–7.9</td><td><span class="verdict-likely-hit">LIKELY HIT</span></td><td>Strong profile with manageable risks</td></tr>
+      <tr><td class="num">5.0–6.4</td><td><span class="verdict-mixed">UNCERTAIN</span></td><td>Mixed signals; outcome depends on execution</td></tr>
+      <tr><td class="num">3.5–4.9</td><td><span class="verdict-likely-miss">LIKELY MISS</span></td><td>Structural challenges outweigh strengths</td></tr>
+      <tr><td class="num">0.0–3.4</td><td><span class="verdict-strong-miss">STRONG MISS</span></td><td>Fundamental viability concerns</td></tr>
+    </tbody>
+  </table>
 
   [FOOTER]
 </div>
@@ -1280,6 +1298,7 @@ VERDICT → CSS CLASS MAPPING:
 - "Strong Hit" or "STRONG HIT" → verdict-strong-hit
 - "Likely Hit" or "LIKELY HIT" → verdict-likely-hit
 - "Mixed Signal" or "MIXED SIGNAL" or "Mixed" → verdict-mixed
+- "Uncertain" or "UNCERTAIN" → verdict-mixed
 - "Likely Miss" or "LIKELY MISS" → verdict-likely-miss
 - "Strong Miss" or "STRONG MISS" → verdict-strong-miss
 - Any other → verdict-mixed
@@ -1310,11 +1329,14 @@ def generate_llm_report(analysis: Dict[str, Any]) -> str:
         logger.info(f"[LLM Report] Sending {len(analysis_json)} chars to Opus via CLI...")
 
         # Use string replace instead of .format() to avoid KeyError on braces in template
+        today_str = datetime.now().strftime("%d %B %Y")
         prompt = REPORT_PROMPT.replace("{analysis_json}", analysis_json)
+        prompt = prompt.replace("[DATE from today]", today_str)
+        prompt = prompt.replace("[today's date and time]", today_str)
 
         body_html = call_claude(
             prompt,
-            model="claude-sonnet-4-6",
+            model="claude-opus-4-6",
             max_tokens=16000,
             timeout=600,
         )
@@ -1325,8 +1347,8 @@ def generate_llm_report(analysis: Dict[str, Any]) -> str:
         body_html = re.sub(r'^```(?:html)?\s*\n?', '', body_html.strip(), flags=re.IGNORECASE)
         body_html = re.sub(r'\n?```\s*$', '', body_html)
 
-        # ── GPT-5.4 Review: check completeness before rendering ──
-        body_html = _review_report_html(body_html, trimmed)
+        # Review step removed — it either returns HTML unchanged (wasting time)
+        # or returns QA notes instead of HTML (corrupting the report)
 
         # Wrap in full HTML document
         html = f"""<!DOCTYPE html>
@@ -1394,7 +1416,7 @@ def _review_report_html(body_html: str, analysis: Dict) -> str:
         )
 
         logger.info("[LLM Report] Reviewing report completeness...")
-        reviewed = call_claude(review_prompt, model="claude-sonnet-4-6", max_tokens=16000, timeout=180)
+        reviewed = call_claude(review_prompt, model="claude-opus-4-6", max_tokens=16000, timeout=180)
 
         # Strip markdown fences from review output
         reviewed = re.sub(r'^```(?:html)?\s*\n?', '', reviewed.strip(), flags=re.IGNORECASE)
@@ -1432,10 +1454,15 @@ def _trim_analysis(analysis: Dict) -> Dict:
         'confidence': pred.get('confidence', 0),
         'dimensions': pred.get('dimensions', []),
         'contested_dimensions': [
-            {'dimension': c.get('dimension', ''), 'spread': c.get('spread', 0), 'scores': c.get('scores', {})}
+            {'dimension': c.get('dimension', ''), 'spread': c.get('spread', 0),
+             'scores': {f"Elder {j+1}": v for j, (k, v) in enumerate(c.get('scores', {}).items())}}
             for c in pred.get('contested_dimensions', [])[:5]
         ],
-        'council_models': pred.get('council_models', []),
+        'council_models': [f"Elder {i+1}" for i in range(len(pred.get('council_models', [])))],
+        'council_scores': {
+            f"Elder {i+1}": scores.get('overall', 0)
+            for i, (label, scores) in enumerate(pred.get('model_scores', {}).items())
+        },
     }
 
     # Research — competitors list + market stats only (narrative is in report_sections)
@@ -1459,7 +1486,7 @@ def _trim_analysis(analysis: Dict) -> Dict:
                       'founded', 'employees', 'hq', 'total_raised', 'last_valuation',
                       'revenue', 'revenue_growth', 'ebitda')
         },
-        'sources': [s if isinstance(s, str) else s.get('url', s.get('title', '')) for s in research.get('sources', [])[:30]],
+        'sources': research.get('sources', [])[:30],
     }
 
     # Swarm — stats + trimmed agents (persona + scores only, NO full reasoning)
@@ -1476,7 +1503,7 @@ def _trim_analysis(analysis: Dict) -> Dict:
             {'persona': a.get('persona', ''), 'overall': a.get('overall', 0),
              'scores': a.get('scores', {}), 'zone': a.get('zone', ''),
              'reasoning': a.get('reasoning', '') or ''}
-            for a in swarm.get('sample_agents', [])[:10]
+            for a in swarm.get('sample_agents', [])[:50]
         ],
         'divergence': {
             'zone_agreement': swarm.get('divergence', {}).get('zone_agreement', {}),
@@ -1536,12 +1563,22 @@ def _trim_analysis(analysis: Dict) -> Dict:
     _cache_age = analysis.get('research', {}).get('_cache_age_days')
     if _cache_age is not None:
         trimmed['cache_age_days'] = _cache_age
-    # Peer review data (from Karpathy Stage 2)
+    # Peer review data (from Karpathy Stage 2) — anonymize evaluator labels
     peer_review = analysis.get('prediction', {}).get('peer_review', {})
     if peer_review:
+        # Build label→Elder mapping from council_models
+        _real_labels = pred.get('council_models', [])
+        _elder_map = {label: f"Elder {i+1}" for i, label in enumerate(_real_labels)}
         trimmed['peer_review'] = {
-            'flags': peer_review.get('flags', [])[:5],
-            'aggregate_rankings': peer_review.get('aggregate_rankings', {}),
+            'flags': [
+                {k: (_elder_map.get(v, v) if k in ('flagged_by', 'target') else v)
+                 for k, v in f.items()}
+                for f in peer_review.get('flags', [])[:5]
+            ],
+            'aggregate_rankings': {
+                _elder_map.get(k, k): v
+                for k, v in peer_review.get('aggregate_rankings', {}).items()
+            },
         }
     oasis = analysis.get('oasis', {})
     if not isinstance(oasis, dict):

@@ -2,20 +2,17 @@ import { listAgentIds } from "../../agents/agent-scope.js";
 import { DEFAULT_MODEL, DEFAULT_PROVIDER } from "../../agents/defaults.js";
 import {
   buildModelAliasIndex,
-  legacyModelKey,
   modelKey,
   parseModelRef,
   resolveModelRefFromString,
 } from "../../agents/model-selection.js";
 import { formatCliCommand } from "../../cli/command-format.js";
 import {
-  type OpenClawConfig,
+  type MiraiConfig,
   readConfigFileSnapshot,
   writeConfigFile,
 } from "../../config/config.js";
-import { formatConfigIssueLines } from "../../config/issue-format.js";
 import { toAgentModelListLike } from "../../config/model-input.js";
-import type { AgentModelEntryConfig } from "../../config/types.agent-defaults.js";
 import type { AgentModelConfig } from "../../config/types.agents-shared.js";
 import { normalizeAgentId } from "../../routing/session-key.js";
 
@@ -64,25 +61,25 @@ export const isLocalBaseUrl = (baseUrl: string) => {
   }
 };
 
-export async function loadValidConfigOrThrow(): Promise<OpenClawConfig> {
+export async function loadValidConfigOrThrow(): Promise<MiraiConfig> {
   const snapshot = await readConfigFileSnapshot();
   if (!snapshot.valid) {
-    const issues = formatConfigIssueLines(snapshot.issues, "-").join("\n");
+    const issues = snapshot.issues.map((issue) => `- ${issue.path}: ${issue.message}`).join("\n");
     throw new Error(`Invalid config at ${snapshot.path}\n${issues}`);
   }
   return snapshot.config;
 }
 
 export async function updateConfig(
-  mutator: (cfg: OpenClawConfig) => OpenClawConfig,
-): Promise<OpenClawConfig> {
+  mutator: (cfg: MiraiConfig) => MiraiConfig,
+): Promise<MiraiConfig> {
   const config = await loadValidConfigOrThrow();
   const next = mutator(config);
   await writeConfigFile(next);
   return next;
 }
 
-export function resolveModelTarget(params: { raw: string; cfg: OpenClawConfig }): {
+export function resolveModelTarget(params: { raw: string; cfg: MiraiConfig }): {
   provider: string;
   model: string;
 } {
@@ -102,7 +99,7 @@ export function resolveModelTarget(params: { raw: string; cfg: OpenClawConfig })
 }
 
 export function resolveModelKeysFromEntries(params: {
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   entries: readonly string[];
 }): string[] {
   const aliasIndex = buildModelAliasIndex({
@@ -121,7 +118,7 @@ export function resolveModelKeysFromEntries(params: {
     .map((entry) => modelKey(entry.ref.provider, entry.ref.model));
 }
 
-export function buildAllowlistSet(cfg: OpenClawConfig): Set<string> {
+export function buildAllowlistSet(cfg: MiraiConfig): Set<string> {
   const allowed = new Set<string>();
   const models = cfg.agents?.defaults?.models ?? {};
   for (const raw of Object.keys(models)) {
@@ -146,7 +143,7 @@ export function normalizeAlias(alias: string): string {
 }
 
 export function resolveKnownAgentId(params: {
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   rawAgentId?: string | null;
 }): string | undefined {
   const raw = params.rawAgentId?.trim();
@@ -165,25 +162,6 @@ export function resolveKnownAgentId(params: {
 
 export type PrimaryFallbackConfig = { primary?: string; fallbacks?: string[] };
 
-export function upsertCanonicalModelConfigEntry(
-  models: Record<string, AgentModelEntryConfig>,
-  params: { provider: string; model: string },
-) {
-  const key = modelKey(params.provider, params.model);
-  const legacyKey = legacyModelKey(params.provider, params.model);
-  if (!models[key]) {
-    if (legacyKey && models[legacyKey]) {
-      models[key] = models[legacyKey];
-    } else {
-      models[key] = {};
-    }
-  }
-  if (legacyKey) {
-    delete models[legacyKey];
-  }
-  return key;
-}
-
 export function mergePrimaryFallbackConfig(
   existing: PrimaryFallbackConfig | undefined,
   patch: { primary?: string; fallbacks?: string[] },
@@ -200,15 +178,17 @@ export function mergePrimaryFallbackConfig(
 }
 
 export function applyDefaultModelPrimaryUpdate(params: {
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   modelRaw: string;
   field: "model" | "imageModel";
-}): OpenClawConfig {
+}): MiraiConfig {
   const resolved = resolveModelTarget({ raw: params.modelRaw, cfg: params.cfg });
-  const nextModels = {
-    ...params.cfg.agents?.defaults?.models,
-  } as Record<string, AgentModelEntryConfig>;
-  const key = upsertCanonicalModelConfigEntry(nextModels, resolved);
+  const key = `${resolved.provider}/${resolved.model}`;
+
+  const nextModels = { ...params.cfg.agents?.defaults?.models };
+  if (!nextModels[key]) {
+    nextModels[key] = {};
+  }
 
   const defaults = params.cfg.agents?.defaults ?? {};
   const existing = toAgentModelListLike(

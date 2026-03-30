@@ -3,30 +3,19 @@ import {
   getOAuthProviders,
   type OAuthCredentials,
   type OAuthProvider,
-} from "@mariozechner/pi-ai/oauth";
-import { loadConfig, type OpenClawConfig } from "../../config/config.js";
-import { coerceSecretRef } from "../../config/types.secrets.js";
+} from "@mariozechner/pi-ai";
+import type { MiraiConfig } from "../../config/config.js";
 import { withFileLock } from "../../infra/file-lock.js";
-import { resolveSecretRefString, type SecretRefResolveCache } from "../../secrets/resolve.js";
+import { refreshQwenPortalCredentials } from "../../providers/qwen-portal-oauth.js";
 import { refreshChutesTokens } from "../chutes-oauth.js";
 import { AUTH_STORE_LOCK_OPTIONS, log } from "./constants.js";
-import { resolveTokenExpiryState } from "./credential-state.js";
 import { formatAuthDoctorHint } from "./doctor.js";
 import { ensureAuthStoreFile, resolveAuthStorePath } from "./paths.js";
 import { suggestOAuthProfileIdForLegacyDefault } from "./repair.js";
 import { ensureAuthProfileStore, saveAuthProfileStore } from "./store.js";
-import type { AuthProfileStore, OAuthCredential } from "./types.js";
+import type { AuthProfileStore } from "./types.js";
 
 const OAUTH_PROVIDER_IDS = new Set<string>(getOAuthProviders().map((provider) => provider.id));
-
-let providerRuntimePromise:
-  | Promise<typeof import("../../plugins/provider-runtime.runtime.js")>
-  | undefined;
-
-function loadProviderRuntime() {
-  providerRuntimePromise ??= import("../../plugins/provider-runtime.runtime.js");
-  return providerRuntimePromise;
-}
 
 const isOAuthProvider = (provider: string): provider is OAuthProvider =>
   OAUTH_PROVIDER_IDS.has(provider);
@@ -49,7 +38,7 @@ const isCompatibleModeType = (mode: string | undefined, type: string | undefined
 };
 
 function isProfileConfigCompatible(params: {
-  cfg?: OpenClawConfig;
+  cfg?: MiraiConfig;
   profileId: string;
   provider: string;
   mode: "api_key" | "token" | "oauth";
@@ -65,13 +54,14 @@ function isProfileConfigCompatible(params: {
   return true;
 }
 
-async function buildOAuthApiKey(provider: string, credentials: OAuthCredential): Promise<string> {
-  const { formatProviderAuthProfileApiKeyWithPlugin } = await loadProviderRuntime();
-  const formatted = formatProviderAuthProfileApiKeyWithPlugin({
-    provider,
-    context: credentials,
-  });
-  return typeof formatted === "string" && formatted.length > 0 ? formatted : credentials.access;
+function buildOAuthApiKey(provider: string, credentials: OAuthCredentials): string {
+  const needsProjectId = provider === "google-gemini-cli";
+  return needsProjectId
+    ? JSON.stringify({
+        token: credentials.access,
+        projectId: credentials.projectId,
+      })
+    : credentials.access;
 }
 
 function buildApiKeyProfileResult(params: { apiKey: string; provider: string; email?: string }) {
@@ -82,30 +72,30 @@ function buildApiKeyProfileResult(params: { apiKey: string; provider: string; em
   };
 }
 
-async function buildOAuthProfileResult(params: {
+function buildOAuthProfileResult(params: {
   provider: string;
-  credentials: OAuthCredential;
+  credentials: OAuthCredentials;
   email?: string;
 }) {
   return buildApiKeyProfileResult({
-    apiKey: await buildOAuthApiKey(params.provider, params.credentials),
+    apiKey: buildOAuthApiKey(params.provider, params.credentials),
     provider: params.provider,
     email: params.email,
   });
 }
 
-function extractErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+function isExpiredCredential(expires: number | undefined): boolean {
+  return (
+    typeof expires === "number" && Number.isFinite(expires) && expires > 0 && Date.now() >= expires
+  );
 }
 
 type ResolveApiKeyForProfileParams = {
-  cfg?: OpenClawConfig;
+  cfg?: MiraiConfig;
   store: AuthProfileStore;
   profileId: string;
   agentDir?: string;
 };
-
-type SecretDefaults = NonNullable<OpenClawConfig["secrets"]>["defaults"];
 
 function adoptNewerMainOAuthCredential(params: {
   store: AuthProfileStore;
@@ -160,24 +150,15 @@ async function refreshOAuthTokenWithLock(params: {
 
     if (Date.now() < cred.expires) {
       return {
-        apiKey: await buildOAuthApiKey(cred.provider, cred),
+        apiKey: buildOAuthApiKey(cred.provider, cred),
         newCredentials: cred,
       };
     }
 
-    const { refreshProviderOAuthCredentialWithPlugin } = await loadProviderRuntime();
-    const pluginRefreshed = await refreshProviderOAuthCredentialWithPlugin({
-      provider: cred.provider,
-      context: cred,
-    });
-    if (pluginRefreshed) {
-      return {
-        apiKey: await buildOAuthApiKey(cred.provider, pluginRefreshed),
-        newCredentials: pluginRefreshed,
-      };
-    }
+    const oauthCreds: Record<string, OAuthCredentials> = {
+      [cred.provider]: cred,
+    };
 
-    const oauthCreds: Record<string, OAuthCredentials> = { [cred.provider]: cred };
     const result =
       String(cred.provider) === "chutes"
         ? await (async () => {
@@ -186,13 +167,18 @@ async function refreshOAuthTokenWithLock(params: {
             });
             return { apiKey: newCredentials.access, newCredentials };
           })()
-        : await (async () => {
-            const oauthProvider = resolveOAuthProvider(cred.provider);
-            if (!oauthProvider) {
-              return null;
-            }
-            return await getOAuthApiKey(oauthProvider, oauthCreds);
-          })();
+        : String(cred.provider) === "qwen-portal"
+          ? await (async () => {
+              const newCredentials = await refreshQwenPortalCredentials(cred);
+              return { apiKey: newCredentials.access, newCredentials };
+            })()
+          : await (async () => {
+              const oauthProvider = resolveOAuthProvider(cred.provider);
+              if (!oauthProvider) {
+                return null;
+              }
+              return await getOAuthApiKey(oauthProvider, oauthCreds);
+            })();
     if (!result) {
       return null;
     }
@@ -227,7 +213,7 @@ async function tryResolveOAuthProfile(
   }
 
   if (Date.now() < cred.expires) {
-    return await buildOAuthProfileResult({
+    return buildOAuthProfileResult({
       provider: cred.provider,
       credentials: cred,
       email: cred.email,
@@ -246,57 +232,6 @@ async function tryResolveOAuthProfile(
     provider: cred.provider,
     email: cred.email,
   });
-}
-
-async function resolveProfileSecretString(params: {
-  profileId: string;
-  provider: string;
-  value: string | undefined;
-  valueRef: unknown;
-  refDefaults: SecretDefaults | undefined;
-  configForRefResolution: OpenClawConfig;
-  cache: SecretRefResolveCache;
-  inlineFailureMessage: string;
-  refFailureMessage: string;
-}): Promise<string | undefined> {
-  let resolvedValue = params.value?.trim();
-  if (resolvedValue) {
-    const inlineRef = coerceSecretRef(resolvedValue, params.refDefaults);
-    if (inlineRef) {
-      try {
-        resolvedValue = await resolveSecretRefString(inlineRef, {
-          config: params.configForRefResolution,
-          env: process.env,
-          cache: params.cache,
-        });
-      } catch (err) {
-        log.debug(params.inlineFailureMessage, {
-          profileId: params.profileId,
-          provider: params.provider,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
-    }
-  }
-
-  const explicitRef = coerceSecretRef(params.valueRef, params.refDefaults);
-  if (!resolvedValue && explicitRef) {
-    try {
-      resolvedValue = await resolveSecretRefString(explicitRef, {
-        config: params.configForRefResolution,
-        env: process.env,
-        cache: params.cache,
-      });
-    } catch (err) {
-      log.debug(params.refFailureMessage, {
-        profileId: params.profileId,
-        provider: params.provider,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
-  }
-
-  return resolvedValue;
 }
 
 export async function resolveApiKeyForProfile(
@@ -320,44 +255,19 @@ export async function resolveApiKeyForProfile(
     return null;
   }
 
-  const refResolveCache: SecretRefResolveCache = {};
-  const configForRefResolution = cfg ?? loadConfig();
-  const refDefaults = configForRefResolution.secrets?.defaults;
-
   if (cred.type === "api_key") {
-    const key = await resolveProfileSecretString({
-      profileId,
-      provider: cred.provider,
-      value: cred.key,
-      valueRef: cred.keyRef,
-      refDefaults,
-      configForRefResolution,
-      cache: refResolveCache,
-      inlineFailureMessage: "failed to resolve inline auth profile api_key ref",
-      refFailureMessage: "failed to resolve auth profile api_key ref",
-    });
+    const key = cred.key?.trim();
     if (!key) {
       return null;
     }
     return buildApiKeyProfileResult({ apiKey: key, provider: cred.provider, email: cred.email });
   }
   if (cred.type === "token") {
-    const expiryState = resolveTokenExpiryState(cred.expires);
-    if (expiryState === "expired" || expiryState === "invalid_expires") {
+    const token = cred.token?.trim();
+    if (!token) {
       return null;
     }
-    const token = await resolveProfileSecretString({
-      profileId,
-      provider: cred.provider,
-      value: cred.token,
-      valueRef: cred.tokenRef,
-      refDefaults,
-      configForRefResolution,
-      cache: refResolveCache,
-      inlineFailureMessage: "failed to resolve inline auth profile token ref",
-      refFailureMessage: "failed to resolve auth profile token ref",
-    });
-    if (!token) {
+    if (isExpiredCredential(cred.expires)) {
       return null;
     }
     return buildApiKeyProfileResult({ apiKey: token, provider: cred.provider, email: cred.email });
@@ -372,7 +282,7 @@ export async function resolveApiKeyForProfile(
     }) ?? cred;
 
   if (Date.now() < oauthCred.expires) {
-    return await buildOAuthProfileResult({
+    return buildOAuthProfileResult({
       provider: oauthCred.provider,
       credentials: oauthCred,
       email: oauthCred.email,
@@ -396,7 +306,7 @@ export async function resolveApiKeyForProfile(
     const refreshedStore = ensureAuthProfileStore(params.agentDir);
     const refreshed = refreshedStore.profiles[profileId];
     if (refreshed?.type === "oauth" && Date.now() < refreshed.expires) {
-      return await buildOAuthProfileResult({
+      return buildOAuthProfileResult({
         provider: refreshed.provider,
         credentials: refreshed,
         email: refreshed.email ?? cred.email,
@@ -438,7 +348,7 @@ export async function resolveApiKeyForProfile(
             agentDir: params.agentDir,
             expires: new Date(mainCred.expires).toISOString(),
           });
-          return await buildOAuthProfileResult({
+          return buildOAuthProfileResult({
             provider: mainCred.provider,
             credentials: mainCred,
             email: mainCred.email,
@@ -449,8 +359,8 @@ export async function resolveApiKeyForProfile(
       }
     }
 
-    const message = extractErrorMessage(error);
-    const hint = await formatAuthDoctorHint({
+    const message = error instanceof Error ? error.message : String(error);
+    const hint = formatAuthDoctorHint({
       cfg,
       store: refreshedStore,
       provider: cred.provider,

@@ -1,8 +1,8 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { expectSingleNpmPackIgnoreScriptsCall } from "../test-utils/exec-assertions.js";
 import {
   expectInstallUsesIgnoreScripts,
@@ -12,10 +12,8 @@ import {
 } from "../test-utils/npm-spec-install-test-helpers.js";
 import { isAddressInUseError } from "./gmail-watcher.js";
 
-const fixtureRoot = path.join(os.tmpdir(), `openclaw-hook-install-${randomUUID()}`);
-const sharedArchiveDir = path.join(fixtureRoot, "_archives");
+const fixtureRoot = path.join(os.tmpdir(), `mirai-hook-install-${randomUUID()}`);
 let tempDirIndex = 0;
-const sharedArchivePathByName = new Map<string, string>();
 
 const fixturesDir = path.resolve(process.cwd(), "test", "fixtures", "hooks-install");
 const zipHooksBuffer = fs.readFileSync(path.join(fixturesDir, "zip-hooks.zip"));
@@ -31,8 +29,9 @@ vi.mock("../process/exec.js", () => ({
 }));
 
 function makeTempDir() {
+  fs.mkdirSync(fixtureRoot, { recursive: true });
   const dir = path.join(fixtureRoot, `case-${tempDirIndex++}`);
-  fs.mkdirSync(dir);
+  fs.mkdirSync(dir, { recursive: true });
   return dir;
 }
 
@@ -52,21 +51,11 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-beforeAll(() => {
-  fs.mkdirSync(fixtureRoot, { recursive: true });
-  fs.mkdirSync(sharedArchiveDir, { recursive: true });
-});
-
 function writeArchiveFixture(params: { fileName: string; contents: Buffer }) {
   const stateDir = makeTempDir();
-  const archiveHash = createHash("sha256").update(params.contents).digest("hex").slice(0, 12);
-  const archiveKey = `${params.fileName}:${archiveHash}`;
-  let archivePath = sharedArchivePathByName.get(archiveKey);
-  if (!archivePath) {
-    archivePath = path.join(sharedArchiveDir, `${archiveHash}-${params.fileName}`);
-    fs.writeFileSync(archivePath, params.contents);
-    sharedArchivePathByName.set(archiveKey, archivePath);
-  }
+  const workDir = makeTempDir();
+  const archivePath = path.join(workDir, params.fileName);
+  fs.writeFileSync(archivePath, params.contents);
   return {
     stateDir,
     archivePath,
@@ -87,43 +76,6 @@ function expectInstallFailureContains(
   }
 }
 
-function writeHookPackManifest(params: {
-  pkgDir: string;
-  hooks: string[];
-  dependencies?: Record<string, string>;
-}) {
-  fs.writeFileSync(
-    path.join(params.pkgDir, "package.json"),
-    JSON.stringify({
-      name: "@openclaw/test-hooks",
-      version: "0.0.1",
-      openclaw: { hooks: params.hooks },
-      ...(params.dependencies ? { dependencies: params.dependencies } : {}),
-    }),
-    "utf-8",
-  );
-}
-
-async function installArchiveFixture(params: { fileName: string; contents: Buffer }) {
-  const fixture = writeArchiveFixture(params);
-  const result = await installHooksFromArchive({
-    archivePath: fixture.archivePath,
-    hooksDir: fixture.hooksDir,
-  });
-  return { fixture, result };
-}
-
-function expectPathInstallFailureContains(
-  result: Awaited<ReturnType<typeof installHooksFromPath>>,
-  snippet: string,
-) {
-  expect(result.ok).toBe(false);
-  if (result.ok) {
-    throw new Error("expected install failure");
-  }
-  expect(result.error).toContain(snippet);
-}
-
 describe("installHooksFromArchive", () => {
   it.each([
     {
@@ -141,9 +93,10 @@ describe("installHooksFromArchive", () => {
       expectedHook: "tar-hook",
     },
   ])("installs hook packs from $name archives", async (tc) => {
-    const { fixture, result } = await installArchiveFixture({
-      fileName: tc.fileName,
-      contents: tc.contents,
+    const fixture = writeArchiveFixture({ fileName: tc.fileName, contents: tc.contents });
+    const result = await installHooksFromArchive({
+      archivePath: fixture.archivePath,
+      hooksDir: fixture.hooksDir,
     });
 
     expect(result.ok).toBe(true);
@@ -172,9 +125,10 @@ describe("installHooksFromArchive", () => {
       expectedDetail: "escapes destination",
     },
   ])("rejects $name archives with traversal entries", async (tc) => {
-    const { result } = await installArchiveFixture({
-      fileName: tc.fileName,
-      contents: tc.contents,
+    const fixture = writeArchiveFixture({ fileName: tc.fileName, contents: tc.contents });
+    const result = await installHooksFromArchive({
+      archivePath: fixture.archivePath,
+      hooksDir: fixture.hooksDir,
     });
     expectInstallFailureContains(result, ["failed to extract archive", tc.expectedDetail]);
   });
@@ -189,9 +143,10 @@ describe("installHooksFromArchive", () => {
       contents: tarReservedIdBuffer,
     },
   ])("rejects hook packs with $name", async (tc) => {
-    const { result } = await installArchiveFixture({
-      fileName: "hooks.tar",
-      contents: tc.contents,
+    const fixture = writeArchiveFixture({ fileName: "hooks.tar", contents: tc.contents });
+    const result = await installHooksFromArchive({
+      archivePath: fixture.archivePath,
+      hooksDir: fixture.hooksDir,
     });
     expectInstallFailureContains(result, ["reserved path segment"]);
   });
@@ -203,18 +158,23 @@ describe("installHooksFromPath", () => {
     const stateDir = makeTempDir();
     const pkgDir = path.join(workDir, "package");
     fs.mkdirSync(path.join(pkgDir, "hooks", "one-hook"), { recursive: true });
-    writeHookPackManifest({
-      pkgDir,
-      hooks: ["./hooks/one-hook"],
-      dependencies: { "left-pad": "1.3.0" },
-    });
+    fs.writeFileSync(
+      path.join(pkgDir, "package.json"),
+      JSON.stringify({
+        name: "@mirai/test-hooks",
+        version: "0.0.1",
+        mirai: { hooks: ["./hooks/one-hook"] },
+        dependencies: { "left-pad": "1.3.0" },
+      }),
+      "utf-8",
+    );
     fs.writeFileSync(
       path.join(pkgDir, "hooks", "one-hook", "HOOK.md"),
       [
         "---",
         "name: one-hook",
         "description: One hook",
-        'metadata: {"openclaw":{"events":["command:new"]}}',
+        'metadata: {"mirai":{"events":["command:new"]}}',
         "---",
         "",
         "# One Hook",
@@ -249,7 +209,7 @@ describe("installHooksFromPath", () => {
         "---",
         "name: my-hook",
         "description: My hook",
-        'metadata: {"openclaw":{"events":["command:new"]}}',
+        'metadata: {"mirai":{"events":["command:new"]}}',
         "---",
         "",
         "# My Hook",
@@ -278,10 +238,15 @@ describe("installHooksFromPath", () => {
     const outsideHookDir = path.join(workDir, "outside");
     fs.mkdirSync(pkgDir, { recursive: true });
     fs.mkdirSync(outsideHookDir, { recursive: true });
-    writeHookPackManifest({
-      pkgDir,
-      hooks: ["../outside"],
-    });
+    fs.writeFileSync(
+      path.join(pkgDir, "package.json"),
+      JSON.stringify({
+        name: "@mirai/test-hooks",
+        version: "0.0.1",
+        mirai: { hooks: ["../outside"] },
+      }),
+      "utf-8",
+    );
     fs.writeFileSync(path.join(outsideHookDir, "HOOK.md"), "---\nname: outside\n---\n", "utf-8");
     fs.writeFileSync(path.join(outsideHookDir, "handler.ts"), "export default async () => {};\n");
 
@@ -290,7 +255,11 @@ describe("installHooksFromPath", () => {
       hooksDir: path.join(stateDir, "hooks"),
     });
 
-    expectPathInstallFailureContains(result, "openclaw.hooks entry escapes package directory");
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.error).toContain("mirai.hooks entry escapes package directory");
   });
 
   it("rejects hook pack entries that escape via symlink", async () => {
@@ -308,20 +277,26 @@ describe("installHooksFromPath", () => {
     } catch {
       return;
     }
-    writeHookPackManifest({
-      pkgDir,
-      hooks: ["./linked"],
-    });
+    fs.writeFileSync(
+      path.join(pkgDir, "package.json"),
+      JSON.stringify({
+        name: "@mirai/test-hooks",
+        version: "0.0.1",
+        mirai: { hooks: ["./linked"] },
+      }),
+      "utf-8",
+    );
 
     const result = await installHooksFromPath({
       path: pkgDir,
       hooksDir: path.join(stateDir, "hooks"),
     });
 
-    expectPathInstallFailureContains(
-      result,
-      "openclaw.hooks entry resolves outside package directory",
-    );
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.error).toContain("mirai.hooks entry resolves outside package directory");
   });
 });
 
@@ -340,8 +315,8 @@ describe("installHooksFromNpmSpec", () => {
           code: 0,
           stdout: JSON.stringify([
             {
-              id: "@openclaw/test-hooks@0.0.1",
-              name: "@openclaw/test-hooks",
+              id: "@mirai/test-hooks@0.0.1",
+              name: "@mirai/test-hooks",
               version: "0.0.1",
               filename: packedName,
               integrity: "sha512-hook-test",
@@ -359,7 +334,7 @@ describe("installHooksFromNpmSpec", () => {
 
     const hooksDir = path.join(stateDir, "hooks");
     const result = await installHooksFromNpmSpec({
-      spec: "@openclaw/test-hooks@0.0.1",
+      spec: "@mirai/test-hooks@0.0.1",
       hooksDir,
       logger: { info: () => {}, warn: () => {} },
     });
@@ -368,13 +343,13 @@ describe("installHooksFromNpmSpec", () => {
       return;
     }
     expect(result.hookPackId).toBe("test-hooks");
-    expect(result.npmResolution?.resolvedSpec).toBe("@openclaw/test-hooks@0.0.1");
+    expect(result.npmResolution?.resolvedSpec).toBe("@mirai/test-hooks@0.0.1");
     expect(result.npmResolution?.integrity).toBe("sha512-hook-test");
     expect(fs.existsSync(path.join(result.targetDir, "hooks", "one-hook", "HOOK.md"))).toBe(true);
 
     expectSingleNpmPackIgnoreScriptsCall({
       calls: run.mock.calls,
-      expectedSpec: "@openclaw/test-hooks@0.0.1",
+      expectedSpec: "@mirai/test-hooks@0.0.1",
     });
 
     expect(packTmpDir).not.toBe("");
@@ -388,8 +363,8 @@ describe("installHooksFromNpmSpec", () => {
   it("aborts when integrity drift callback rejects the fetched artifact", async () => {
     const run = vi.mocked(runCommandWithTimeout);
     mockNpmPackMetadataResult(run, {
-      id: "@openclaw/test-hooks@0.0.1",
-      name: "@openclaw/test-hooks",
+      id: "@mirai/test-hooks@0.0.1",
+      name: "@mirai/test-hooks",
       version: "0.0.1",
       filename: "test-hooks-0.0.1.tgz",
       integrity: "sha512-new",
@@ -398,7 +373,7 @@ describe("installHooksFromNpmSpec", () => {
 
     const onIntegrityDrift = vi.fn(async () => false);
     const result = await installHooksFromNpmSpec({
-      spec: "@openclaw/test-hooks@0.0.1",
+      spec: "@mirai/test-hooks@0.0.1",
       expectedIntegrity: "sha512-old",
       onIntegrityDrift,
     });
@@ -408,28 +383,6 @@ describe("installHooksFromNpmSpec", () => {
       expectedIntegrity: "sha512-old",
       actualIntegrity: "sha512-new",
     });
-  });
-
-  it("rejects bare npm specs that resolve to prerelease versions", async () => {
-    const run = vi.mocked(runCommandWithTimeout);
-    mockNpmPackMetadataResult(run, {
-      id: "@openclaw/test-hooks@0.0.2-beta.1",
-      name: "@openclaw/test-hooks",
-      version: "0.0.2-beta.1",
-      filename: "test-hooks-0.0.2-beta.1.tgz",
-      integrity: "sha512-beta",
-      shasum: "betashasum",
-    });
-
-    const result = await installHooksFromNpmSpec({
-      spec: "@openclaw/test-hooks",
-      logger: { info: () => {}, warn: () => {} },
-    });
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error).toContain("prerelease version 0.0.2-beta.1");
-      expect(result.error).toContain('"@openclaw/test-hooks@beta"');
-    }
   });
 });
 

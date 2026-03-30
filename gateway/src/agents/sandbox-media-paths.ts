@@ -8,16 +8,6 @@ export type SandboxedBridgeMediaPathConfig = {
   workspaceOnly?: boolean;
 };
 
-export function createSandboxBridgeReadFile(params: {
-  sandbox: Pick<SandboxedBridgeMediaPathConfig, "root" | "bridge">;
-}): (filePath: string) => Promise<Buffer> {
-  return async (filePath: string) =>
-    await params.sandbox.bridge.readFile({
-      filePath,
-      cwd: params.sandbox.root,
-    });
-}
-
 export async function resolveSandboxedBridgeMediaPath(params: {
   sandbox: SandboxedBridgeMediaPathConfig;
   mediaPath: string;
@@ -44,10 +34,8 @@ export async function resolveSandboxedBridgeMediaPath(params: {
     });
   try {
     const resolved = resolveDirect();
-    if (resolved.hostPath) {
-      await enforceWorkspaceBoundary(resolved.hostPath);
-    }
-    return { resolved: resolved.hostPath ?? resolved.containerPath };
+    await enforceWorkspaceBoundary(resolved.hostPath);
+    return { resolved: resolved.hostPath };
   } catch (err) {
     const fallbackDir = params.inboundFallbackDir?.trim();
     if (!fallbackDir) {
@@ -69,12 +57,7 @@ export async function resolveSandboxedBridgeMediaPath(params: {
       filePath: fallbackPath,
       cwd: params.sandbox.root,
     });
-    if (resolvedFallback.hostPath) {
-      await enforceWorkspaceBoundary(resolvedFallback.hostPath);
-    }
-    return {
-      resolved: resolvedFallback.hostPath ?? resolvedFallback.containerPath,
-      rewrittenFrom: filePath,
-    };
+    await enforceWorkspaceBoundary(resolvedFallback.hostPath);
+    return { resolved: resolvedFallback.hostPath, rewrittenFrom: filePath };
   }
 }

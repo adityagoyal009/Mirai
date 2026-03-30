@@ -8,20 +8,49 @@ Usage:
     python3 backtest.py --tier all       # Run all 100
     python3 backtest.py --resume         # Resume from last checkpoint
     python3 backtest.py --report         # Just print results from saved data
+    python3 backtest.py --compare        # Compare last two runs
 
-Results saved to: backtest_results.json (auto-checkpointed after each company)
+Results saved to:
+  - backtest_results.json              (auto-checkpointed after each company)
+  - ~/.mirai/backtest/run_{timestamp}.json  (archived per-run with full metadata)
 """
 
 import json
 import time
 import sys
 import os
-import requests
+import subprocess
+import glob as glob_mod
 from datetime import datetime
+from typing import Dict, List, Any, Optional
+
+import requests
+
+# ── Prompt registry integration ──────────────────────────────────
+try:
+    from subconscious.swarm.utils.prompt_registry import get_all_hashes, get_snapshot
+except ImportError:
+    def get_all_hashes(): return {}
+    def get_snapshot(): return {}
 
 API_BASE = "http://localhost:5000"
 DB_PATH = os.path.join(os.path.dirname(__file__), "subconscious/swarm/data/companies.db")
 RESULTS_FILE = os.path.join(os.path.dirname(__file__), "backtest_results.json")
+BACKTEST_ARCHIVE_DIR = os.path.join(os.path.expanduser("~"), ".mirai", "backtest")
+
+# ── Scoring thresholds ───────────────────────────────────────────
+SUCCESS_THRESHOLD = 6.0   # Scores >= this count as "predicted success"
+FAILURE_THRESHOLD = 5.5   # Scores < this count as "predicted failure"
+
+# ── Persona zones (must match persona_engine.py ZONE_ROLES keys) ─
+ALL_ZONES = ["investor", "customer", "operator", "analyst", "contrarian", "wildcard"]
+
+# ── Scoring dimensions from the BI pipeline ──────────────────────
+SCORING_DIMENSIONS = [
+    "market_timing", "competition_landscape", "business_model_viability",
+    "team_execution_signals", "regulatory_news_environment",
+    "product_differentiation", "financial_sustainability",
+]
 
 # ── Tier 1: Must-Test (30) — Famous outcomes, maximum signal ──
 
@@ -85,6 +114,52 @@ ALL_COMPANIES = {
 }
 
 
+# ══════════════════════════════════════════════════════════════════
+# Per-run metadata
+# ══════════════════════════════════════════════════════════════════
+
+def _get_git_commit() -> str:
+    """Get short git commit hash, or 'unknown' if not in a repo."""
+    try:
+        return subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=os.path.dirname(__file__),
+            stderr=subprocess.DEVNULL,
+        ).decode().strip()
+    except Exception:
+        return "unknown"
+
+
+def _build_run_metadata() -> Dict[str, Any]:
+    """Build metadata dict for this backtest run."""
+    return {
+        "timestamp": datetime.now().isoformat(),
+        "git_commit": _get_git_commit(),
+        "prompt_hashes": get_all_hashes(),
+        "prompt_snapshot": get_snapshot(),
+    }
+
+
+# ══════════════════════════════════════════════════════════════════
+# Enhanced per-company result builder
+# ══════════════════════════════════════════════════════════════════
+
+def _is_correct(expected: str, score: Optional[float]) -> bool:
+    """Determine if prediction matches expected outcome."""
+    if score is None:
+        return False
+    if expected == "success":
+        return score >= SUCCESS_THRESHOLD
+    elif expected == "failure":
+        return score < FAILURE_THRESHOLD
+    elif expected == "acquired":
+        # Acquisitions are a success signal — score should be moderate-to-high
+        return score >= 5.0
+    else:
+        # "uncertain" — we skip these for accuracy calculations
+        return True
+
+
 def run_analysis(company: dict, depth: str = "quick", swarm_count: int = 25) -> dict:
     """Run Mirai analysis on a single company."""
     exec_summary = (
@@ -112,20 +187,70 @@ def run_analysis(company: dict, depth: str = "quick", swarm_count: int = 25) -> 
         analysis = data.get("analysis", data)
         prediction = analysis.get("prediction", {})
         research = analysis.get("research", {})
-        swarm = analysis.get("swarm_result", {})
+        swarm = analysis.get("swarm", analysis.get("swarm_result", {}))
+
+        score = prediction.get("overall_score", prediction.get("composite_score", 0))
+        verdict = prediction.get("verdict", "unknown")
+
+        # Extract per-dimension scores
+        dimension_scores = {}
+        for dim in prediction.get("dimensions", []):
+            if isinstance(dim, dict):
+                dim_name = dim.get("name", "")
+                dim_score = dim.get("score", 0)
+                dimension_scores[dim_name] = dim_score
+
+        # Extract swarm zone data from divergence
+        divergence = swarm.get("divergence", {})
+        zone_agreement = divergence.get("zone_agreement", {}) if isinstance(divergence, dict) else {}
+
+        # Build per-zone accuracy tracking from swarm agent data
+        zone_accuracy = {}
+        sample_agents = swarm.get("sample_agents", [])
+        if sample_agents:
+            from collections import defaultdict
+            zone_votes = defaultdict(lambda: {"hit": 0, "miss": 0})
+            for agent in sample_agents:
+                z = agent.get("zone", "wildcard")
+                if agent.get("overall", 5) >= 5.5:
+                    zone_votes[z]["hit"] += 1
+                else:
+                    zone_votes[z]["miss"] += 1
+            for z, votes in zone_votes.items():
+                total = votes["hit"] + votes["miss"]
+                zone_majority_hit = votes["hit"] >= votes["miss"]
+                actual_is_positive = company["expected"] in ("success", "acquired")
+                zone_accuracy[z] = (zone_majority_hit == actual_is_positive)
+        elif zone_agreement:
+            # Fall back to divergence zone_agreement data
+            for z, zdata in zone_agreement.items():
+                if isinstance(zdata, dict) and zdata.get("total", 0) > 0:
+                    zone_majority_hit = zdata.get("majority_direction") == "HIT"
+                    actual_is_positive = company["expected"] in ("success", "acquired")
+                    zone_accuracy[z] = (zone_majority_hit == actual_is_positive)
+
+        # Extract models used
+        models_used = swarm.get("models_used", [])
+
+        correct = _is_correct(company["expected"], score)
 
         return {
             "company": company["name"],
             "expected": company["expected"],
             "actual_outcome": company["actual_outcome"],
-            "score": prediction.get("overall_score", prediction.get("composite_score", 0)),
-            "verdict": prediction.get("verdict", "unknown"),
+            "score": score,
+            "verdict": verdict,
+            "correct": correct,
             "confidence": prediction.get("confidence", 0),
-            "dimensions": prediction.get("dimensions", {}),
-            "contested": prediction.get("contested_dimensions", []),
-            "swarm_hit_pct": swarm.get("positive_pct", None),
-            "swarm_agents": swarm.get("total_agents", 0),
-            "research_sources": research.get("sources_count", 0),
+            "dimension_scores": dimension_scores,
+            "contested": prediction.get("council", {}).get("contested_dimensions", []),
+            "swarm_stats": {
+                "positive_pct": swarm.get("positive_pct", None),
+                "total_agents": swarm.get("total_agents", 0),
+                "zone_accuracy": zone_accuracy,
+                "models_used": models_used,
+            },
+            "research_sources": research.get("sources_count", len(research.get("cited_facts", []))),
             "data_quality": analysis.get("data_quality", 0),
             "timestamp": datetime.now().isoformat(),
             "error": None,
@@ -137,10 +262,142 @@ def run_analysis(company: dict, depth: str = "quick", swarm_count: int = 25) -> 
             "actual_outcome": company["actual_outcome"],
             "score": None,
             "verdict": "error",
+            "correct": False,
+            "dimension_scores": {},
+            "swarm_stats": {},
             "error": str(e),
             "timestamp": datetime.now().isoformat(),
         }
 
+
+# ══════════════════════════════════════════════════════════════════
+# Summary statistics
+# ══════════════════════════════════════════════════════════════════
+
+def compute_summary_statistics(results: List[Dict]) -> Dict[str, Any]:
+    """
+    Compute comprehensive summary statistics from backtest results.
+
+    Returns overall accuracy, false positive/negative rates,
+    per-dimension accuracy, per-zone accuracy, and deliberation impact.
+    """
+    valid = [r for r in results if r.get("score") is not None and r.get("expected") in ("success", "failure")]
+    if not valid:
+        return {"error": "No valid success/failure results to compute statistics"}
+
+    total = len(valid)
+    correct = sum(1 for r in valid if r.get("correct", False))
+    overall_accuracy = round(correct / total, 3) if total > 0 else 0
+
+    # False positive rate: predicted success but actually failed
+    actual_failures = [r for r in valid if r["expected"] == "failure"]
+    false_positives = sum(1 for r in actual_failures if r.get("score", 0) >= SUCCESS_THRESHOLD)
+    fp_rate = round(false_positives / len(actual_failures), 3) if actual_failures else 0
+
+    # False negative rate: predicted failure but actually succeeded
+    actual_successes = [r for r in valid if r["expected"] == "success"]
+    false_negatives = sum(1 for r in actual_successes if r.get("score", 0) < FAILURE_THRESHOLD)
+    fn_rate = round(false_negatives / len(actual_successes), 3) if actual_successes else 0
+
+    # Per-dimension accuracy: for each dimension, check if that dimension's
+    # score alone would have correctly predicted the outcome
+    per_dimension_accuracy = {}
+    for dim in SCORING_DIMENSIONS:
+        dim_valid = [r for r in valid if dim in r.get("dimension_scores", {})]
+        if not dim_valid:
+            continue
+        dim_correct = 0
+        for r in dim_valid:
+            dim_score = r["dimension_scores"][dim]
+            predicted_positive = dim_score >= 5.5
+            actual_positive = r["expected"] == "success"
+            if predicted_positive == actual_positive:
+                dim_correct += 1
+        per_dimension_accuracy[dim] = round(dim_correct / len(dim_valid), 3)
+
+    # Also check swarm avg_scores dimensions (market, team, product, timing)
+    for swarm_dim in ["market", "team", "product", "timing"]:
+        dim_key = f"swarm_{swarm_dim}"
+        # These come from swarm_stats if available
+        # Skip if already computed from BI dimensions
+        if dim_key in per_dimension_accuracy:
+            continue
+
+    # Per-zone accuracy: for each persona zone, how often did that zone's
+    # majority vote match the actual outcome?
+    zone_correct = {}
+    zone_total = {}
+    for r in valid:
+        zone_acc = r.get("swarm_stats", {}).get("zone_accuracy", {})
+        for zone, was_correct in zone_acc.items():
+            zone_total[zone] = zone_total.get(zone, 0) + 1
+            if was_correct:
+                zone_correct[zone] = zone_correct.get(zone, 0) + 1
+
+    per_zone_accuracy = {}
+    for zone in zone_total:
+        per_zone_accuracy[zone] = round(
+            zone_correct.get(zone, 0) / zone_total[zone], 3
+        )
+
+    # Per-model accuracy: track which LLM models are most accurate
+    model_correct = {}
+    model_total = {}
+    for r in valid:
+        models = r.get("swarm_stats", {}).get("models_used", [])
+        for model in models:
+            model_total[model] = model_total.get(model, 0) + 1
+            if r.get("correct", False):
+                model_correct[model] = model_correct.get(model, 0) + 1
+    per_model_accuracy = {}
+    for model in model_total:
+        per_model_accuracy[model] = round(
+            model_correct.get(model, 0) / model_total[model], 3
+        )
+
+    # Deliberation impact placeholder: compare weighted vs unweighted
+    # (weighted accuracy uses swarm positive_pct which includes deliberation weights)
+    weighted_correct = 0
+    unweighted_correct = 0
+    delib_count = 0
+    for r in valid:
+        swarm_pct = r.get("swarm_stats", {}).get("positive_pct")
+        if swarm_pct is not None:
+            delib_count += 1
+            swarm_positive = swarm_pct >= 55
+            actual_positive = r["expected"] == "success"
+            if swarm_positive == actual_positive:
+                weighted_correct += 1
+            # Unweighted: just use the raw score threshold
+            raw_positive = r.get("score", 0) >= SUCCESS_THRESHOLD
+            if raw_positive == actual_positive:
+                unweighted_correct += 1
+
+    deliberation_impact = {}
+    if delib_count > 0:
+        deliberation_impact = {
+            "weighted_accuracy": round(weighted_correct / delib_count, 3),
+            "unweighted_accuracy": round(unweighted_correct / delib_count, 3),
+            "sample_size": delib_count,
+        }
+
+    return {
+        "overall_accuracy": overall_accuracy,
+        "total_evaluated": total,
+        "correct": correct,
+        "wrong": total - correct,
+        "false_positive_rate": fp_rate,
+        "false_negative_rate": fn_rate,
+        "per_dimension_accuracy": per_dimension_accuracy,
+        "per_zone_accuracy": per_zone_accuracy,
+        "per_model_accuracy": per_model_accuracy,
+        "deliberation_impact": deliberation_impact,
+    }
+
+
+# ══════════════════════════════════════════════════════════════════
+# Persistence: save results to ~/.mirai/backtest/
+# ══════════════════════════════════════════════════════════════════
 
 def load_results() -> list:
     """Load existing results from checkpoint file."""
@@ -155,6 +412,150 @@ def save_results(results: list):
     with open(RESULTS_FILE, "w") as f:
         json.dump(results, f, indent=2)
 
+
+def save_run_archive(results: List[Dict], summary: Dict[str, Any]) -> str:
+    """
+    Save a complete run to ~/.mirai/backtest/run_{timestamp}.json.
+    Returns the path to the saved file.
+    """
+    os.makedirs(BACKTEST_ARCHIVE_DIR, exist_ok=True)
+
+    run_data = {
+        **_build_run_metadata(),
+        "results": results,
+        "summary": summary,
+    }
+
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filepath = os.path.join(BACKTEST_ARCHIVE_DIR, f"run_{ts}.json")
+    with open(filepath, "w") as f:
+        json.dump(run_data, f, indent=2, default=str)
+
+    return filepath
+
+
+def load_previous_runs(max_runs: int = 10) -> List[Dict]:
+    """Load previous run archives, sorted newest first."""
+    pattern = os.path.join(BACKTEST_ARCHIVE_DIR, "run_*.json")
+    files = sorted(glob_mod.glob(pattern), reverse=True)
+    runs = []
+    for fpath in files[:max_runs]:
+        try:
+            with open(fpath) as f:
+                run = json.load(f)
+                run["_filepath"] = fpath
+                runs.append(run)
+        except (json.JSONDecodeError, IOError):
+            continue
+    return runs
+
+
+# ══════════════════════════════════════════════════════════════════
+# Comparison mode
+# ══════════════════════════════════════════════════════════════════
+
+def print_comparison(current_summary: Optional[Dict] = None):
+    """
+    Compare the last two runs and print a diff.
+    If current_summary is provided, compare it against the most recent archived run.
+    """
+    runs = load_previous_runs(max_runs=5)
+
+    if current_summary and runs:
+        new_summary = current_summary
+        old_summary = runs[0].get("summary", {})
+        old_label = os.path.basename(runs[0].get("_filepath", "previous"))
+        new_label = "current run"
+
+        # Check for prompt version changes
+        old_hashes = runs[0].get("prompt_hashes", {})
+        new_hashes = get_all_hashes()
+        _print_prompt_diff(old_hashes, new_hashes)
+    elif len(runs) >= 2:
+        new_summary = runs[0].get("summary", {})
+        old_summary = runs[1].get("summary", {})
+        new_label = os.path.basename(runs[0].get("_filepath", "newer"))
+        old_label = os.path.basename(runs[1].get("_filepath", "older"))
+
+        old_hashes = runs[1].get("prompt_hashes", {})
+        new_hashes = runs[0].get("prompt_hashes", {})
+        _print_prompt_diff(old_hashes, new_hashes)
+    else:
+        print("\n  No previous runs to compare. Run at least two backtests first.")
+        return
+
+    print(f"\n  COMPARISON: {old_label} -> {new_label}")
+    print("  " + "-" * 60)
+
+    # Overall accuracy
+    old_acc = old_summary.get("overall_accuracy", 0)
+    new_acc = new_summary.get("overall_accuracy", 0)
+    delta = new_acc - old_acc
+    sign = "+" if delta >= 0 else ""
+    print(f"  Accuracy: {old_acc*100:.0f}% -> {new_acc*100:.0f}% ({sign}{delta*100:.0f}%)")
+
+    # False positive / negative rates
+    old_fp = old_summary.get("false_positive_rate", 0)
+    new_fp = new_summary.get("false_positive_rate", 0)
+    delta_fp = new_fp - old_fp
+    sign_fp = "+" if delta_fp >= 0 else ""
+    print(f"  False positive rate: {old_fp*100:.0f}% -> {new_fp*100:.0f}% ({sign_fp}{delta_fp*100:.0f}%)")
+
+    old_fn = old_summary.get("false_negative_rate", 0)
+    new_fn = new_summary.get("false_negative_rate", 0)
+    delta_fn = new_fn - old_fn
+    sign_fn = "+" if delta_fn >= 0 else ""
+    print(f"  False negative rate: {old_fn*100:.0f}% -> {new_fn*100:.0f}% ({sign_fn}{delta_fn*100:.0f}%)")
+
+    # Best/worst dimensions
+    dim_acc = new_summary.get("per_dimension_accuracy", {})
+    if dim_acc:
+        best_dim = max(dim_acc, key=dim_acc.get)
+        worst_dim = min(dim_acc, key=dim_acc.get)
+        print(f"  Best dimension: {best_dim} ({dim_acc[best_dim]*100:.0f}%)")
+        print(f"  Worst dimension: {worst_dim} ({dim_acc[worst_dim]*100:.0f}%)")
+
+    # Per-zone accuracy
+    zone_acc = new_summary.get("per_zone_accuracy", {})
+    if zone_acc:
+        best_zone = max(zone_acc, key=zone_acc.get)
+        worst_zone = min(zone_acc, key=zone_acc.get)
+        print(f"  Most accurate zone: {best_zone} ({zone_acc[best_zone]*100:.0f}%)")
+        if best_zone != worst_zone:
+            print(f"  Least accurate zone: {worst_zone} ({zone_acc[worst_zone]*100:.0f}%)")
+
+    # Deliberation impact
+    delib = new_summary.get("deliberation_impact", {})
+    if delib:
+        print(f"  Deliberation impact: weighted={delib.get('weighted_accuracy', 0)*100:.0f}% "
+              f"vs unweighted={delib.get('unweighted_accuracy', 0)*100:.0f}%")
+
+    print()
+
+
+def _print_prompt_diff(old_hashes: Dict[str, str], new_hashes: Dict[str, str]):
+    """Print which prompts changed between runs."""
+    if not old_hashes and not new_hashes:
+        return
+
+    changed = []
+    for name in set(list(old_hashes.keys()) + list(new_hashes.keys())):
+        old_h = old_hashes.get(name, "<missing>")
+        new_h = new_hashes.get(name, "<missing>")
+        if old_h != new_h:
+            changed.append(name)
+
+    if changed:
+        print(f"\n  PROMPT CHANGES DETECTED: {', '.join(changed)}")
+        for name in changed:
+            print(f"    {name}: {old_hashes.get(name, '<new>')[:8]} -> {new_hashes.get(name, '<removed>')[:8]}")
+    else:
+        print("\n  Prompts unchanged between runs.")
+
+
+# ══════════════════════════════════════════════════════════════════
+# Enhanced report
+# ══════════════════════════════════════════════════════════════════
 
 def print_report(results: list):
     """Print analysis of backtest results."""
@@ -183,8 +584,10 @@ def print_report(results: list):
         print(f"  Range: {scores[0]['score']:.1f} ({scores[0]['company']}) — {scores[-1]['score']:.1f} ({scores[-1]['company']})")
         for r in sorted(successes, key=lambda x: -x["score"]):
             verdict = r["verdict"][:12].ljust(12)
-            swarm = f"{r.get('swarm_hit_pct', 0):.0f}% HIT" if r.get("swarm_hit_pct") is not None else "no swarm"
-            print(f"    {r['score']:4.1f}  {verdict}  {swarm:>8}  {r['company']}")
+            swarm_pct = r.get("swarm_stats", {}).get("positive_pct")
+            swarm = f"{swarm_pct:.0f}% HIT" if swarm_pct is not None else "no swarm"
+            correct_mark = "OK" if r.get("correct") else "XX"
+            print(f"    {r['score']:4.1f}  {verdict}  {swarm:>8}  [{correct_mark}]  {r['company']}")
         print()
 
     if failures:
@@ -195,8 +598,10 @@ def print_report(results: list):
         print(f"  Range: {scores[0]['score']:.1f} ({scores[0]['company']}) — {scores[-1]['score']:.1f} ({scores[-1]['company']})")
         for r in sorted(failures, key=lambda x: -x["score"]):
             verdict = r["verdict"][:12].ljust(12)
-            swarm = f"{r.get('swarm_hit_pct', 0):.0f}% HIT" if r.get("swarm_hit_pct") is not None else "no swarm"
-            print(f"    {r['score']:4.1f}  {verdict}  {swarm:>8}  {r['company']}")
+            swarm_pct = r.get("swarm_stats", {}).get("positive_pct")
+            swarm = f"{swarm_pct:.0f}% HIT" if swarm_pct is not None else "no swarm"
+            correct_mark = "OK" if r.get("correct") else "XX"
+            print(f"    {r['score']:4.1f}  {verdict}  {swarm:>8}  [{correct_mark}]  {r['company']}")
         print()
 
     if acquired:
@@ -205,7 +610,8 @@ def print_report(results: list):
         print(f"  Average score: {avg:.1f}/10")
         for r in sorted(acquired, key=lambda x: -x["score"]):
             verdict = r["verdict"][:12].ljust(12)
-            print(f"    {r['score']:4.1f}  {verdict}  {r['company']} → {r['actual_outcome']}")
+            correct_mark = "OK" if r.get("correct") else "XX"
+            print(f"    {r['score']:4.1f}  {verdict}  [{correct_mark}]  {r['company']} -> {r['actual_outcome']}")
         print()
 
     if uncertain:
@@ -233,16 +639,56 @@ def print_report(results: list):
             print("    FAIL — scores cluster too tightly, rubric needs rework")
 
         # Accuracy check
-        correct_s = sum(1 for r in successes if r["score"] >= 6.0)
-        correct_f = sum(1 for r in failures if r["score"] < 5.5)
+        correct_s = sum(1 for r in successes if r["score"] >= SUCCESS_THRESHOLD)
+        correct_f = sum(1 for r in failures if r["score"] < FAILURE_THRESHOLD)
         total = len(successes) + len(failures)
         accuracy = (correct_s + correct_f) / total * 100
-        print(f"\n  ACCURACY (success >= 6.0, failure < 5.5): {accuracy:.0f}%")
-        print(f"    Successes correctly scored >= 6.0: {correct_s}/{len(successes)}")
-        print(f"    Failures correctly scored < 5.5:   {correct_f}/{len(failures)}")
+        print(f"\n  ACCURACY (success >= {SUCCESS_THRESHOLD}, failure < {FAILURE_THRESHOLD}): {accuracy:.0f}%")
+        print(f"    Successes correctly scored >= {SUCCESS_THRESHOLD}: {correct_s}/{len(successes)}")
+        print(f"    Failures correctly scored < {FAILURE_THRESHOLD}:   {correct_f}/{len(failures)}")
+
+    # Summary statistics
+    summary = compute_summary_statistics(results)
+    if "error" not in summary:
+        print(f"\n  " + "-" * 50)
+        print(f"  EXTENDED STATISTICS")
+        print(f"    Overall accuracy:      {summary['overall_accuracy']*100:.1f}%")
+        print(f"    False positive rate:   {summary['false_positive_rate']*100:.1f}%")
+        print(f"    False negative rate:   {summary['false_negative_rate']*100:.1f}%")
+
+        dim_acc = summary.get("per_dimension_accuracy", {})
+        if dim_acc:
+            print(f"\n    Per-dimension accuracy:")
+            for dim, acc in sorted(dim_acc.items(), key=lambda x: -x[1]):
+                bar = "#" * int(acc * 20)
+                print(f"      {dim:35s} {acc*100:5.1f}%  {bar}")
+
+        zone_acc = summary.get("per_zone_accuracy", {})
+        if zone_acc:
+            print(f"\n    Per-zone accuracy:")
+            for zone, acc in sorted(zone_acc.items(), key=lambda x: -x[1]):
+                bar = "#" * int(acc * 20)
+                print(f"      {zone:20s} {acc*100:5.1f}%  {bar}")
+
+        model_acc = summary.get("per_model_accuracy", {})
+        if model_acc:
+            print(f"\n    Per-model accuracy:")
+            for model, acc in sorted(model_acc.items(), key=lambda x: -x[1]):
+                print(f"      {model:30s} {acc*100:5.1f}%")
+
+        delib = summary.get("deliberation_impact", {})
+        if delib:
+            print(f"\n    Deliberation impact (n={delib.get('sample_size', 0)}):")
+            print(f"      Weighted accuracy:   {delib.get('weighted_accuracy', 0)*100:.1f}%")
+            print(f"      Unweighted accuracy: {delib.get('unweighted_accuracy', 0)*100:.1f}%")
 
     print("\n" + "=" * 70)
+    return summary
 
+
+# ══════════════════════════════════════════════════════════════════
+# Main
+# ══════════════════════════════════════════════════════════════════
 
 def main():
     args = sys.argv[1:]
@@ -251,6 +697,11 @@ def main():
     if "--report" in args:
         results = load_results()
         print_report(results)
+        return
+
+    # Just compare previous runs
+    if "--compare" in args:
+        print_comparison()
         return
 
     # Select tiers
@@ -272,7 +723,8 @@ def main():
     remaining = [c for c in companies if c["name"] not in done_names]
 
     print(f"\nMirai Backtest — {len(remaining)} companies to test ({len(done_names)} already done)")
-    print(f"Depth: quick | Swarm: 25 agents | Results: {RESULTS_FILE}\n")
+    print(f"Depth: quick | Swarm: 25 agents | Results: {RESULTS_FILE}")
+    print(f"Git commit: {_get_git_commit()} | Prompt hashes: {len(get_all_hashes())} registered\n")
 
     for i, company in enumerate(remaining):
         expected = company["expected"].upper()
@@ -287,7 +739,8 @@ def main():
         else:
             score = result["score"]
             verdict = result["verdict"]
-            print(f"{score:.1f}/10 — {verdict} ({elapsed:.0f}s)")
+            correct_mark = "OK" if result.get("correct") else "XX"
+            print(f"{score:.1f}/10 — {verdict} [{correct_mark}] ({elapsed:.0f}s)")
 
         results.append(result)
         save_results(results)
@@ -296,7 +749,16 @@ def main():
         if i < len(remaining) - 1:
             time.sleep(3)
 
-    print_report(results)
+    # Print report and compute summary
+    summary = print_report(results)
+
+    # Save archived run with full metadata
+    if summary and "error" not in summary:
+        archive_path = save_run_archive(results, summary)
+        print(f"  Run archived to: {archive_path}")
+
+        # Print comparison with previous run if available
+        print_comparison(current_summary=summary)
 
 
 if __name__ == "__main__":

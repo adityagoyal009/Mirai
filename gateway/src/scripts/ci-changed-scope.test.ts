@@ -65,7 +65,7 @@ describe("detectChangedScope", () => {
       runWindows: false,
       runSkillsPython: false,
     });
-    expect(detectChangedScope(["apps/shared/OpenClawKit/Sources/Foo.swift"])).toEqual({
+    expect(detectChangedScope(["apps/shared/MiraiKit/Sources/Foo.swift"])).toEqual({
       runNode: false,
       runMacos: true,
       runAndroid: true,
@@ -75,7 +75,7 @@ describe("detectChangedScope", () => {
   });
 
   it("does not force macOS for generated protocol model-only changes", () => {
-    expect(detectChangedScope(["apps/macos/Sources/OpenClawProtocol/GatewayModels.swift"])).toEqual(
+    expect(detectChangedScope(["apps/macos/Sources/MiraiProtocol/GatewayModels.swift"])).toEqual(
       {
         runNode: false,
         runMacos: false,
@@ -147,7 +147,7 @@ describe("detectChangedScope", () => {
   it("treats base and head as literal git args", () => {
     const markerPath = path.join(
       os.tmpdir(),
-      `openclaw-ci-changed-scope-${Date.now()}-${Math.random().toString(16).slice(2)}.tmp`,
+      `mirai-ci-changed-scope-${Date.now()}-${Math.random().toString(16).slice(2)}.tmp`,
     );
     markerPaths.push(markerPath);
 

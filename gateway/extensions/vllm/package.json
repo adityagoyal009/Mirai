@@ -1,0 +1,12 @@
+{
+  "name": "@mirai/vllm-provider",
+  "version": "2026.3.13",
+  "private": true,
+  "description": "Mirai vLLM provider plugin",
+  "type": "module",
+  "mirai": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}

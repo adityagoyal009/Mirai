@@ -2,8 +2,8 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import type { OpenClawConfig } from "../config/config.js";
-import { createOpenClawCodingTools } from "./pi-tools.js";
+import type { MiraiConfig } from "../config/config.js";
+import { createMiraiCodingTools } from "./pi-tools.js";
 import { createHostSandboxFsBridge } from "./test-helpers/host-sandbox-fs-bridge.js";
 import { expectReadWriteEditTools, getTextContent } from "./test-helpers/pi-tools-fs-helpers.js";
 import { createPiToolsSandboxContext } from "./test-helpers/pi-tools-sandbox-context.js";
@@ -21,42 +21,13 @@ async function withTempDir<T>(prefix: string, fn: (dir: string) => Promise<T>) {
   }
 }
 
-function createExecTool(workspaceDir: string) {
-  const tools = createOpenClawCodingTools({
-    workspaceDir,
-    exec: { host: "gateway", ask: "off", security: "full" },
-  });
-  const execTool = tools.find((tool) => tool.name === "exec");
-  expect(execTool).toBeDefined();
-  return execTool;
-}
-
-async function expectExecCwdResolvesTo(
-  execTool: ReturnType<typeof createExecTool>,
-  callId: string,
-  params: { command: string; workdir?: string },
-  expectedDir: string,
-) {
-  const result = await execTool?.execute(callId, params);
-  const cwd =
-    result?.details && typeof result.details === "object" && "cwd" in result.details
-      ? (result.details as { cwd?: string }).cwd
-      : undefined;
-  expect(cwd).toBeTruthy();
-  const [resolvedOutput, resolvedExpected] = await Promise.all([
-    fs.realpath(String(cwd)),
-    fs.realpath(expectedDir),
-  ]);
-  expect(resolvedOutput).toBe(resolvedExpected);
-}
-
 describe("workspace path resolution", () => {
   it("resolves relative read/write/edit paths against workspaceDir even after cwd changes", async () => {
-    await withTempDir("openclaw-ws-", async (workspaceDir) => {
-      await withTempDir("openclaw-cwd-", async (otherDir) => {
+    await withTempDir("mirai-ws-", async (workspaceDir) => {
+      await withTempDir("mirai-cwd-", async (otherDir) => {
         const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(otherDir);
         try {
-          const tools = createOpenClawCodingTools({ workspaceDir });
+          const tools = createMiraiCodingTools({ workspaceDir });
           const { readTool, writeTool, editTool } = expectReadWriteEditTools(tools);
 
           const readFile = "read.txt";
@@ -78,10 +49,10 @@ describe("workspace path resolution", () => {
           await editTool.execute("ws-edit", {
             path: editFile,
             oldText: "world",
-            newText: "openclaw",
+            newText: "mirai",
           });
           expect(await fs.readFile(path.join(workspaceDir, editFile), "utf8")).toBe(
-            "hello openclaw",
+            "hello mirai",
           );
         } finally {
           cwdSpy.mockRestore();
@@ -91,14 +62,14 @@ describe("workspace path resolution", () => {
   });
 
   it("allows deletion edits with empty newText", async () => {
-    await withTempDir("openclaw-ws-", async (workspaceDir) => {
-      await withTempDir("openclaw-cwd-", async (otherDir) => {
+    await withTempDir("mirai-ws-", async (workspaceDir) => {
+      await withTempDir("mirai-cwd-", async (otherDir) => {
         const testFile = "delete.txt";
         await fs.writeFile(path.join(workspaceDir, testFile), "hello world", "utf8");
 
         const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(otherDir);
         try {
-          const tools = createOpenClawCodingTools({ workspaceDir });
+          const tools = createMiraiCodingTools({ workspaceDir });
           const { editTool } = expectReadWriteEditTools(tools);
 
           await editTool.execute("ws-edit-delete", {
@@ -116,33 +87,65 @@ describe("workspace path resolution", () => {
   });
 
   it("defaults exec cwd to workspaceDir when workdir is omitted", async () => {
-    await withTempDir("openclaw-ws-", async (workspaceDir) => {
-      const execTool = createExecTool(workspaceDir);
-      await expectExecCwdResolvesTo(execTool, "ws-exec", { command: "echo ok" }, workspaceDir);
+    await withTempDir("mirai-ws-", async (workspaceDir) => {
+      const tools = createMiraiCodingTools({
+        workspaceDir,
+        exec: { host: "gateway", ask: "off", security: "full" },
+      });
+      const execTool = tools.find((tool) => tool.name === "exec");
+      expect(execTool).toBeDefined();
+
+      const result = await execTool?.execute("ws-exec", {
+        command: "echo ok",
+      });
+      const cwd =
+        result?.details && typeof result.details === "object" && "cwd" in result.details
+          ? (result.details as { cwd?: string }).cwd
+          : undefined;
+      expect(cwd).toBeTruthy();
+      const [resolvedOutput, resolvedWorkspace] = await Promise.all([
+        fs.realpath(String(cwd)),
+        fs.realpath(workspaceDir),
+      ]);
+      expect(resolvedOutput).toBe(resolvedWorkspace);
     });
   });
 
   it("lets exec workdir override the workspace default", async () => {
-    await withTempDir("openclaw-ws-", async (workspaceDir) => {
-      await withTempDir("openclaw-override-", async (overrideDir) => {
-        const execTool = createExecTool(workspaceDir);
-        await expectExecCwdResolvesTo(
-          execTool,
-          "ws-exec-override",
-          { command: "echo ok", workdir: overrideDir },
-          overrideDir,
-        );
+    await withTempDir("mirai-ws-", async (workspaceDir) => {
+      await withTempDir("mirai-override-", async (overrideDir) => {
+        const tools = createMiraiCodingTools({
+          workspaceDir,
+          exec: { host: "gateway", ask: "off", security: "full" },
+        });
+        const execTool = tools.find((tool) => tool.name === "exec");
+        expect(execTool).toBeDefined();
+
+        const result = await execTool?.execute("ws-exec-override", {
+          command: "echo ok",
+          workdir: overrideDir,
+        });
+        const cwd =
+          result?.details && typeof result.details === "object" && "cwd" in result.details
+            ? (result.details as { cwd?: string }).cwd
+            : undefined;
+        expect(cwd).toBeTruthy();
+        const [resolvedOutput, resolvedOverride] = await Promise.all([
+          fs.realpath(String(cwd)),
+          fs.realpath(overrideDir),
+        ]);
+        expect(resolvedOutput).toBe(resolvedOverride);
       });
     });
   });
 
   it("rejects @-prefixed absolute paths outside workspace when workspaceOnly is enabled", async () => {
-    await withTempDir("openclaw-ws-", async (workspaceDir) => {
-      const cfg: OpenClawConfig = { tools: { fs: { workspaceOnly: true } } };
-      const tools = createOpenClawCodingTools({ workspaceDir, config: cfg });
+    await withTempDir("mirai-ws-", async (workspaceDir) => {
+      const cfg: MiraiConfig = { tools: { fs: { workspaceOnly: true } } };
+      const tools = createMiraiCodingTools({ workspaceDir, config: cfg });
       const { readTool } = expectReadWriteEditTools(tools);
 
-      const outsideAbsolute = path.resolve(path.parse(workspaceDir).root, "outside-openclaw.txt");
+      const outsideAbsolute = path.resolve(path.parse(workspaceDir).root, "outside-mirai.txt");
       await expect(
         readTool.execute("ws-read-at-prefix", { path: `@${outsideAbsolute}` }),
       ).rejects.toThrow(/Path escapes sandbox root/i);
@@ -153,9 +156,9 @@ describe("workspace path resolution", () => {
     if (process.platform === "win32") {
       return;
     }
-    await withTempDir("openclaw-ws-", async (workspaceDir) => {
-      const cfg: OpenClawConfig = { tools: { fs: { workspaceOnly: true } } };
-      const tools = createOpenClawCodingTools({ workspaceDir, config: cfg });
+    await withTempDir("mirai-ws-", async (workspaceDir) => {
+      const cfg: MiraiConfig = { tools: { fs: { workspaceOnly: true } } };
+      const tools = createMiraiCodingTools({ workspaceDir, config: cfg });
       const { readTool, writeTool } = expectReadWriteEditTools(tools);
       const outsidePath = path.join(
         path.dirname(workspaceDir),
@@ -192,8 +195,8 @@ describe("workspace path resolution", () => {
 
 describe("sandboxed workspace paths", () => {
   it("uses sandbox workspace for relative read/write/edit", async () => {
-    await withTempDir("openclaw-sandbox-", async (sandboxDir) => {
-      await withTempDir("openclaw-workspace-", async (workspaceDir) => {
+    await withTempDir("mirai-sandbox-", async (sandboxDir) => {
+      await withTempDir("mirai-workspace-", async (workspaceDir) => {
         const sandbox = createPiToolsSandboxContext({
           workspaceDir: sandboxDir,
           agentWorkspaceDir: workspaceDir,
@@ -206,7 +209,7 @@ describe("sandboxed workspace paths", () => {
         await fs.writeFile(path.join(sandboxDir, testFile), "sandbox read", "utf8");
         await fs.writeFile(path.join(workspaceDir, testFile), "workspace read", "utf8");
 
-        const tools = createOpenClawCodingTools({ workspaceDir, sandbox });
+        const tools = createMiraiCodingTools({ workspaceDir, sandbox });
         const { readTool, writeTool, editTool } = expectReadWriteEditTools(tools);
 
         const result = await readTool?.execute("sbx-read", { path: testFile });

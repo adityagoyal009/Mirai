@@ -55,9 +55,9 @@ class CrewOrchestrator:
         """Create LLM instance for CrewAI agents."""
         from crewai import LLM
         return LLM(
-            model=os.environ.get("LLM_MODEL_NAME", "anthropic/claude-opus-4-6"),
-            base_url=os.environ.get("LLM_BASE_URL", "http://localhost:3000/v1"),
-            api_key=os.environ.get("LLM_API_KEY", "openclaw"),
+            model=os.environ.get("LLM_MODEL_NAME", "claude-opus-4-6"),
+            base_url=os.environ.get("LLM_BASE_URL", "http://localhost:4000/v1"),
+            api_key=os.environ.get("LLM_API_KEY", ""),
         )
 
     def analyze_business(

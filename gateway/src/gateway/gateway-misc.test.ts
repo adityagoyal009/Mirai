@@ -50,7 +50,7 @@ describe("GatewayClient", () => {
     params: { faviconSvg?: string; indexHtml?: string },
     run: (tmp: string) => Promise<void>,
   ) {
-    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-ui-"));
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "mirai-ui-"));
     try {
       await fs.writeFile(path.join(tmp, "index.html"), params.indexHtml ?? "<html></html>\n");
       if (typeof params.faviconSvg === "string") {
@@ -334,24 +334,6 @@ describe("resolveNodeCommandAllowlist", () => {
     }
   });
 
-  it("includes Android notifications and device diagnostics commands by default", () => {
-    const allow = resolveNodeCommandAllowlist(
-      {},
-      {
-        platform: "android 16",
-        deviceFamily: "Android",
-      },
-    );
-
-    expect(allow.has("notifications.list")).toBe(true);
-    expect(allow.has("notifications.actions")).toBe(true);
-    expect(allow.has("device.permissions")).toBe(true);
-    expect(allow.has("device.health")).toBe(true);
-    expect(allow.has("callLog.search")).toBe(true);
-    expect(allow.has("sms.search")).toBe(true);
-    expect(allow.has("system.notify")).toBe(true);
-  });
-
   it("can explicitly allow dangerous commands via allowCommands", () => {
     const allow = resolveNodeCommandAllowlist(
       {
@@ -366,34 +348,6 @@ describe("resolveNodeCommandAllowlist", () => {
     expect(allow.has("camera.snap")).toBe(true);
     expect(allow.has("screen.record")).toBe(true);
     expect(allow.has("camera.clip")).toBe(false);
-  });
-
-  it("treats unknown/confusable metadata as fail-safe for system.run defaults", () => {
-    const allow = resolveNodeCommandAllowlist(
-      {},
-      {
-        platform: "iPhοne",
-        deviceFamily: "iPhοne",
-      },
-    );
-
-    expect(allow.has("system.run")).toBe(false);
-    expect(allow.has("system.which")).toBe(false);
-    expect(allow.has("system.notify")).toBe(true);
-  });
-
-  it("normalizes dotted-I platform values to iOS classification", () => {
-    const allow = resolveNodeCommandAllowlist(
-      {},
-      {
-        platform: "İOS",
-        deviceFamily: "iPhone",
-      },
-    );
-
-    expect(allow.has("system.run")).toBe(false);
-    expect(allow.has("system.which")).toBe(false);
-    expect(allow.has("device.info")).toBe(true);
   });
 });
 

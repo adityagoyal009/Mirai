@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { OpenClawConfig } from "../config/config.js";
+import type { MiraiConfig } from "../config/config.js";
 import { resetLogger, setLoggerOverride } from "../logging/logger.js";
 import { __setModelCatalogImportForTest, loadModelCatalog } from "./model-catalog.js";
 import {
@@ -7,25 +7,6 @@ import {
   mockCatalogImportFailThenRecover,
   type PiSdkModule,
 } from "./model-catalog.test-harness.js";
-
-function mockPiDiscoveryModels(models: unknown[]) {
-  __setModelCatalogImportForTest(
-    async () =>
-      ({
-        discoverAuthStorage: () => ({}),
-        AuthStorage: class {},
-        ModelRegistry: class {
-          getAll() {
-            return models;
-          }
-        },
-      }) as unknown as PiSdkModule,
-  );
-}
-
-function mockSingleOpenAiCatalogModel() {
-  mockPiDiscoveryModels([{ id: "gpt-4.1", provider: "openai", name: "GPT-4.1" }]);
-}
 
 describe("loadModelCatalog", () => {
   installModelCatalogTestHooks();
@@ -36,7 +17,7 @@ describe("loadModelCatalog", () => {
     try {
       const getCallCount = mockCatalogImportFailThenRecover();
 
-      const cfg = {} as OpenClawConfig;
+      const cfg = {} as MiraiConfig;
       const first = await loadModelCatalog({ config: cfg });
       expect(first).toEqual([]);
 
@@ -57,7 +38,6 @@ describe("loadModelCatalog", () => {
       __setModelCatalogImportForTest(
         async () =>
           ({
-            discoverAuthStorage: () => ({}),
             AuthStorage: class {},
             ModelRegistry: class {
               getAll() {
@@ -76,7 +56,7 @@ describe("loadModelCatalog", () => {
           }) as unknown as PiSdkModule,
       );
 
-      const result = await loadModelCatalog({ config: {} as OpenClawConfig });
+      const result = await loadModelCatalog({ config: {} as MiraiConfig });
       expect(result).toEqual([{ id: "gpt-4.1", name: "GPT-4.1", provider: "openai" }]);
       expect(warnSpy).toHaveBeenCalledTimes(1);
     } finally {
@@ -86,23 +66,33 @@ describe("loadModelCatalog", () => {
   });
 
   it("adds openai-codex/gpt-5.3-codex-spark when base gpt-5.3-codex exists", async () => {
-    mockPiDiscoveryModels([
-      {
-        id: "gpt-5.3-codex",
-        provider: "openai-codex",
-        name: "GPT-5.3 Codex",
-        reasoning: true,
-        contextWindow: 200000,
-        input: ["text"],
-      },
-      {
-        id: "gpt-5.2-codex",
-        provider: "openai-codex",
-        name: "GPT-5.2 Codex",
-      },
-    ]);
+    __setModelCatalogImportForTest(
+      async () =>
+        ({
+          AuthStorage: class {},
+          ModelRegistry: class {
+            getAll() {
+              return [
+                {
+                  id: "gpt-5.3-codex",
+                  provider: "openai-codex",
+                  name: "GPT-5.3 Codex",
+                  reasoning: true,
+                  contextWindow: 200000,
+                  input: ["text"],
+                },
+                {
+                  id: "gpt-5.2-codex",
+                  provider: "openai-codex",
+                  name: "GPT-5.2 Codex",
+                },
+              ];
+            }
+          },
+        }) as unknown as PiSdkModule,
+    );
 
-    const result = await loadModelCatalog({ config: {} as OpenClawConfig });
+    const result = await loadModelCatalog({ config: {} as MiraiConfig });
     expect(result).toContainEqual(
       expect.objectContaining({
         provider: "openai-codex",
@@ -114,140 +104,18 @@ describe("loadModelCatalog", () => {
     expect(spark?.reasoning).toBe(true);
   });
 
-  it("filters stale openai gpt-5.3-codex-spark built-ins from the catalog", async () => {
-    mockPiDiscoveryModels([
-      {
-        id: "gpt-5.3-codex-spark",
-        provider: "openai",
-        name: "GPT-5.3 Codex Spark",
-        reasoning: true,
-        contextWindow: 128000,
-        input: ["text", "image"],
-      },
-      {
-        id: "gpt-5.3-codex-spark",
-        provider: "azure-openai-responses",
-        name: "GPT-5.3 Codex Spark",
-        reasoning: true,
-        contextWindow: 128000,
-        input: ["text", "image"],
-      },
-      {
-        id: "gpt-5.3-codex-spark",
-        provider: "openai-codex",
-        name: "GPT-5.3 Codex Spark",
-        reasoning: true,
-        contextWindow: 128000,
-        input: ["text"],
-      },
-    ]);
-
-    const result = await loadModelCatalog({ config: {} as OpenClawConfig });
-    expect(result).not.toContainEqual(
-      expect.objectContaining({
-        provider: "openai",
-        id: "gpt-5.3-codex-spark",
-      }),
-    );
-    expect(result).not.toContainEqual(
-      expect.objectContaining({
-        provider: "azure-openai-responses",
-        id: "gpt-5.3-codex-spark",
-      }),
-    );
-    expect(result).toContainEqual(
-      expect.objectContaining({
-        provider: "openai-codex",
-        id: "gpt-5.3-codex-spark",
-      }),
-    );
-  });
-
-  it("adds gpt-5.4 forward-compat catalog entries when template models exist", async () => {
-    mockPiDiscoveryModels([
-      {
-        id: "gpt-5.2",
-        provider: "openai",
-        name: "GPT-5.2",
-        reasoning: true,
-        contextWindow: 1_050_000,
-        input: ["text", "image"],
-      },
-      {
-        id: "gpt-5.2-pro",
-        provider: "openai",
-        name: "GPT-5.2 Pro",
-        reasoning: true,
-        contextWindow: 1_050_000,
-        input: ["text", "image"],
-      },
-      {
-        id: "gpt-5-mini",
-        provider: "openai",
-        name: "GPT-5 mini",
-        reasoning: true,
-        contextWindow: 400_000,
-        input: ["text", "image"],
-      },
-      {
-        id: "gpt-5-nano",
-        provider: "openai",
-        name: "GPT-5 nano",
-        reasoning: true,
-        contextWindow: 400_000,
-        input: ["text", "image"],
-      },
-      {
-        id: "gpt-5.3-codex",
-        provider: "openai-codex",
-        name: "GPT-5.3 Codex",
-        reasoning: true,
-        contextWindow: 272000,
-        input: ["text", "image"],
-      },
-    ]);
-
-    const result = await loadModelCatalog({ config: {} as OpenClawConfig });
-
-    expect(result).toContainEqual(
-      expect.objectContaining({
-        provider: "openai",
-        id: "gpt-5.4",
-        name: "gpt-5.4",
-      }),
-    );
-    expect(result).toContainEqual(
-      expect.objectContaining({
-        provider: "openai",
-        id: "gpt-5.4-pro",
-        name: "gpt-5.4-pro",
-      }),
-    );
-    expect(result).toContainEqual(
-      expect.objectContaining({
-        provider: "openai",
-        id: "gpt-5.4-mini",
-        name: "gpt-5.4-mini",
-      }),
-    );
-    expect(result).toContainEqual(
-      expect.objectContaining({
-        provider: "openai",
-        id: "gpt-5.4-nano",
-        name: "gpt-5.4-nano",
-      }),
-    );
-    expect(result).toContainEqual(
-      expect.objectContaining({
-        provider: "openai-codex",
-        id: "gpt-5.4",
-        name: "gpt-5.4",
-      }),
-    );
-  });
-
   it("merges configured models for opted-in non-pi-native providers", async () => {
-    mockSingleOpenAiCatalogModel();
+    __setModelCatalogImportForTest(
+      async () =>
+        ({
+          AuthStorage: class {},
+          ModelRegistry: class {
+            getAll() {
+              return [{ id: "gpt-4.1", provider: "openai", name: "GPT-4.1" }];
+            }
+          },
+        }) as unknown as PiSdkModule,
+    );
 
     const result = await loadModelCatalog({
       config: {
@@ -270,7 +138,7 @@ describe("loadModelCatalog", () => {
             },
           },
         },
-      } as OpenClawConfig,
+      } as MiraiConfig,
     });
 
     expect(result).toContainEqual(
@@ -283,7 +151,17 @@ describe("loadModelCatalog", () => {
   });
 
   it("does not merge configured models for providers that are not opted in", async () => {
-    mockSingleOpenAiCatalogModel();
+    __setModelCatalogImportForTest(
+      async () =>
+        ({
+          AuthStorage: class {},
+          ModelRegistry: class {
+            getAll() {
+              return [{ id: "gpt-4.1", provider: "openai", name: "GPT-4.1" }];
+            }
+          },
+        }) as unknown as PiSdkModule,
+    );
 
     const result = await loadModelCatalog({
       config: {
@@ -306,7 +184,7 @@ describe("loadModelCatalog", () => {
             },
           },
         },
-      } as OpenClawConfig,
+      } as MiraiConfig,
     });
 
     expect(
@@ -315,13 +193,23 @@ describe("loadModelCatalog", () => {
   });
 
   it("does not duplicate opted-in configured models already present in ModelRegistry", async () => {
-    mockPiDiscoveryModels([
-      {
-        id: "kilo/auto",
-        provider: "kilocode",
-        name: "Kilo Auto",
-      },
-    ]);
+    __setModelCatalogImportForTest(
+      async () =>
+        ({
+          AuthStorage: class {},
+          ModelRegistry: class {
+            getAll() {
+              return [
+                {
+                  id: "anthropic/claude-opus-4.6",
+                  provider: "kilocode",
+                  name: "Claude Opus 4.6",
+                },
+              ];
+            }
+          },
+        }) as unknown as PiSdkModule,
+    );
 
     const result = await loadModelCatalog({
       config: {
@@ -332,8 +220,8 @@ describe("loadModelCatalog", () => {
               api: "openai-completions",
               models: [
                 {
-                  id: "kilo/auto",
-                  name: "Configured Kilo Auto",
+                  id: "anthropic/claude-opus-4.6",
+                  name: "Configured Claude Opus 4.6",
                   reasoning: true,
                   input: ["text", "image"],
                   cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
@@ -344,13 +232,13 @@ describe("loadModelCatalog", () => {
             },
           },
         },
-      } as OpenClawConfig,
+      } as MiraiConfig,
     });
 
     const matches = result.filter(
-      (entry) => entry.provider === "kilocode" && entry.id === "kilo/auto",
+      (entry) => entry.provider === "kilocode" && entry.id === "anthropic/claude-opus-4.6",
     );
     expect(matches).toHaveLength(1);
-    expect(matches[0]?.name).toBe("Kilo Auto");
+    expect(matches[0]?.name).toBe("Claude Opus 4.6");
   });
 });

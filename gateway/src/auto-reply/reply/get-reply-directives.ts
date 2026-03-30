@@ -1,9 +1,8 @@
 import type { ExecToolDefaults } from "../../agents/bash-tools.js";
-import { resolveFastModeState } from "../../agents/fast-mode.js";
 import type { ModelAliasIndex } from "../../agents/model-selection.js";
 import { resolveSandboxRuntimeStatus } from "../../agents/sandbox.js";
 import type { SkillCommandSpec } from "../../agents/skills.js";
-import type { OpenClawConfig } from "../../config/config.js";
+import type { MiraiConfig } from "../../config/config.js";
 import type { SessionEntry } from "../../config/sessions.js";
 import { listChatCommands, shouldHandleTextCommands } from "../commands-registry.js";
 import { listSkillCommandsForWorkspace } from "../skill-commands.js";
@@ -22,7 +21,7 @@ import { formatElevatedUnavailableMessage, resolveElevatedPermissions } from "./
 import { stripInlineStatus } from "./reply-inline.js";
 import type { TypingController } from "./typing.js";
 
-type AgentDefaults = NonNullable<OpenClawConfig["agents"]>["defaults"];
+type AgentDefaults = NonNullable<MiraiConfig["agents"]>["defaults"];
 type ExecOverrides = Pick<ExecToolDefaults, "host" | "security" | "ask" | "node">;
 
 export type ReplyDirectiveContinuation = {
@@ -38,7 +37,6 @@ export type ReplyDirectiveContinuation = {
   elevatedFailures: Array<{ gate: string; key: string }>;
   defaultActivation: ReturnType<typeof defaultGroupActivation>;
   resolvedThinkLevel: ThinkLevel | undefined;
-  resolvedFastMode: boolean;
   resolvedVerboseLevel: VerboseLevel | undefined;
   resolvedReasoningLevel: ReasoningLevel;
   resolvedElevatedLevel: ElevatedLevel;
@@ -88,7 +86,7 @@ export type ReplyDirectiveResult =
 
 export async function resolveReplyDirectives(params: {
   ctx: MsgContext;
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   agentId: string;
   agentDir: string;
   workspaceDir: string;
@@ -230,7 +228,6 @@ export async function resolveReplyDirectives(params: {
   const hasInlineDirective =
     parsedDirectives.hasThinkDirective ||
     parsedDirectives.hasVerboseDirective ||
-    parsedDirectives.hasFastDirective ||
     parsedDirectives.hasReasoningDirective ||
     parsedDirectives.hasElevatedDirective ||
     parsedDirectives.hasExecDirective ||
@@ -255,15 +252,12 @@ export async function resolveReplyDirectives(params: {
       }
     }
   }
-  // Use command.isAuthorizedSender (resolved authorization) instead of raw commandAuthorized
-  // to ensure inline directives work when commands.allowFrom grants access (e.g., LINE).
-  let directives = command.isAuthorizedSender
+  let directives = commandAuthorized
     ? parsedDirectives
     : {
         ...parsedDirectives,
         hasThinkDirective: false,
         hasVerboseDirective: false,
-        hasFastDirective: false,
         hasReasoningDirective: false,
         hasStatusDirective: false,
         hasModelDirective: false,
@@ -343,15 +337,9 @@ export async function resolveReplyDirectives(params: {
   });
   const defaultActivation = defaultGroupActivation(requireMention);
   const resolvedThinkLevel =
-    directives.thinkLevel ?? (sessionEntry?.thinkingLevel as ThinkLevel | undefined);
-  const resolvedFastMode =
-    directives.fastMode ??
-    resolveFastModeState({
-      cfg,
-      provider,
-      model,
-      sessionEntry,
-    }).enabled;
+    directives.thinkLevel ??
+    (sessionEntry?.thinkingLevel as ThinkLevel | undefined) ??
+    (agentCfg?.thinkingDefault as ThinkLevel | undefined);
 
   const resolvedVerboseLevel =
     directives.verboseLevel ??
@@ -385,7 +373,6 @@ export async function resolveReplyDirectives(params: {
 
   const modelState = await createModelSelectionState({
     cfg,
-    agentId,
     agentCfg,
     sessionEntry,
     sessionStore,
@@ -401,10 +388,6 @@ export async function resolveReplyDirectives(params: {
   });
   provider = modelState.provider;
   model = modelState.model;
-  const resolvedThinkLevelWithDefault =
-    resolvedThinkLevel ??
-    (await modelState.resolveDefaultThinkingLevel()) ??
-    (agentCfg?.thinkingDefault as ThinkLevel | undefined);
 
   // When neither directive nor session set reasoning, default to model capability
   // (e.g. OpenRouter with reasoning: true). Skip auto-enabling when thinking is
@@ -413,7 +396,9 @@ export async function resolveReplyDirectives(params: {
   const reasoningExplicitlySet =
     directives.reasoningLevel !== undefined ||
     (sessionEntry?.reasoningLevel !== undefined && sessionEntry?.reasoningLevel !== null);
-  const thinkingActive = resolvedThinkLevelWithDefault !== "off";
+  const effectiveThinkingForReasoning =
+    resolvedThinkLevel ?? (await modelState.resolveDefaultThinkingLevel());
+  const thinkingActive = effectiveThinkingForReasoning !== "off";
   if (!reasoningExplicitlySet && resolvedReasoningLevel === "off" && !thinkingActive) {
     resolvedReasoningLevel = await modelState.resolveDefaultReasoningLevel();
   }
@@ -490,8 +475,7 @@ export async function resolveReplyDirectives(params: {
       elevatedAllowed,
       elevatedFailures,
       defaultActivation,
-      resolvedThinkLevel: resolvedThinkLevelWithDefault,
-      resolvedFastMode,
+      resolvedThinkLevel,
       resolvedVerboseLevel,
       resolvedReasoningLevel,
       resolvedElevatedLevel,

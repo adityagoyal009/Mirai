@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { createJiti } from "jiti";
-import type { OpenClawConfig } from "../config/config.js";
+import type { MiraiConfig } from "../config/config.js";
 import {
   loadPluginManifestRegistry,
   type PluginManifestRecord,
@@ -18,7 +18,7 @@ const MATRIX_HELPER_CANDIDATES = [
 ] as const;
 
 export const MATRIX_LEGACY_CRYPTO_INSPECTOR_UNAVAILABLE_MESSAGE =
-  "Legacy Matrix encrypted state was detected, but the Matrix plugin helper is unavailable. Install or repair @openclaw/matrix so Mirai can inspect the old rust crypto store before upgrading.";
+  "Legacy Matrix encrypted state was detected, but the Matrix plugin helper is unavailable. Install or repair @mirai/matrix so Mirai can inspect the old rust crypto store before upgrading.";
 
 type MatrixLegacyCryptoInspectorParams = {
   cryptoRootDir: string;
@@ -42,7 +42,7 @@ export type MatrixLegacyCryptoInspector = (
 ) => Promise<MatrixLegacyCryptoInspectorResult>;
 
 function resolveMatrixPluginRecord(params: {
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   env?: NodeJS.ProcessEnv;
   workspaceDir?: string;
 }): PluginManifestRecord | null {
@@ -60,7 +60,7 @@ type MatrixLegacyCryptoInspectorPathResolution =
   | { status: "unsafe"; candidatePath: string };
 
 function resolveMatrixLegacyCryptoInspectorPath(params: {
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   env?: NodeJS.ProcessEnv;
   workspaceDir?: string;
 }): MatrixLegacyCryptoInspectorPathResolution {
@@ -89,7 +89,7 @@ function resolveMatrixLegacyCryptoInspectorPath(params: {
 }
 
 export function isMatrixLegacyCryptoInspectorAvailable(params: {
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   env?: NodeJS.ProcessEnv;
   workspaceDir?: string;
 }): boolean {
@@ -146,7 +146,7 @@ function resolveInspectorExport(loaded: unknown): MatrixLegacyCryptoInspector | 
 }
 
 export async function loadMatrixLegacyCryptoInspector(params: {
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   env?: NodeJS.ProcessEnv;
   workspaceDir?: string;
 }): Promise<MatrixLegacyCryptoInspector> {
@@ -156,7 +156,7 @@ export async function loadMatrixLegacyCryptoInspector(params: {
   }
   if (resolution.status === "unsafe") {
     throw new Error(
-      `Matrix plugin helper path is unsafe: ${resolution.candidatePath}. Reinstall @openclaw/matrix and try again.`,
+      `Matrix plugin helper path is unsafe: ${resolution.candidatePath}. Reinstall @mirai/matrix and try again.`,
     );
   }
   const helperPath = resolution.helperPath;
@@ -183,7 +183,7 @@ export async function loadMatrixLegacyCryptoInspector(params: {
     const inspectLegacyMatrixCryptoStore = resolveInspectorExport(loaded);
     if (!inspectLegacyMatrixCryptoStore) {
       throw new Error(
-        `Matrix plugin helper at ${helperPath} does not export inspectLegacyMatrixCryptoStore(). Reinstall @openclaw/matrix and try again.`,
+        `Matrix plugin helper at ${helperPath} does not export inspectLegacyMatrixCryptoStore(). Reinstall @mirai/matrix and try again.`,
       );
     }
     return inspectLegacyMatrixCryptoStore;

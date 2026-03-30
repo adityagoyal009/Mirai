@@ -8,7 +8,16 @@ import { mirai } from '../miraiApi.js';
 import type { OfficeState } from '../office/engine/officeState.js';
 
 const MAX_VISIBLE_AGENTS = 80;
-const WS_URL = `ws://${typeof window !== 'undefined' ? window.location.hostname : 'localhost'}:5000/ws/swarm`;
+const WS_URL = (() => {
+  if (typeof window === 'undefined') return 'ws://localhost:5000/ws/swarm';
+  const loc = window.location;
+  const proto = loc.protocol === 'https:' ? 'wss:' : 'ws:';
+  // If running on standard ports (80/443) or behind proxy, don't append port
+  const port = loc.port && loc.port !== '443' && loc.port !== '80' ? `:${loc.port}` : '';
+  // If port is empty and not localhost, we're behind a reverse proxy (Cloudflare tunnel)
+  const needsPort = loc.hostname === 'localhost' || loc.hostname === '127.0.0.1';
+  return `${proto}//${loc.hostname}${needsPort ? ':5000' : port}/ws/swarm`;
+})();
 
 export const ZONE_NAMES: Record<string, string> = {
   investor: 'INVESTORS',
@@ -71,6 +80,16 @@ export function useSwarmAgents(getOfficeState: () => OfficeState): number[] {
   const connectedRef = useRef(false);
   const spawnedIdsRef = useRef<Set<number>>(new Set());
   const [spawnedIds, setSpawnedIds] = useState<number[]>([]);
+  const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Batched sync: updates React state at most every 500ms to prevent flicker
+  const scheduleSyncIds = () => {
+    if (syncTimerRef.current) return;
+    syncTimerRef.current = setTimeout(() => {
+      syncTimerRef.current = null;
+      setSpawnedIds(Array.from(spawnedIdsRef.current));
+    }, 500);
+  };
 
   useEffect(() => {
     if (connectedRef.current) return;
@@ -103,14 +122,19 @@ export function useSwarmAgents(getOfficeState: () => OfficeState): number[] {
 
       switch (msg.type) {
         case 'swarmStarted': {
-          // Clear all previous agents
+          // Clear only non-council agents — keep elders (9000+) visible during swarm
           for (const id of spawnedIdsRef.current) {
+            if (id >= 9000 && id < 9100) continue; // keep council elders
             try { os.removeAgent(id); } catch {}
           }
-          spawnedIdsRef.current.clear();
-          setSpawnedIds([]);
+          const kept = new Set<number>();
+          for (const id of spawnedIdsRef.current) {
+            if (id >= 9000 && id < 9100) kept.add(id);
+          }
+          spawnedIdsRef.current = kept;
           resetZoneCounts();
           os.resetZoneSeats();
+          scheduleSyncIds();
           break;
         }
 
@@ -132,7 +156,7 @@ export function useSwarmAgents(getOfficeState: () => OfficeState): number[] {
           try {
             os.addAgent(agentId, palette, undefined, undefined, undefined, undefined, zone);
             spawnedIdsRef.current.add(agentId);
-            setSpawnedIds(Array.from(spawnedIdsRef.current));
+            scheduleSyncIds(); // batched — won't flicker
           } catch {}
           break;
         }
@@ -200,32 +224,38 @@ export function useSwarmAgents(getOfficeState: () => OfficeState): number[] {
           }, 33000);
           break;
 
-        // Council: spawn 4 Elder agents
+        // Council: spawn 8 Elder agents (4 model elders + 4 dimension specialists)
         case 'councilStarted': {
           const models = (msg as any).models || [];
-          for (let i = 0; i < Math.min(models.length, 4); i++) {
+          const elderCount = Math.max(models.length, 8);
+          const elderLabels = [
+            ...models,
+            'Market Analyst', 'Financial Analyst', 'Risk Analyst', 'Strategy Analyst',
+            'Growth Analyst', 'Tech Analyst', 'Ops Analyst', 'Exit Analyst',
+          ];
+          for (let i = 0; i < Math.min(elderCount, 8); i++) {
             const elderId = 9000 + i;
             agentMetadata.set(elderId, {
               persona: `Elder ${i + 1}`,
               zone: 'council',
-              model: models[i] || `Model ${i + 1}`,
+              model: elderLabels[i] || `Elder ${i + 1}`,
               activity: 'Deliberating...',
             });
             zoneCounts['council'] = (zoneCounts['council'] || 0) + 1;
             try {
               os.addAgent(elderId, 0, undefined, undefined, undefined, undefined, 'council');
               spawnedIdsRef.current.add(elderId);
-              setSpawnedIds(Array.from(spawnedIdsRef.current));
               os.setAgentTool(elderId, 'Write');
               os.setAgentActive(elderId, true);
             } catch {}
           }
+          setSpawnedIds(Array.from(spawnedIdsRef.current));
           break;
         }
 
         case 'councilComplete': {
           // Elders finish — show vote bubbles
-          for (let i = 0; i < 4; i++) {
+          for (let i = 0; i < 8; i++) {
             const elderId = 9000 + i;
             const meta = agentMetadata.get(elderId);
             if (meta) {

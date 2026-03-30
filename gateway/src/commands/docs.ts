@@ -5,7 +5,7 @@ import type { RuntimeEnv } from "../runtime.js";
 import { formatDocsLink } from "../terminal/links.js";
 import { isRich, theme } from "../terminal/theme.js";
 
-const SEARCH_TOOL = "https://github.com/adityagoyal009/Mirai/tree/main/gateway/docs/mcp.SearchOpenClaw";
+const SEARCH_TOOL = "https://docs.mirai.ai/mcp.SearchMirai";
 const SEARCH_TIMEOUT_MS = 30_000;
 const DEFAULT_SNIPPET_MAX = 220;
 
@@ -160,12 +160,12 @@ async function renderMarkdown(markdown: string, runtime: RuntimeEnv) {
 export async function docsSearchCommand(queryParts: string[], runtime: RuntimeEnv) {
   const query = queryParts.join(" ").trim();
   if (!query) {
-    const docs = formatDocsLink("/", "github.com/adityagoyal009/Mirai/tree/main/gateway/docs");
+    const docs = formatDocsLink("/", "docs.mirai.ai");
     if (isRich()) {
       runtime.log(`${theme.muted("Docs:")} ${docs}`);
       runtime.log(`${theme.muted("Search:")} ${formatCliCommand('mirai docs "your query"')}`);
     } else {
-      runtime.log("Docs: https://github.com/adityagoyal009/Mirai/tree/main/gateway/docs/");
+      runtime.log("Docs: https://docs.mirai.ai/");
       runtime.log(`Search: ${formatCliCommand('mirai docs "your query"')}`);
     }
     return;

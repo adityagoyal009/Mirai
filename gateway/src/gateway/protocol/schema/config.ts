@@ -1,12 +1,6 @@
 import { Type } from "@sinclair/typebox";
 import { NonEmptyString } from "./primitives.js";
 
-const ConfigSchemaLookupPathString = Type.String({
-  minLength: 1,
-  maxLength: 1024,
-  pattern: "^[A-Za-z0-9_./\\[\\]\\-*]+$",
-});
-
 export const ConfigGetParamsSchema = Type.Object({}, { additionalProperties: false });
 
 export const ConfigSetParamsSchema = Type.Object(
@@ -32,13 +26,6 @@ export const ConfigApplyParamsSchema = ConfigApplyLikeParamsSchema;
 export const ConfigPatchParamsSchema = ConfigApplyLikeParamsSchema;
 
 export const ConfigSchemaParamsSchema = Type.Object({}, { additionalProperties: false });
-
-export const ConfigSchemaLookupParamsSchema = Type.Object(
-  {
-    path: ConfigSchemaLookupPathString,
-  },
-  { additionalProperties: false },
-);
 
 export const UpdateRunParamsSchema = Type.Object(
   {
@@ -71,30 +58,6 @@ export const ConfigSchemaResponseSchema = Type.Object(
     uiHints: Type.Record(Type.String(), ConfigUiHintSchema),
     version: NonEmptyString,
     generatedAt: NonEmptyString,
-  },
-  { additionalProperties: false },
-);
-
-export const ConfigSchemaLookupChildSchema = Type.Object(
-  {
-    key: NonEmptyString,
-    path: NonEmptyString,
-    type: Type.Optional(Type.Union([Type.String(), Type.Array(Type.String())])),
-    required: Type.Boolean(),
-    hasChildren: Type.Boolean(),
-    hint: Type.Optional(ConfigUiHintSchema),
-    hintPath: Type.Optional(Type.String()),
-  },
-  { additionalProperties: false },
-);
-
-export const ConfigSchemaLookupResultSchema = Type.Object(
-  {
-    path: NonEmptyString,
-    schema: Type.Unknown(),
-    hint: Type.Optional(ConfigUiHintSchema),
-    hintPath: Type.Optional(Type.String()),
-    children: Type.Array(ConfigSchemaLookupChildSchema),
   },
   { additionalProperties: false },
 );

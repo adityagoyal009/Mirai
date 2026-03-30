@@ -1,5 +1,5 @@
 import { createSubsystemLogger } from "../logging/subsystem.js";
-import { loadOpenClawPlugins } from "./loader.js";
+import { loadMiraiPlugins } from "./loader.js";
 import type { PluginLoadOptions } from "./loader.js";
 import { createPluginLoaderLogger } from "./logger.js";
 import { getActivePluginRegistry } from "./runtime.js";
@@ -20,7 +20,7 @@ export function resolvePluginWebSearchProviders(params: {
   cache?: boolean;
 }): PluginWebSearchProviderEntry[] {
   const { config } = resolveBundledWebSearchResolutionConfig(params);
-  const registry = loadOpenClawPlugins({
+  const registry = loadMiraiPlugins({
     config,
     workspaceDir: params.workspaceDir,
     env: params.env,

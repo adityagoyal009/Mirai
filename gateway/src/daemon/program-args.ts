@@ -22,7 +22,7 @@ async function resolveCliEntrypointPathForService(): Promise<string> {
     await fs.access(resolvedPath);
     // Prefer the original (possibly symlinked) path over the resolved realpath.
     // This keeps LaunchAgent/systemd paths stable across package version updates,
-    // since symlinks like node_modules/openclaw -> .pnpm/openclaw@X.Y.Z/...
+    // since symlinks like node_modules/mirai -> .pnpm/mirai@X.Y.Z/...
     // are automatically updated by pnpm, while the resolved path contains
     // version-specific directories that break after updates.
     const normalizedLooksLikeDist = /[/\\]dist[/\\].+\.(cjs|js|mjs)$/.test(normalized);
@@ -123,7 +123,7 @@ function resolveRepoRootForDev(): string {
   const parts = normalized.split(path.sep);
   const srcIndex = parts.lastIndexOf("src");
   if (srcIndex === -1) {
-    throw new Error("Dev mode requires running from repo (src/entry.ts)");
+    throw new Error("Dev mode requires running from repo (src/index.ts)");
   }
   return parts.slice(0, srcIndex).join(path.sep);
 }
@@ -153,9 +153,7 @@ async function resolveBinaryPath(binary: string): Promise<string> {
     if (binary === "bun") {
       throw new Error("Bun not found in PATH. Install bun: https://bun.sh");
     }
-    throw new Error(
-      "Node not found in PATH. Install Node 24 (recommended) or Node 22 LTS (22.16+).",
-    );
+    throw new Error("Node not found in PATH. Install Node 22+.");
   }
 }
 
@@ -180,7 +178,7 @@ async function resolveCliProgramArguments(params: {
   if (runtime === "bun") {
     if (params.dev) {
       const repoRoot = resolveRepoRootForDev();
-      const devCliPath = path.join(repoRoot, "src", "entry.ts");
+      const devCliPath = path.join(repoRoot, "src", "index.ts");
       await fs.access(devCliPath);
       const bunPath = isBunRuntime(execPath) ? execPath : await resolveBunPath();
       return {
@@ -213,7 +211,7 @@ async function resolveCliProgramArguments(params: {
 
   // Dev mode: use bun to run TypeScript directly
   const repoRoot = resolveRepoRootForDev();
-  const devCliPath = path.join(repoRoot, "src", "entry.ts");
+  const devCliPath = path.join(repoRoot, "src", "index.ts");
   await fs.access(devCliPath);
 
   // If already running under bun, use current execPath

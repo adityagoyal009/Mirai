@@ -7,8 +7,8 @@ export function createSandboxTestContext(params?: {
   const overrides = params?.overrides ?? {};
   const { docker: _unusedDockerOverrides, ...sandboxOverrides } = overrides;
   const docker = {
-    image: "openclaw-sandbox:bookworm-slim",
-    containerPrefix: "openclaw-sbx-",
+    image: "mirai-sandbox:bookworm-slim",
+    containerPrefix: "mirai-sbx-",
     network: "none",
     user: "1000:1000",
     workdir: "/workspace",
@@ -28,14 +28,11 @@ export function createSandboxTestContext(params?: {
 
   return {
     enabled: true,
-    backendId: "docker",
     sessionKey: "sandbox:test",
     workspaceDir: "/tmp/workspace",
     agentWorkspaceDir: "/tmp/workspace",
     workspaceAccess: "rw",
-    runtimeId: "openclaw-sbx-test",
-    runtimeLabel: "openclaw-sbx-test",
-    containerName: "openclaw-sbx-test",
+    containerName: "mirai-sbx-test",
     containerWorkdir: "/workspace",
     tools: { allow: ["*"], deny: [] },
     browserAllowHostControl: false,

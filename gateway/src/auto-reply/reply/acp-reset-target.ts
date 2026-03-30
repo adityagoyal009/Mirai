@@ -5,7 +5,7 @@ import {
 } from "../../acp/persistent-bindings.types.js";
 import { resolveConfiguredBindingRecord } from "../../channels/plugins/binding-registry.js";
 import { listAcpBindings } from "../../config/bindings.js";
-import type { OpenClawConfig } from "../../config/config.js";
+import type { MiraiConfig } from "../../config/config.js";
 import { getSessionBindingService } from "../../infra/outbound/session-binding-service.js";
 import { DEFAULT_ACCOUNT_ID, isAcpSessionKey } from "../../routing/session-key.js";
 
@@ -14,7 +14,7 @@ function normalizeText(value: string | undefined | null): string {
 }
 
 function resolveRawConfiguredAcpSessionKey(params: {
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   channel: string;
   accountId: string;
   conversationId: string;
@@ -60,7 +60,7 @@ function resolveRawConfiguredAcpSessionKey(params: {
 }
 
 export function resolveEffectiveResetTargetSessionKey(params: {
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   channel?: string | null;
   accountId?: string | null;
   conversationId?: string | null;

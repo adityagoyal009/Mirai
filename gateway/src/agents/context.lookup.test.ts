@@ -6,15 +6,15 @@ function mockContextDeps(params: {
   loadConfig: () => unknown;
   discoveredModels?: DiscoveredModel[];
 }) {
-  const ensureOpenClawModelsJson = vi.fn(async () => {});
+  const ensureMiraiModelsJson = vi.fn(async () => {});
   vi.doMock("../config/config.js", () => ({
     loadConfig: params.loadConfig,
   }));
   vi.doMock("./models-config.js", () => ({
-    ensureOpenClawModelsJson,
+    ensureMiraiModelsJson,
   }));
   vi.doMock("./agent-paths.js", () => ({
-    resolveOpenClawAgentDir: () => "/tmp/openclaw-agent",
+    resolveMiraiAgentDir: () => "/tmp/mirai-agent",
   }));
   vi.doMock("./pi-model-discovery-runtime.js", () => ({
     discoverAuthStorage: vi.fn(() => ({})),
@@ -22,7 +22,7 @@ function mockContextDeps(params: {
       getAll: () => params.discoveredModels ?? [],
     })),
   }));
-  return { ensureOpenClawModelsJson };
+  return { ensureMiraiModelsJson };
 }
 
 function mockContextModuleDeps(loadConfigImpl: () => unknown) {
@@ -83,7 +83,7 @@ describe("lookupContextTokens", () => {
   });
 
   it("can skip async warmup for read-only callers", async () => {
-    const { ensureOpenClawModelsJson } = mockContextModuleDeps(() => ({
+    const { ensureMiraiModelsJson } = mockContextModuleDeps(() => ({
       models: {
         providers: {
           openrouter: {
@@ -98,27 +98,27 @@ describe("lookupContextTokens", () => {
       lookupContextTokens("openrouter/claude-sonnet", { allowAsyncLoad: false }),
     ).toBeUndefined();
     await flushAsyncWarmup();
-    expect(ensureOpenClawModelsJson).not.toHaveBeenCalled();
+    expect(ensureMiraiModelsJson).not.toHaveBeenCalled();
   });
 
-  it("only warms eagerly for real openclaw startup commands that need model metadata", async () => {
+  it("only warms eagerly for real mirai startup commands that need model metadata", async () => {
     const argvSnapshot = process.argv;
     try {
       for (const scenario of [
         {
-          argv: ["node", "openclaw", "chat"],
+          argv: ["node", "mirai", "chat"],
           expectedCalls: 1,
         },
         {
-          argv: ["node", "openclaw", "--profile", "--", "config", "validate"],
+          argv: ["node", "mirai", "--profile", "--", "config", "validate"],
           expectedCalls: 0,
         },
         {
-          argv: ["node", "openclaw", "logs", "--limit", "5"],
+          argv: ["node", "mirai", "logs", "--limit", "5"],
           expectedCalls: 0,
         },
         {
-          argv: ["node", "openclaw", "status", "--json"],
+          argv: ["node", "mirai", "status", "--json"],
           expectedCalls: 0,
         },
         {
@@ -128,12 +128,12 @@ describe("lookupContextTokens", () => {
       ]) {
         vi.resetModules();
         const loadConfigMock = vi.fn(() => ({ models: {} }));
-        const { ensureOpenClawModelsJson } = mockContextModuleDeps(loadConfigMock);
+        const { ensureMiraiModelsJson } = mockContextModuleDeps(loadConfigMock);
         process.argv = scenario.argv;
         await import("./context.js");
         await flushAsyncWarmup();
         expect(loadConfigMock).toHaveBeenCalledTimes(scenario.expectedCalls);
-        expect(ensureOpenClawModelsJson).toHaveBeenCalledTimes(scenario.expectedCalls);
+        expect(ensureMiraiModelsJson).toHaveBeenCalledTimes(scenario.expectedCalls);
       }
     } finally {
       process.argv = argvSnapshot;

@@ -1,4 +1,3 @@
-import type { IncomingMessage } from "node:http";
 import net from "node:net";
 import os from "node:os";
 import { pickPrimaryTailnetIPv4, pickPrimaryTailnetIPv6 } from "../infra/tailnet.js";
@@ -132,9 +131,6 @@ function resolveForwardedClientIp(params: {
   // Walk right-to-left and return the first untrusted hop.
   for (let index = forwardedChain.length - 1; index >= 0; index -= 1) {
     const hop = forwardedChain[index];
-    if (isLoopbackAddress(hop)) {
-      continue;
-    }
     if (!isTrustedProxyAddress(hop, trustedProxies)) {
       return hop;
     }
@@ -186,27 +182,6 @@ export function resolveClientIp(params: {
     return parseRealIp(params.realIp);
   }
   return undefined;
-}
-
-function headerValue(value: string | string[] | undefined): string | undefined {
-  return Array.isArray(value) ? value[0] : value;
-}
-
-export function resolveRequestClientIp(
-  req?: IncomingMessage,
-  trustedProxies?: string[],
-  allowRealIpFallback = false,
-): string | undefined {
-  if (!req) {
-    return undefined;
-  }
-  return resolveClientIp({
-    remoteAddr: req.socket?.remoteAddress ?? "",
-    forwardedFor: headerValue(req.headers?.["x-forwarded-for"]),
-    realIp: headerValue(req.headers?.["x-real-ip"]),
-    trustedProxies,
-    allowRealIpFallback,
-  });
 }
 
 export function isLocalGatewayAddress(ip: string | undefined): boolean {
@@ -347,14 +322,16 @@ export function isValidIPv4(host: string): boolean {
  * Note: 0.0.0.0 and :: are NOT loopback - they bind to all interfaces.
  */
 export function isLoopbackHost(host: string): boolean {
-  const parsed = parseHostForAddressChecks(host);
-  if (!parsed) {
+  if (!host) {
     return false;
   }
-  if (parsed.isLocalhost) {
+  const h = host.trim().toLowerCase();
+  if (h === "localhost") {
     return true;
   }
-  return isLoopbackAddress(parsed.unbracketedHost);
+  // Handle bracketed IPv6 addresses like [::1]
+  const unbracket = h.startsWith("[") && h.endsWith("]") ? h.slice(1, -1) : h;
+  return isLoopbackAddress(unbracket);
 }
 
 /**
@@ -371,74 +348,16 @@ export function isLocalishHost(hostHeader?: string): boolean {
 }
 
 /**
- * Check if a hostname or IP refers to a private or loopback address.
- * Handles the same hostname formats as isLoopbackHost, but also accepts
- * RFC 1918, link-local, CGNAT, and IPv6 ULA/link-local addresses.
- */
-export function isPrivateOrLoopbackHost(host: string): boolean {
-  const parsed = parseHostForAddressChecks(host);
-  if (!parsed) {
-    return false;
-  }
-  if (parsed.isLocalhost) {
-    return true;
-  }
-  const normalized = normalizeIp(parsed.unbracketedHost);
-  if (!normalized || !isPrivateOrLoopbackAddress(normalized)) {
-    return false;
-  }
-  // isPrivateOrLoopbackAddress reuses SSRF-blocking ranges for IPv6, which
-  // include unspecified (::) and multicast (ff00::/8). Exclude these —
-  // they are not private/loopback unicast endpoints. (Multicast is UDP-only
-  // so TCP/WebSocket connections would fail regardless.)
-  if (net.isIP(normalized) === 6) {
-    if (normalized.startsWith("ff")) {
-      return false;
-    }
-    if (normalized === "::") {
-      return false;
-    }
-  }
-  return true;
-}
-
-function parseHostForAddressChecks(
-  host: string,
-): { isLocalhost: boolean; unbracketedHost: string } | null {
-  if (!host) {
-    return null;
-  }
-  const normalizedHost = host.trim().toLowerCase();
-  if (normalizedHost === "localhost") {
-    return { isLocalhost: true, unbracketedHost: normalizedHost };
-  }
-  return {
-    isLocalhost: false,
-    // Handle bracketed IPv6 addresses like [::1]
-    unbracketedHost:
-      normalizedHost.startsWith("[") && normalizedHost.endsWith("]")
-        ? normalizedHost.slice(1, -1)
-        : normalizedHost,
-  };
-}
-
-/**
  * Security check for WebSocket URLs (CWE-319: Cleartext Transmission of Sensitive Information).
  *
  * Returns true if the URL is secure for transmitting data:
  * - wss:// (TLS) is always secure
- * - ws:// is secure only for loopback addresses by default
- * - optional break-glass: private ws:// can be enabled for trusted networks
+ * - ws:// is only secure for loopback addresses (localhost, 127.x.x.x, ::1)
  *
  * All other ws:// URLs are considered insecure because both credentials
  * AND chat/conversation data would be exposed to network interception.
  */
-export function isSecureWebSocketUrl(
-  url: string,
-  opts?: {
-    allowPrivateWs?: boolean;
-  },
-): boolean {
+export function isSecureWebSocketUrl(url: string): boolean {
   let parsed: URL;
   try {
     parsed = new URL(url);
@@ -446,36 +365,14 @@ export function isSecureWebSocketUrl(
     return false;
   }
 
-  // Node's ws client accepts http(s) URLs and normalizes them to ws(s).
-  // Treat those aliases the same way here so loopback cron announce delivery
-  // and TLS-backed https endpoints follow the same security policy.
-  const protocol =
-    parsed.protocol === "https:" ? "wss:" : parsed.protocol === "http:" ? "ws:" : parsed.protocol;
-
-  if (protocol === "wss:") {
+  if (parsed.protocol === "wss:") {
     return true;
   }
 
-  if (protocol !== "ws:") {
+  if (parsed.protocol !== "ws:") {
     return false;
   }
 
-  // Default policy stays strict: loopback-only plaintext ws://.
-  if (isLoopbackHost(parsed.hostname)) {
-    return true;
-  }
-  // Optional break-glass for trusted private-network overlays.
-  if (opts?.allowPrivateWs) {
-    if (isPrivateOrLoopbackHost(parsed.hostname)) {
-      return true;
-    }
-    // Hostnames may resolve to private networks (for example in VPN/Tailnet DNS),
-    // but resolution is not available in this synchronous validator.
-    const hostForIpCheck =
-      parsed.hostname.startsWith("[") && parsed.hostname.endsWith("]")
-        ? parsed.hostname.slice(1, -1)
-        : parsed.hostname;
-    return net.isIP(hostForIpCheck) === 0;
-  }
-  return false;
+  // ws:// is only secure for loopback addresses
+  return isLoopbackHost(parsed.hostname);
 }

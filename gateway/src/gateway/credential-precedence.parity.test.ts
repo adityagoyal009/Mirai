@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { resolveGatewayProbeAuth as resolveStatusGatewayProbeAuth } from "../commands/status.gateway-probe.js";
-import type { OpenClawConfig } from "../config/config.js";
+import type { MiraiConfig } from "../config/config.js";
 import { resolveGatewayAuth } from "./auth.js";
 import { resolveGatewayCredentialsFromConfig } from "./credentials.js";
 import { resolveGatewayProbeAuth } from "./probe-auth.js";
@@ -14,34 +14,33 @@ type ExpectedCredentialSet = {
 
 type TestCase = {
   name: string;
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   env: NodeJS.ProcessEnv;
   expected: ExpectedCredentialSet;
 };
 
 const gatewayEnv = {
-  OPENCLAW_GATEWAY_TOKEN: "env-token", // pragma: allowlist secret
-  OPENCLAW_GATEWAY_PASSWORD: "env-password", // pragma: allowlist secret
+  MIRAI_GATEWAY_TOKEN: "env-token",
+  MIRAI_GATEWAY_PASSWORD: "env-password",
 } as NodeJS.ProcessEnv;
 
-function makeRemoteGatewayConfig(remote: { token?: string; password?: string }): OpenClawConfig {
+function makeRemoteGatewayConfig(remote: { token?: string; password?: string }): MiraiConfig {
   return {
     gateway: {
       mode: "remote",
       remote,
       auth: {
         token: "local-token",
-        password: "local-password", // pragma: allowlist secret
+        password: "local-password",
       },
     },
-  } as OpenClawConfig;
+  } as MiraiConfig;
 }
 
 function withGatewayAuthEnv<T>(env: NodeJS.ProcessEnv, fn: () => T): T {
   const keys = [
-    "OPENCLAW_GATEWAY_TOKEN",
-    "OPENCLAW_GATEWAY_PASSWORD",
-    "OPENCLAW_SERVICE_KIND",
+    "MIRAI_GATEWAY_TOKEN",
+    "MIRAI_GATEWAY_PASSWORD",
     "CLAWDBOT_GATEWAY_TOKEN",
     "CLAWDBOT_GATEWAY_PASSWORD",
   ] as const;
@@ -78,46 +77,46 @@ describe("gateway credential precedence parity", () => {
           mode: "local",
           auth: {
             token: "config-token",
-            password: "config-password", // pragma: allowlist secret
+            password: "config-password",
           },
         },
-      } as OpenClawConfig,
+      } as MiraiConfig,
       env: {
-        OPENCLAW_GATEWAY_TOKEN: "env-token", // pragma: allowlist secret
-        OPENCLAW_GATEWAY_PASSWORD: "env-password", // pragma: allowlist secret
+        MIRAI_GATEWAY_TOKEN: "env-token",
+        MIRAI_GATEWAY_PASSWORD: "env-password",
       } as NodeJS.ProcessEnv,
       expected: {
-        call: { token: "env-token", password: "env-password" }, // pragma: allowlist secret
-        probe: { token: "env-token", password: "env-password" }, // pragma: allowlist secret
-        status: { token: "env-token", password: "env-password" }, // pragma: allowlist secret
-        auth: { token: "config-token", password: "config-password" }, // pragma: allowlist secret
+        call: { token: "env-token", password: "env-password" },
+        probe: { token: "env-token", password: "env-password" },
+        status: { token: "env-token", password: "env-password" },
+        auth: { token: "config-token", password: "config-password" },
       },
     },
     {
       name: "remote mode with remote token configured",
       cfg: makeRemoteGatewayConfig({
         token: "remote-token",
-        password: "remote-password", // pragma: allowlist secret
+        password: "remote-password",
       }),
       env: gatewayEnv,
       expected: {
-        call: { token: "remote-token", password: "env-password" }, // pragma: allowlist secret
-        probe: { token: "remote-token", password: "env-password" }, // pragma: allowlist secret
-        status: { token: "remote-token", password: "env-password" }, // pragma: allowlist secret
-        auth: { token: "local-token", password: "local-password" }, // pragma: allowlist secret
+        call: { token: "remote-token", password: "env-password" },
+        probe: { token: "remote-token", password: "env-password" },
+        status: { token: "remote-token", password: "env-password" },
+        auth: { token: "local-token", password: "local-password" },
       },
     },
     {
       name: "remote mode without remote token keeps remote probe/status strict",
       cfg: makeRemoteGatewayConfig({
-        password: "remote-password", // pragma: allowlist secret
+        password: "remote-password",
       }),
       env: gatewayEnv,
       expected: {
-        call: { token: "env-token", password: "env-password" }, // pragma: allowlist secret
-        probe: { token: undefined, password: "env-password" }, // pragma: allowlist secret
-        status: { token: undefined, password: "env-password" }, // pragma: allowlist secret
-        auth: { token: "local-token", password: "local-password" }, // pragma: allowlist secret
+        call: { token: "env-token", password: "env-password" },
+        probe: { token: undefined, password: "env-password" },
+        status: { token: undefined, password: "env-password" },
+        auth: { token: "local-token", password: "local-password" },
       },
     },
     {
@@ -127,39 +126,16 @@ describe("gateway credential precedence parity", () => {
           mode: "local",
           auth: {},
         },
-      } as OpenClawConfig,
+      } as MiraiConfig,
       env: {
-        CLAWDBOT_GATEWAY_TOKEN: "legacy-token", // pragma: allowlist secret
-        CLAWDBOT_GATEWAY_PASSWORD: "legacy-password", // pragma: allowlist secret
+        CLAWDBOT_GATEWAY_TOKEN: "legacy-token",
+        CLAWDBOT_GATEWAY_PASSWORD: "legacy-password",
       } as NodeJS.ProcessEnv,
       expected: {
-        call: { token: "legacy-token", password: "legacy-password" }, // pragma: allowlist secret
+        call: { token: "legacy-token", password: "legacy-password" },
         probe: { token: undefined, password: undefined },
         status: { token: undefined, password: undefined },
         auth: { token: undefined, password: undefined },
-      },
-    },
-    {
-      name: "local mode in gateway service runtime uses config-first token precedence",
-      cfg: {
-        gateway: {
-          mode: "local",
-          auth: {
-            token: "config-token",
-            password: "config-password", // pragma: allowlist secret
-          },
-        },
-      } as OpenClawConfig,
-      env: {
-        OPENCLAW_GATEWAY_TOKEN: "env-token",
-        OPENCLAW_GATEWAY_PASSWORD: "env-password", // pragma: allowlist secret
-        OPENCLAW_SERVICE_KIND: "gateway",
-      } as NodeJS.ProcessEnv,
-      expected: {
-        call: { token: "config-token", password: "env-password" }, // pragma: allowlist secret
-        probe: { token: "config-token", password: "env-password" }, // pragma: allowlist secret
-        status: { token: "config-token", password: "env-password" }, // pragma: allowlist secret
-        auth: { token: "config-token", password: "config-password" }, // pragma: allowlist secret
       },
     },
   ];

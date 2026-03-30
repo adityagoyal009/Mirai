@@ -315,7 +315,13 @@ def _get_industry_weights(industry: str) -> dict:
     for key, adjustments in _INDUSTRY_WEIGHT_ADJUSTMENTS.items():
         keywords = _INDUSTRY_KEYWORDS.get(key, [key])
         if any(kw in ind_lower for kw in keywords):
-            merged = {**base, **adjustments}
+            # Cap each adjusted weight to max 1.5x the base weight for that dimension.
+            # Prevents HealthTech/BioTech regulatory weights from dominating (was 2-2.5x).
+            capped = {}
+            for dim, adj_val in adjustments.items():
+                base_val = base.get(dim, 0.07)
+                capped[dim] = min(adj_val, base_val * 1.5)
+            merged = {**base, **capped}
             total = sum(merged.values())
             return {k: round(v / total, 3) for k, v in merged.items()}
     return base
@@ -403,7 +409,7 @@ class BusinessIntelEngine:
                         "- product: what they are building\n"
                         "- target_market: who buys this\n"
                         "- business_model: how they make money\n"
-                        "- stage: one of idea/MVP/revenue/scaling (or empty)\n"
+                        "- stage: one of pre-seed/seed/series a/series b/series c (or empty)\n"
                         "- traction: any metrics — users, revenue, growth (or empty)\n"
                         "- ask: what they want to know (or empty)\n"
                         "- claims: list of specific claims made\n"
@@ -520,7 +526,7 @@ class BusinessIntelEngine:
 
         explicit_count = sum(1 for f in present if f not in vague)
         if explicit_count < 5:
-            raw_quality = min(raw_quality, 0.5)
+            raw_quality = min(raw_quality, 0.6)
 
         result.data_quality = raw_quality
 
@@ -578,18 +584,19 @@ class BusinessIntelEngine:
         )
         queries = [q.strip() for q in query_prompt.strip().split("\n") if q.strip()]
 
-        # Step 3: Search ChromaDB for each query (if any graphs exist)
+        # Step 3: Search ChromaDB for the current submission's collection only.
+        # SECURITY: Previously iterated over ALL collections (episode_collections[:5]),
+        # which leaked data between submissions (cross-tenant data leakage).
+        # Now restricted to the scoped collection for this analysis only.
         context_facts = []
         try:
             from subconscious.memory import EpisodicMemoryStore
             store = EpisodicMemoryStore(persist_path=Config.CHROMADB_PERSIST_PATH)
-            # Search across all available collections
+            scoped_collection = f"{company.lower().replace(' ', '_')}_episodes"
             collections = store.client.list_collections()
-            episode_collections = [
-                c.name for c in collections if c.name.endswith("_episodes")
-            ]
-            for col_name in episode_collections[:5]:  # cap at 5 graphs
-                graph_id = col_name.replace("_episodes", "")
+            collection_names = [c.name for c in collections]
+            if scoped_collection in collection_names:
+                graph_id = scoped_collection.replace("_episodes", "")
                 for query in queries[:cfg["query_count"]]:
                     results = store.search(
                         graph_id=graph_id,
@@ -721,7 +728,7 @@ class BusinessIntelEngine:
                 {
                     "role": "user",
                     "content": (
-                        f"Executive summary:\n{exec_summary}\n\n"
+                        f"Executive summary:\n<user_input>\n{exec_summary}\n</user_input>\n\n"
                         f"Company: {company} | Industry: {industry} | Product: {product}"
                         f"{context_block}\n\n"
                         "Synthesize all available information into research findings."
@@ -834,26 +841,15 @@ class BusinessIntelEngine:
 
     @staticmethod
     def _score_to_verdict(overall: float, data_quality: float = 1.0) -> str:
-        # Low data quality → widen the "uncertain" band
-        if data_quality < 0.5:
-            if overall > 7.0:
-                return "Likely Hit"  # Downgrade from Strong Hit
-            elif overall > 5.5:
-                return "Likely Hit"
-            elif overall > 4.0:
-                return "Uncertain"
-            elif overall > 2.5:
-                return "Likely Miss"
-            else:
-                return "Likely Miss"  # Upgrade from Strong Miss
-        # Normal data quality
-        if overall > 7.5:
+        # Use normal verdict thresholds regardless of data_quality.
+        # The caller can add a confidence note separately when data_quality is low.
+        if overall >= 8.0:
             return "Strong Hit"
-        elif overall > 6.0:
+        elif overall >= 6.5:
             return "Likely Hit"
-        elif overall > 4.5:
+        elif overall >= 5.0:
             return "Uncertain"
-        elif overall > 3.0:
+        elif overall >= 3.5:
             return "Likely Miss"
         else:
             return "Strong Miss"
@@ -1055,17 +1051,14 @@ class BusinessIntelEngine:
                     f"YOUR reasoning: {reviewer_reasoning[:300]}\n\n"
                     f"Now review the other evaluators' scores and reasoning:\n\n"
                     + "\n\n".join(others_summary) + "\n\n"
-                    "Do three things:\n"
+                    "Do two things:\n"
                     "1. FLAG: Identify any specific claims or reasoning from other evaluators that you believe "
                     "are factually wrong or poorly reasoned. Quote the claim and explain why.\n"
-                    "2. ADJUST: After seeing others' perspectives, would you change any of your scores? "
-                    "List only dimensions you would adjust and the new score (float 0.0-10.0). "
-                    "If no changes, say 'No adjustments.'\n"
-                    "3. RANK: Rank all evaluators (including yourself) from most to least accurate/insightful. "
+                    "2. RANK: Rank all evaluators (including yourself) from most to least accurate/insightful. "
                     "Use the format: 1. Evaluator X, 2. Evaluator Y, etc.\n\n"
+                    "Do NOT adjust your own scores. Your independent assessment stands.\n\n"
                     "Return ONLY JSON:\n"
                     '{"flags": [{"evaluator": "Evaluator X", "claim": "...", "objection": "..."}], '
-                    '"adjustments": {"dimension_name": <new_score>, ...}, '
                     '"ranking": ["Evaluator C", "Evaluator A", "Evaluator B", "Evaluator D"], '
                     '"ranking_rationale": "1-2 sentences on why you ranked this way"}'
                 )
@@ -1097,23 +1090,8 @@ class BusinessIntelEngine:
                         if ranking and isinstance(ranking, list):
                             peer_rankings[label] = ranking
 
-            # Apply peer review adjustments to model_results
-            for label, review in peer_reviews.items():
-                adjustments = review.get("adjustments", {})
-                if adjustments and isinstance(adjustments, dict):
-                    dims, reasoning, conf = model_results[label]
-                    adjusted_dims = []
-                    for d in dims:
-                        if d.name in adjustments:
-                            new_score = max(0, min(10, float(adjustments[d.name])))
-                            adjusted_dims.append(DimensionScore(
-                                name=d.name,
-                                score=new_score,
-                                reasoning=f"{d.reasoning} [PEER-ADJUSTED from {d.score}]",
-                            ))
-                        else:
-                            adjusted_dims.append(d)
-                    model_results[label] = (adjusted_dims, reasoning, conf)
+            # Stage 2 is critique-only: flags + rankings flow to chairman.
+            # Raw scores are NEVER mutated — the chairman reconciles disagreement.
 
             # Compute aggregate evaluator rankings (average position, lower = better)
             evaluator_rank_positions: Dict[str, List[int]] = {}
@@ -1138,16 +1116,15 @@ class BusinessIntelEngine:
                         })
 
             logger.info(
-                f"[BI Council] Stage 2 complete: {len(peer_reviews)} reviews, "
-                f"{sum(len(r.get('adjustments', {})) for r in peer_reviews.values())} adjustments, "
-                f"{len(all_flags)} flags, "
+                f"[BI Council] Stage 2 complete: {len(peer_reviews)} critiques, "
+                f"{len(all_flags)} flags (no score mutations), "
                 f"rankings: {aggregate_rankings}"
             )
         else:
             aggregate_rankings = {}
             all_flags = []
 
-        # Build per-dimension scores from each model (after peer review adjustments)
+        # Build per-dimension scores from each model (raw independent scores)
         dim_by_name: Dict[str, Dict[str, DimensionScore]] = {}
         for label, (dims, _, _) in model_results.items():
             for d in dims:
@@ -1271,10 +1248,10 @@ class BusinessIntelEngine:
                 peer_review_block += "Weight the highest-ranked evaluators' scores more heavily when reconciling.\n"
 
             chairman_prompt = (
-                f"You are the chairman of an investment council. {len(model_results)} evaluators independently scored a startup, "
-                "then reviewed each other's work.\n\n"
+                f"You are the chairman of an investment council. {len(model_results)} evaluators independently scored a startup. "
+                "Their scores are RAW and UNMODIFIED — you are the sole reconciler of disagreement.\n\n"
                 f"Research context:\n{research_context}\n\n"
-                f"All evaluator scores (after peer-review adjustments):\n" + "\n\n".join(all_scores_summary) + "\n"
+                f"All evaluator scores (independent, pre-reconciliation):\n" + "\n\n".join(all_scores_summary) + "\n"
                 f"{peer_review_block}\n"
                 "For each of the 10 dimensions, do three things:\n"
                 "1. CONTESTED DIMS: Identify what specific factual disagreement drives the spread. "
@@ -1464,10 +1441,10 @@ class BusinessIntelEngine:
 
         competitors_list = _rg('competitors', []) or []
         context = (
-            f"Executive summary:\n{exec_summary}\n\n"
+            f"Executive summary:\n<user_input>\n{exec_summary}\n</user_input>\n\n"
             f"Research sentiment: {_rg('sentiment', 'neutral')}\n"
             f"Competitors: {', '.join(c if isinstance(c, str) else c.get('name', str(c)) for c in competitors_list[:5])}\n"
-            f"Key trends: {', '.join((_rg('trends', []) or [])[:5])}\n\n"
+            f"Key trends: {', '.join(t if isinstance(t, str) else t.get('name', str(t)) for t in (_rg('trends', []) or [])[:5])}\n\n"
             f"Prediction verdict: {prediction.verdict} (score: {prediction.overall_score}/10)\n"
             f"Prediction reasoning: {prediction.reasoning}\n"
         )
@@ -1595,7 +1572,9 @@ class BusinessIntelEngine:
             )
 
         prediction = self.predict(exec_summary, research, use_council=use_council,
-                                   industry=extraction.industry if extraction else '')
+                                   industry=extraction.industry if extraction else '',
+                                   stage=extraction.stage if extraction else '',
+                                   data_quality=extraction.data_quality if extraction else 1.0)
 
         # Phase 2b: Swarm prediction (if requested)
         swarm_result = None
@@ -1611,6 +1590,9 @@ class BusinessIntelEngine:
                     exec_summary=exec_summary,
                     research_context=research_context,
                     agent_count=swarm_count,
+                    industry=extraction.industry if extraction else '',
+                    product=extraction.product if extraction else '',
+                    stage=extraction.stage if extraction else '',
                 )
                 logger.info(
                     f"[BI:{analysis_id}] Swarm complete — "

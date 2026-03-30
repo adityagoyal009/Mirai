@@ -1,8 +1,8 @@
-import type { OpenClawConfig } from "../config/config.js";
+import type { MiraiConfig } from "../config/config.js";
 import { STATE_DIR } from "../config/paths.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import type { PluginRegistry } from "./registry.js";
-import type { OpenClawPluginServiceContext, PluginLogger } from "./types.js";
+import type { MiraiPluginServiceContext, PluginLogger } from "./types.js";
 
 const log = createSubsystemLogger("plugins");
 
@@ -16,9 +16,9 @@ function createPluginLogger(): PluginLogger {
 }
 
 function createServiceContext(params: {
-  config: OpenClawConfig;
+  config: MiraiConfig;
   workspaceDir?: string;
-}): OpenClawPluginServiceContext {
+}): MiraiPluginServiceContext {
   return {
     config: params.config,
     workspaceDir: params.workspaceDir,
@@ -33,7 +33,7 @@ export type PluginServicesHandle = {
 
 export async function startPluginServices(params: {
   registry: PluginRegistry;
-  config: OpenClawConfig;
+  config: MiraiConfig;
   workspaceDir?: string;
 }): Promise<PluginServicesHandle> {
   const running: Array<{
@@ -54,11 +54,7 @@ export async function startPluginServices(params: {
         stop: service.stop ? () => service.stop?.(serviceContext) : undefined,
       });
     } catch (err) {
-      const error = err as Error;
-      const stack = error?.stack?.trim();
-      log.error(
-        `plugin service failed (${service.id}, plugin=${entry.pluginId}, root=${entry.rootDir ?? "unknown"}): ${error?.message ?? String(err)}${stack ? `\n${stack}` : ""}`,
-      );
+      log.error(`plugin service failed (${service.id}): ${String(err)}`);
     }
   }
 

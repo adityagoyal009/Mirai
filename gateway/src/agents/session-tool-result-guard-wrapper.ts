@@ -9,8 +9,6 @@ import { installSessionToolResultGuard } from "./session-tool-result-guard.js";
 export type GuardedSessionManager = SessionManager & {
   /** Flush any synthetic tool results for pending tool calls. Idempotent. */
   flushPendingToolResults?: () => void;
-  /** Clear pending tool calls without persisting synthetic tool results. Idempotent. */
-  clearPendingToolResults?: () => void;
 };
 
 /**
@@ -63,7 +61,6 @@ export function guardSessionManager(
     : undefined;
 
   const guard = installSessionToolResultGuard(sessionManager, {
-    sessionKey: opts?.sessionKey,
     transformMessageForPersistence: (message) =>
       applyInputProvenanceToUserMessage(message, opts?.inputProvenance),
     transformToolResultForPersistence: transform,
@@ -72,6 +69,5 @@ export function guardSessionManager(
     beforeMessageWriteHook: beforeMessageWrite,
   });
   (sessionManager as GuardedSessionManager).flushPendingToolResults = guard.flushPendingToolResults;
-  (sessionManager as GuardedSessionManager).clearPendingToolResults = guard.clearPendingToolResults;
   return sessionManager as GuardedSessionManager;
 }

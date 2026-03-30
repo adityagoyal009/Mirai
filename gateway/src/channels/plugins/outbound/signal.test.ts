@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { signalOutbound } from "../../../../test/channel-outbounds.js";
-import type { OpenClawConfig } from "../../../config/config.js";
+import type { MiraiConfig } from "../../../config/config.js";
+import { signalOutbound } from "./signal.js";
 
 describe("signalOutbound", () => {
-  const cfg: OpenClawConfig = {
+  const cfg: MiraiConfig = {
     channels: {
       signal: {
         mediaMaxMb: 8,
@@ -26,7 +26,7 @@ describe("signalOutbound", () => {
       to: "+15555550123",
       text: "hello",
       accountId: "work",
-      deps: { signal: sendSignal },
+      deps: { sendSignal },
     });
 
     expect(sendSignal).toHaveBeenCalledWith(
@@ -52,7 +52,7 @@ describe("signalOutbound", () => {
       mediaUrl: "https://example.com/file.jpg",
       mediaLocalRoots: ["/tmp/media"],
       accountId: "default",
-      deps: { signal: sendSignal },
+      deps: { sendSignal },
     });
 
     expect(sendSignal).toHaveBeenCalledWith(

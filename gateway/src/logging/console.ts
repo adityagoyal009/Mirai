@@ -1,5 +1,5 @@
 import util from "node:util";
-import type { OpenClawConfig } from "../config/types.js";
+import type { MiraiConfig } from "../config/types.js";
 import { isVerbose } from "../globals.js";
 import { stripAnsi } from "../terminal/ansi.js";
 import { readLoggingConfig } from "./config.js";
@@ -18,12 +18,12 @@ type ConsoleSettings = {
 export type ConsoleLoggerSettings = ConsoleSettings;
 
 const requireConfig = resolveNodeRequireFromMeta(import.meta.url);
-type ConsoleConfigLoader = () => OpenClawConfig["logging"] | undefined;
+type ConsoleConfigLoader = () => MiraiConfig["logging"] | undefined;
 const loadConfigFallbackDefault: ConsoleConfigLoader = () => {
   try {
     const loaded = requireConfig?.("../config/config.js") as
       | {
-          loadConfig?: () => OpenClawConfig;
+          loadConfig?: () => MiraiConfig;
         }
       | undefined;
     return loaded?.loadConfig?.().logging;
@@ -41,7 +41,7 @@ function normalizeConsoleLevel(level?: string): LogLevel {
   if (isVerbose()) {
     return "debug";
   }
-  if (!level && process.env.VITEST === "true" && process.env.OPENCLAW_TEST_CONSOLE !== "1") {
+  if (!level && process.env.VITEST === "true" && process.env.MIRAI_TEST_CONSOLE !== "1") {
     return "silent";
   }
   return normalizeLogLevel(level, "info");
@@ -58,20 +58,7 @@ function normalizeConsoleStyle(style?: string): ConsoleStyle {
 }
 
 function resolveConsoleSettings(): ConsoleSettings {
-  const envLevel = resolveEnvLogLevelOverride();
-  // Test runs default to silent console logging unless explicitly overridden.
-  // Skip config-file and full config fallback reads in this fast path.
-  if (
-    process.env.VITEST === "true" &&
-    process.env.OPENCLAW_TEST_CONSOLE !== "1" &&
-    !isVerbose() &&
-    !envLevel &&
-    !loggingState.overrideSettings
-  ) {
-    return { level: "silent", style: normalizeConsoleStyle(undefined) };
-  }
-
-  let cfg: OpenClawConfig["logging"] | undefined =
+  let cfg: MiraiConfig["logging"] | undefined =
     (loggingState.overrideSettings as LoggerSettings | null) ?? readLoggingConfig();
   if (!cfg) {
     if (loggingState.resolvingConsoleSettings) {
@@ -85,6 +72,7 @@ function resolveConsoleSettings(): ConsoleSettings {
       }
     }
   }
+  const envLevel = resolveEnvLogLevelOverride();
   const level = envLevel ?? normalizeConsoleLevel(cfg?.consoleLevel);
   const style = normalizeConsoleStyle(cfg?.consoleStyle);
   return { level, style };
@@ -145,12 +133,6 @@ const SUPPRESSED_CONSOLE_PREFIXES = [
   "Session already open",
 ] as const;
 
-const SUPPRESSED_DISCORD_EVENTQUEUE_LISTENERS = [
-  "DiscordMessageListener",
-  "DiscordReactionListener",
-  "DiscordReactionRemoveListener",
-] as const;
-
 function shouldSuppressConsoleMessage(message: string): boolean {
   if (isVerbose()) {
     return false;
@@ -160,7 +142,7 @@ function shouldSuppressConsoleMessage(message: string): boolean {
   }
   if (
     message.startsWith("[EventQueue] Slow listener detected") &&
-    SUPPRESSED_DISCORD_EVENTQUEUE_LISTENERS.some((listener) => message.includes(listener))
+    message.includes("DiscordMessageListener")
   ) {
     return true;
   }

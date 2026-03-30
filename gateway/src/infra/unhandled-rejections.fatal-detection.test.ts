@@ -60,7 +60,7 @@ describe("installUnhandledRejectionHandler - fatal detection", () => {
       }
 
       expect(consoleErrorSpy).toHaveBeenCalledWith(
-        "[openclaw] FATAL unhandled rejection:",
+        "[mirai] FATAL unhandled rejection:",
         expect.stringContaining("Out of memory"),
       );
     });
@@ -78,7 +78,7 @@ describe("installUnhandledRejectionHandler - fatal detection", () => {
       }
 
       expect(consoleErrorSpy).toHaveBeenCalledWith(
-        "[openclaw] CONFIGURATION ERROR - requires fix:",
+        "[mirai] CONFIGURATION ERROR - requires fix:",
         expect.stringContaining("Invalid config"),
       );
     });
@@ -86,42 +86,25 @@ describe("installUnhandledRejectionHandler - fatal detection", () => {
 
   describe("non-fatal errors", () => {
     it("does not exit on known transient network errors", () => {
-      const transientCases: unknown[] = [
+      const transientCases = [
         Object.assign(new TypeError("fetch failed"), {
           cause: { code: "UND_ERR_CONNECT_TIMEOUT", syscall: "connect" },
         }),
         Object.assign(new Error("DNS resolve failed"), { code: "UND_ERR_DNS_RESOLVE_FAILED" }),
         Object.assign(new Error("Connection reset"), { code: "ECONNRESET" }),
         Object.assign(new Error("Timeout"), { code: "ETIMEDOUT" }),
-        Object.assign(
-          new Error(
-            "A request error occurred: Client network socket disconnected before secure TLS connection was established",
-          ),
-          { code: "slack_webapi_request_error" },
-        ),
         Object.assign(new Error("A request error occurred: getaddrinfo EAI_AGAIN slack.com"), {
           code: "slack_webapi_request_error",
           original: { code: "EAI_AGAIN", syscall: "getaddrinfo", hostname: "slack.com" },
         }),
-        Object.assign(new Error("A request error occurred: unknown"), {
-          code: "slack_webapi_request_error",
-          original: Object.assign(new Error("connect timeout"), {
-            code: "UND_ERR_CONNECT_TIMEOUT",
-          }),
-        }),
       ];
-
-      // Wrapped fetch-failed (e.g. Discord: "Failed to get gateway information from Discord: fetch failed")
-      transientCases.push(
-        new Error("Failed to get gateway information from Discord: fetch failed"),
-      );
 
       for (const transientErr of transientCases) {
         expectExitCodeFromUnhandled(transientErr, []);
       }
 
       expect(consoleWarnSpy).toHaveBeenCalledWith(
-        "[openclaw] Non-fatal unhandled rejection (continuing):",
+        "[mirai] Non-fatal unhandled rejection (continuing):",
         expect.stringContaining("fetch failed"),
       );
     });
@@ -131,20 +114,9 @@ describe("installUnhandledRejectionHandler - fatal detection", () => {
 
       expectExitCodeFromUnhandled(genericErr, [1]);
       expect(consoleErrorSpy).toHaveBeenCalledWith(
-        "[openclaw] Unhandled promise rejection:",
+        "[mirai] Unhandled promise rejection:",
         expect.stringContaining("Something went wrong"),
       );
-    });
-
-    it("exits on non-transient Slack request errors", () => {
-      const slackErr = Object.assign(
-        new Error("A request error occurred: invalid request payload"),
-        {
-          code: "slack_webapi_request_error",
-        },
-      );
-
-      expectExitCodeFromUnhandled(slackErr, [1]);
     });
 
     it("does not exit on AbortError and logs suppression warning", () => {
@@ -153,7 +125,7 @@ describe("installUnhandledRejectionHandler - fatal detection", () => {
 
       expectExitCodeFromUnhandled(abortErr, []);
       expect(consoleWarnSpy).toHaveBeenCalledWith(
-        "[openclaw] Suppressed AbortError:",
+        "[mirai] Suppressed AbortError:",
         expect.stringContaining("This operation was aborted"),
       );
     });

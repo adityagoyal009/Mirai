@@ -1,6 +1,4 @@
-import { hasAnyWhatsAppAuth } from "../../extensions/whatsapp/api.js";
 import { normalizeProviderId } from "../agents/model-selection.js";
-import { hasMeaningfulChannelConfig } from "../channels/config-presence.js";
 import {
   getChannelPluginCatalogEntry,
   listChannelPluginCatalogEntries,
@@ -15,7 +13,8 @@ import {
   type PluginManifestRegistry,
 } from "../plugins/manifest-registry.js";
 import { isRecord } from "../utils.js";
-import type { OpenClawConfig } from "./config.js";
+import { hasAnyWhatsAppAuth } from "../web/accounts.js";
+import type { MiraiConfig } from "./config.js";
 import { ensurePluginAllowlisted } from "./plugins-allowlist.js";
 
 type PluginEnableChange = {
@@ -24,19 +23,30 @@ type PluginEnableChange = {
 };
 
 export type PluginAutoEnableResult = {
-  config: OpenClawConfig;
+  config: MiraiConfig;
   changes: string[];
 };
 
+const CHANNEL_PLUGIN_IDS = Array.from(
+  new Set([
+    ...listChatChannels().map((meta) => meta.id),
+    ...listChannelPluginCatalogEntries().map((entry) => entry.id),
+  ]),
+);
+
 const PROVIDER_PLUGIN_IDS: Array<{ pluginId: string; providerId: string }> = [
-  { pluginId: "google", providerId: "google-gemini-cli" },
+  { pluginId: "google-gemini-cli-auth", providerId: "google-gemini-cli" },
   { pluginId: "qwen-portal-auth", providerId: "qwen-portal" },
   { pluginId: "copilot-proxy", providerId: "copilot-proxy" },
-  { pluginId: "minimax", providerId: "minimax-portal" },
+  { pluginId: "minimax-portal-auth", providerId: "minimax-portal" },
 ];
 
 function hasNonEmptyString(value: unknown): boolean {
   return typeof value === "string" && value.trim().length > 0;
+}
+
+function recordHasKeys(value: unknown): boolean {
+  return isRecord(value) && Object.keys(value).length > 0;
 }
 
 function accountsHaveKeys(value: unknown, keys: readonly string[]): boolean {
@@ -57,7 +67,7 @@ function accountsHaveKeys(value: unknown, keys: readonly string[]): boolean {
 }
 
 function resolveChannelConfig(
-  cfg: OpenClawConfig,
+  cfg: MiraiConfig,
   channelId: string,
 ): Record<string, unknown> | null {
   const channels = cfg.channels as Record<string, unknown> | undefined;
@@ -132,7 +142,7 @@ function hasAnyNumberKeys(entry: Record<string, unknown>, keys: readonly string[
 }
 
 function isStructuredChannelConfigured(
-  cfg: OpenClawConfig,
+  cfg: MiraiConfig,
   channelId: string,
   env: NodeJS.ProcessEnv,
   spec: StructuredChannelConfigSpec,
@@ -156,10 +166,10 @@ function isStructuredChannelConfigured(
   if (spec.accountStringKeys && accountsHaveKeys(entry.accounts, spec.accountStringKeys)) {
     return true;
   }
-  return hasMeaningfulChannelConfig(entry);
+  return recordHasKeys(entry);
 }
 
-function isWhatsAppConfigured(cfg: OpenClawConfig): boolean {
+function isWhatsAppConfigured(cfg: MiraiConfig): boolean {
   if (hasAnyWhatsAppAuth(cfg)) {
     return true;
   }
@@ -167,16 +177,16 @@ function isWhatsAppConfigured(cfg: OpenClawConfig): boolean {
   if (!entry) {
     return false;
   }
-  return hasMeaningfulChannelConfig(entry);
+  return recordHasKeys(entry);
 }
 
-function isGenericChannelConfigured(cfg: OpenClawConfig, channelId: string): boolean {
+function isGenericChannelConfigured(cfg: MiraiConfig, channelId: string): boolean {
   const entry = resolveChannelConfig(cfg, channelId);
-  return hasMeaningfulChannelConfig(entry);
+  return recordHasKeys(entry);
 }
 
 export function isChannelConfigured(
-  cfg: OpenClawConfig,
+  cfg: MiraiConfig,
   channelId: string,
   env: NodeJS.ProcessEnv = process.env,
 ): boolean {
@@ -190,7 +200,7 @@ export function isChannelConfigured(
   return isGenericChannelConfigured(cfg, channelId);
 }
 
-function collectModelRefs(cfg: OpenClawConfig): string[] {
+function collectModelRefs(cfg: MiraiConfig): string[] {
   const refs: string[] = [];
   const pushModelRef = (value: unknown) => {
     if (typeof value === "string" && value.trim()) {
@@ -244,7 +254,7 @@ function extractProviderFromModelRef(value: string): string | null {
   return normalizeProviderId(trimmed.slice(0, slash));
 }
 
-function isProviderConfigured(cfg: OpenClawConfig, providerId: string): boolean {
+function isProviderConfigured(cfg: MiraiConfig, providerId: string): boolean {
   const normalized = normalizeProviderId(providerId);
 
   const profiles = cfg.auth?.profiles;
@@ -305,17 +315,8 @@ function resolvePluginIdForChannel(
   return channelToPluginId.get(channelId) ?? channelId;
 }
 
-function listKnownChannelPluginIds(env: NodeJS.ProcessEnv): string[] {
-  return Array.from(
-    new Set([
-      ...listChatChannels().map((meta) => meta.id),
-      ...listChannelPluginCatalogEntries({ env }).map((entry) => entry.id),
-    ]),
-  );
-}
-
-function collectCandidateChannelIds(cfg: OpenClawConfig, env: NodeJS.ProcessEnv): string[] {
-  const channelIds = new Set<string>(listKnownChannelPluginIds(env));
+function collectCandidateChannelIds(cfg: MiraiConfig): string[] {
+  const channelIds = new Set<string>(CHANNEL_PLUGIN_IDS);
   const configuredChannels = cfg.channels as Record<string, unknown> | undefined;
   if (!configuredChannels || typeof configuredChannels !== "object") {
     return Array.from(channelIds);
@@ -331,14 +332,14 @@ function collectCandidateChannelIds(cfg: OpenClawConfig, env: NodeJS.ProcessEnv)
 }
 
 function resolveConfiguredPlugins(
-  cfg: OpenClawConfig,
+  cfg: MiraiConfig,
   env: NodeJS.ProcessEnv,
   registry: PluginManifestRegistry,
 ): PluginEnableChange[] {
   const changes: PluginEnableChange[] = [];
   // Build reverse map: channel ID → plugin ID from installed plugin manifests.
   const channelToPluginId = buildChannelToPluginIdMap(registry);
-  for (const channelId of collectCandidateChannelIds(cfg, env)) {
+  for (const channelId of collectCandidateChannelIds(cfg)) {
     const pluginId = resolvePluginIdForChannel(channelId, channelToPluginId);
     if (isChannelConfigured(cfg, channelId, env)) {
       changes.push({ pluginId, reason: `${channelId} configured` });
@@ -353,20 +354,10 @@ function resolveConfiguredPlugins(
       });
     }
   }
-  const backendRaw =
-    typeof cfg.acp?.backend === "string" ? cfg.acp.backend.trim().toLowerCase() : "";
-  const acpConfigured =
-    cfg.acp?.enabled === true || cfg.acp?.dispatch?.enabled === true || backendRaw === "acpx";
-  if (acpConfigured && (!backendRaw || backendRaw === "acpx")) {
-    changes.push({
-      pluginId: "acpx",
-      reason: "ACP runtime configured",
-    });
-  }
   return changes;
 }
 
-function isPluginExplicitlyDisabled(cfg: OpenClawConfig, pluginId: string): boolean {
+function isPluginExplicitlyDisabled(cfg: MiraiConfig, pluginId: string): boolean {
   const builtInChannelId = normalizeChatChannelId(pluginId);
   if (builtInChannelId) {
     const channels = cfg.channels as Record<string, unknown> | undefined;
@@ -384,25 +375,24 @@ function isPluginExplicitlyDisabled(cfg: OpenClawConfig, pluginId: string): bool
   return entry?.enabled === false;
 }
 
-function isPluginDenied(cfg: OpenClawConfig, pluginId: string): boolean {
+function isPluginDenied(cfg: MiraiConfig, pluginId: string): boolean {
   const deny = cfg.plugins?.deny;
   return Array.isArray(deny) && deny.includes(pluginId);
 }
 
-function resolvePreferredOverIds(pluginId: string, env: NodeJS.ProcessEnv): string[] {
+function resolvePreferredOverIds(pluginId: string): string[] {
   const normalized = normalizeChatChannelId(pluginId);
   if (normalized) {
     return getChatChannelMeta(normalized).preferOver ?? [];
   }
-  const catalogEntry = getChannelPluginCatalogEntry(pluginId, { env });
+  const catalogEntry = getChannelPluginCatalogEntry(pluginId);
   return catalogEntry?.meta.preferOver ?? [];
 }
 
 function shouldSkipPreferredPluginAutoEnable(
-  cfg: OpenClawConfig,
+  cfg: MiraiConfig,
   entry: PluginEnableChange,
   configured: PluginEnableChange[],
-  env: NodeJS.ProcessEnv,
 ): boolean {
   for (const other of configured) {
     if (other.pluginId === entry.pluginId) {
@@ -414,7 +404,7 @@ function shouldSkipPreferredPluginAutoEnable(
     if (isPluginExplicitlyDisabled(cfg, other.pluginId)) {
       continue;
     }
-    const preferOver = resolvePreferredOverIds(other.pluginId, env);
+    const preferOver = resolvePreferredOverIds(other.pluginId);
     if (preferOver.includes(entry.pluginId)) {
       return true;
     }
@@ -422,7 +412,7 @@ function shouldSkipPreferredPluginAutoEnable(
   return false;
 }
 
-function registerPluginEntry(cfg: OpenClawConfig, pluginId: string): OpenClawConfig {
+function registerPluginEntry(cfg: MiraiConfig, pluginId: string): MiraiConfig {
   const builtInChannelId = normalizeChatChannelId(pluginId);
   if (builtInChannelId) {
     const channels = cfg.channels as Record<string, unknown> | undefined;
@@ -469,7 +459,7 @@ function formatAutoEnableChange(entry: PluginEnableChange): string {
 }
 
 export function applyPluginAutoEnable(params: {
-  config: OpenClawConfig;
+  config: MiraiConfig;
   env?: NodeJS.ProcessEnv;
   /** Pre-loaded manifest registry. When omitted, the registry is loaded from
    *  the installed plugins on disk. Pass an explicit registry in tests to
@@ -477,8 +467,7 @@ export function applyPluginAutoEnable(params: {
   manifestRegistry?: PluginManifestRegistry;
 }): PluginAutoEnableResult {
   const env = params.env ?? process.env;
-  const registry =
-    params.manifestRegistry ?? loadPluginManifestRegistry({ config: params.config, env });
+  const registry = params.manifestRegistry ?? loadPluginManifestRegistry({ config: params.config });
   const configured = resolveConfiguredPlugins(params.config, env, registry);
   if (configured.length === 0) {
     return { config: params.config, changes: [] };
@@ -499,7 +488,7 @@ export function applyPluginAutoEnable(params: {
     if (isPluginExplicitlyDisabled(next, entry.pluginId)) {
       continue;
     }
-    if (shouldSkipPreferredPluginAutoEnable(next, entry, configured, env)) {
+    if (shouldSkipPreferredPluginAutoEnable(next, entry, configured)) {
       continue;
     }
     const allow = next.plugins?.allow;

@@ -39,10 +39,7 @@ export function registerUpdateCli(program: Command) {
     .option("--no-restart", "Skip restarting the gateway service after a successful update")
     .option("--dry-run", "Preview update actions without making changes", false)
     .option("--channel <stable|beta|dev>", "Persist update channel (git + npm)")
-    .option(
-      "--tag <dist-tag|version|spec>",
-      "Override the package target for this update (dist-tag, version, or package spec)",
-    )
+    .option("--tag <dist-tag|version>", "Override npm dist-tag or version for this update")
     .option("--timeout <seconds>", "Timeout for each update step in seconds (default: 1200)")
     .option("--yes", "Skip confirmation prompts (non-interactive)", false)
     .addHelpText("after", () => {
@@ -51,13 +48,12 @@ export function registerUpdateCli(program: Command) {
         ["mirai update --channel beta", "Switch to beta channel (git + npm)"],
         ["mirai update --channel dev", "Switch to dev channel (git + npm)"],
         ["mirai update --tag beta", "One-off update to a dist-tag or version"],
-        ["mirai update --tag main", "One-off package install from GitHub main"],
         ["mirai update --dry-run", "Preview actions without changing anything"],
         ["mirai update --no-restart", "Update without restarting the service"],
         ["mirai update --json", "Output result as JSON"],
         ["mirai update --yes", "Non-interactive (accept downgrade prompts)"],
         ["mirai update wizard", "Interactive update wizard"],
-        ["mirai --update", "Shorthand for openclaw update"],
+        ["mirai --update", "Shorthand for mirai update"],
       ] as const;
       const fmtExamples = examples
         .map(([cmd, desc]) => `  ${theme.command(cmd)} ${theme.muted(`# ${desc}`)}`)
@@ -69,8 +65,8 @@ ${theme.heading("What this does:")}
 
 ${theme.heading("Switch channels:")}
   - Use --channel stable|beta|dev to persist the update channel in config
-  - Run openclaw update status to see the active channel and source
-  - Use --tag <dist-tag|version|spec> for a one-off package update without persisting
+  - Run mirai update status to see the active channel and source
+  - Use --tag <dist-tag|version> for a one-off npm update without persisting
 
 ${theme.heading("Non-interactive:")}
   - Use --yes to accept downgrade prompts
@@ -86,7 +82,7 @@ ${theme.heading("Notes:")}
   - Downgrades require confirmation (can break configuration)
   - Skips update if the working directory has uncommitted changes
 
-${theme.muted("Docs:")} ${formatDocsLink("/cli/update", "github.com/adityagoyal009/Mirai/tree/main/gateway/docs/cli/update")}`;
+${theme.muted("Docs:")} ${formatDocsLink("/cli/update", "docs.mirai.ai/cli/update")}`;
     })
     .action(async (opts) => {
       try {
@@ -111,7 +107,7 @@ ${theme.muted("Docs:")} ${formatDocsLink("/cli/update", "github.com/adityagoyal0
     .option("--timeout <seconds>", "Timeout for each update step in seconds (default: 1200)")
     .addHelpText(
       "after",
-      `\n${theme.muted("Docs:")} ${formatDocsLink("/cli/update", "github.com/adityagoyal009/Mirai/tree/main/gateway/docs/cli/update")}\n`,
+      `\n${theme.muted("Docs:")} ${formatDocsLink("/cli/update", "docs.mirai.ai/cli/update")}\n`,
     )
     .action(async (opts, command) => {
       try {
@@ -140,7 +136,7 @@ ${theme.muted("Docs:")} ${formatDocsLink("/cli/update", "github.com/adityagoyal0
           "- Shows current update channel (stable/beta/dev) and source",
         )}\n${theme.muted("- Includes git tag/branch/SHA for source checkouts")}\n\n${theme.muted(
           "Docs:",
-        )} ${formatDocsLink("/cli/update", "github.com/adityagoyal009/Mirai/tree/main/gateway/docs/cli/update")}`,
+        )} ${formatDocsLink("/cli/update", "docs.mirai.ai/cli/update")}`,
     )
     .action(async (opts, command) => {
       try {

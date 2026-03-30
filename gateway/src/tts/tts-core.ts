@@ -1,7 +1,6 @@
-import { rmSync, statSync } from "node:fs";
+import { rmSync } from "node:fs";
 import { completeSimple, type TextContent } from "@mariozechner/pi-ai";
 import { EdgeTTS } from "node-edge-tts";
-import { ensureCustomApiRegistered } from "../agents/custom-api-registry.js";
 import { getApiKeyForModel, requireApiKey } from "../agents/model-auth.js";
 import {
   buildModelAliasIndex,
@@ -9,9 +8,8 @@ import {
   resolveModelRefFromString,
   type ModelRef,
 } from "../agents/model-selection.js";
-import { createConfiguredOllamaStreamFn } from "../agents/ollama-stream.js";
-import { resolveModelAsync } from "../agents/pi-embedded-runner/model.js";
-import type { OpenClawConfig } from "../config/config.js";
+import { resolveModel } from "../agents/pi-embedded-runner/model.js";
+import type { MiraiConfig } from "../config/config.js";
 import type {
   ResolvedTtsConfig,
   ResolvedTtsModelOverrides,
@@ -20,7 +18,6 @@ import type {
 } from "./tts.js";
 
 const DEFAULT_ELEVENLABS_BASE_URL = "https://api.elevenlabs.io";
-export const DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1";
 const TEMP_FILE_CLEANUP_DELAY_MS = 5 * 60 * 1000; // 5 minutes
 
 export function isValidVoiceId(voiceId: string): boolean {
@@ -33,19 +30,6 @@ function normalizeElevenLabsBaseUrl(baseUrl: string): string {
     return DEFAULT_ELEVENLABS_BASE_URL;
   }
   return trimmed.replace(/\/+$/, "");
-}
-
-function normalizeOpenAITtsBaseUrl(baseUrl?: string): string {
-  const trimmed = baseUrl?.trim();
-  if (!trimmed) {
-    return DEFAULT_OPENAI_BASE_URL;
-  }
-  return trimmed.replace(/\/+$/, "");
-}
-
-function trimToUndefined(value?: string): string | undefined {
-  const trimmed = value?.trim();
-  return trimmed ? trimmed : undefined;
 }
 
 function requireInRange(value: number, min: number, max: number, label: string): void {
@@ -115,7 +99,6 @@ function parseNumberValue(value: string): number | undefined {
 export function parseTtsDirectives(
   text: string,
   policy: ResolvedTtsModelOverrides,
-  openaiBaseUrl?: string,
 ): TtsDirectiveParseResult {
   if (!policy.enabled) {
     return { cleanedText: text, overrides: {}, warnings: [], hasDirective: false };
@@ -156,13 +139,10 @@ export function parseTtsDirectives(
             if (!policy.allowProvider) {
               break;
             }
-            {
-              const providerId = rawValue.trim().toLowerCase();
-              if (providerId) {
-                overrides.provider = providerId;
-              } else {
-                warnings.push("invalid provider id");
-              }
+            if (rawValue === "openai" || rawValue === "elevenlabs" || rawValue === "edge") {
+              overrides.provider = rawValue;
+            } else {
+              warnings.push(`unsupported provider "${rawValue}"`);
             }
             break;
           case "voice":
@@ -171,7 +151,7 @@ export function parseTtsDirectives(
             if (!policy.allowVoice) {
               break;
             }
-            if (isValidOpenAIVoice(rawValue, openaiBaseUrl)) {
+            if (isValidOpenAIVoice(rawValue)) {
               overrides.openai = { ...overrides.openai, voice: rawValue };
             } else {
               warnings.push(`invalid OpenAI voice "${rawValue}"`);
@@ -200,7 +180,7 @@ export function parseTtsDirectives(
             if (!policy.allowModelId) {
               break;
             }
-            if (isValidOpenAIModel(rawValue, openaiBaseUrl)) {
+            if (isValidOpenAIModel(rawValue)) {
               overrides.openai = { ...overrides.openai, model: rawValue };
             } else {
               overrides.elevenlabs = { ...overrides.elevenlabs, modelId: rawValue };
@@ -355,14 +335,14 @@ export const OPENAI_TTS_MODELS = ["gpt-4o-mini-tts", "tts-1", "tts-1-hd"] as con
  * Note: Read at runtime (not module load) to support config.env loading.
  */
 function getOpenAITtsBaseUrl(): string {
-  return normalizeOpenAITtsBaseUrl(process.env.OPENAI_TTS_BASE_URL);
+  return (process.env.OPENAI_TTS_BASE_URL?.trim() || "https://api.openai.com/v1").replace(
+    /\/+$/,
+    "",
+  );
 }
 
-function isCustomOpenAIEndpoint(baseUrl?: string): boolean {
-  if (baseUrl != null) {
-    return normalizeOpenAITtsBaseUrl(baseUrl) !== DEFAULT_OPENAI_BASE_URL;
-  }
-  return getOpenAITtsBaseUrl() !== DEFAULT_OPENAI_BASE_URL;
+function isCustomOpenAIEndpoint(): boolean {
+  return getOpenAITtsBaseUrl() !== "https://api.openai.com/v1";
 }
 export const OPENAI_TTS_VOICES = [
   "alloy",
@@ -383,25 +363,17 @@ export const OPENAI_TTS_VOICES = [
 
 type OpenAiTtsVoice = (typeof OPENAI_TTS_VOICES)[number];
 
-export function isValidOpenAIModel(model: string, baseUrl?: string): boolean {
+export function isValidOpenAIModel(model: string): boolean {
   // Allow any model when using custom endpoint (e.g., Kokoro, LocalAI)
-  if (isCustomOpenAIEndpoint(baseUrl)) {
+  if (isCustomOpenAIEndpoint()) {
     return true;
   }
   return OPENAI_TTS_MODELS.includes(model as (typeof OPENAI_TTS_MODELS)[number]);
 }
 
-export function resolveOpenAITtsInstructions(
-  model: string,
-  instructions?: string,
-): string | undefined {
-  const next = trimToUndefined(instructions);
-  return next && model.includes("gpt-4o-mini-tts") ? next : undefined;
-}
-
-export function isValidOpenAIVoice(voice: string, baseUrl?: string): voice is OpenAiTtsVoice {
+export function isValidOpenAIVoice(voice: string): voice is OpenAiTtsVoice {
   // Allow any voice when using custom endpoint (e.g., Kokoro Chinese voices)
-  if (isCustomOpenAIEndpoint(baseUrl)) {
+  if (isCustomOpenAIEndpoint()) {
     return true;
   }
   return OPENAI_TTS_VOICES.includes(voice as OpenAiTtsVoice);
@@ -420,7 +392,7 @@ type SummaryModelSelection = {
 };
 
 function resolveSummaryModelRef(
-  cfg: OpenClawConfig,
+  cfg: MiraiConfig,
   config: ResolvedTtsConfig,
 ): SummaryModelSelection {
   const defaultRef = resolveDefaultModelForAgent({ cfg });
@@ -448,7 +420,7 @@ function isTextContentBlock(block: { type: string }): block is TextContent {
 export async function summarizeText(params: {
   text: string;
   targetLength: number;
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   config: ResolvedTtsConfig;
   timeoutMs: number;
 }): Promise<SummarizeResult> {
@@ -459,7 +431,7 @@ export async function summarizeText(params: {
 
   const startTime = Date.now();
   const { ref } = resolveSummaryModelRef(cfg, config);
-  const resolved = await resolveModelAsync(ref.provider, ref.model, undefined, cfg);
+  const resolved = resolveModel(ref.provider, ref.model, undefined, cfg);
   if (!resolved.model) {
     throw new Error(resolved.error ?? `Unknown summary model: ${ref.provider}/${ref.model}`);
   }
@@ -473,19 +445,6 @@ export async function summarizeText(params: {
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
-      if (resolved.model.api === "ollama") {
-        const providerBaseUrl =
-          typeof cfg.models?.providers?.[resolved.model.provider]?.baseUrl === "string"
-            ? cfg.models.providers[resolved.model.provider]?.baseUrl
-            : undefined;
-        ensureCustomApiRegistered(
-          resolved.model.api,
-          createConfiguredOllamaStreamFn({
-            model: resolved.model,
-            providerBaseUrl,
-          }),
-        );
-      }
       const res = await completeSimple(
         resolved.model,
         {
@@ -632,22 +591,17 @@ export async function elevenLabsTTS(params: {
 export async function openaiTTS(params: {
   text: string;
   apiKey: string;
-  baseUrl: string;
   model: string;
   voice: string;
-  speed?: number;
-  instructions?: string;
   responseFormat: "mp3" | "opus" | "pcm";
   timeoutMs: number;
 }): Promise<Buffer> {
-  const { text, apiKey, baseUrl, model, voice, speed, instructions, responseFormat, timeoutMs } =
-    params;
-  const effectiveInstructions = resolveOpenAITtsInstructions(model, instructions);
+  const { text, apiKey, model, voice, responseFormat, timeoutMs } = params;
 
-  if (!isValidOpenAIModel(model, baseUrl)) {
+  if (!isValidOpenAIModel(model)) {
     throw new Error(`Invalid model: ${model}`);
   }
-  if (!isValidOpenAIVoice(voice, baseUrl)) {
+  if (!isValidOpenAIVoice(voice)) {
     throw new Error(`Invalid voice: ${voice}`);
   }
 
@@ -655,7 +609,7 @@ export async function openaiTTS(params: {
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const response = await fetch(`${baseUrl}/audio/speech`, {
+    const response = await fetch(`${getOpenAITtsBaseUrl()}/audio/speech`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -666,8 +620,6 @@ export async function openaiTTS(params: {
         input: text,
         voice,
         response_format: responseFormat,
-        ...(speed != null && { speed }),
-        ...(effectiveInstructions != null && { instructions: effectiveInstructions }),
       }),
       signal: controller.signal,
     });
@@ -718,10 +670,4 @@ export async function edgeTTS(params: {
     timeout: config.timeoutMs ?? timeoutMs,
   });
   await tts.ttsPromise(text, outputPath);
-
-  const { size } = statSync(outputPath);
-
-  if (size === 0) {
-    throw new Error("Edge TTS produced empty audio file");
-  }
 }

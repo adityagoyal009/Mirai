@@ -1,12 +1,10 @@
-import type { OpenClawConfig } from "../config/config.js";
-import type { MemoryIndexManager } from "./index.js";
+import type { MiraiConfig } from "../config/config.js";
+import { getMemorySearchManager, type MemoryIndexManager } from "./index.js";
 
 export async function getRequiredMemoryIndexManager(params: {
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   agentId?: string;
 }): Promise<MemoryIndexManager> {
-  await import("./embedding.test-mocks.js");
-  const { getMemorySearchManager } = await import("./index.js");
   const result = await getMemorySearchManager({
     cfg: params.cfg,
     agentId: params.agentId ?? "main",

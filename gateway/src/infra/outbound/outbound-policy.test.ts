@@ -1,7 +1,7 @@
 import { Container, Separator, TextDisplay } from "@buape/carbon";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { ChannelPlugin } from "../../channels/plugins/types.js";
-import type { OpenClawConfig } from "../../config/config.js";
+import type { MiraiConfig } from "../../config/config.js";
 import { setActivePluginRegistry } from "../../plugins/runtime.js";
 import {
   createChannelTestPluginBase,
@@ -44,13 +44,13 @@ const slackConfig = {
       appToken: "xapp-test",
     },
   },
-} as OpenClawConfig;
+} as MiraiConfig;
 
 const discordConfig = {
   channels: {
     discord: {},
   },
-} as OpenClawConfig;
+} as MiraiConfig;
 
 describe("outbound policy helpers", () => {
   beforeEach(() => {
@@ -67,7 +67,7 @@ describe("outbound policy helpers", () => {
       tools: {
         message: { crossContext: { allowAcrossProviders: true } },
       },
-    } as OpenClawConfig;
+    } as MiraiConfig;
 
     expect(() =>
       enforceCrossContextPolicy({
@@ -98,7 +98,7 @@ describe("outbound policy helpers", () => {
       tools: {
         message: { crossContext: { allowWithinProvider: false } },
       },
-    } as OpenClawConfig;
+    } as MiraiConfig;
 
     expect(() =>
       enforceCrossContextPolicy({

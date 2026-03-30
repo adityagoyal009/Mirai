@@ -2,7 +2,7 @@
 
 **AI-Powered Startup Prediction System with Multi-Model Council, Swarm Intelligence, and Market Simulation**
 
-Version 0.6.0 | March 2026 | Created by Aditya Goyal
+Version 0.11.0 | March 2026 | Created by Aditya Goyal | vclabs.org
 
 ---
 
@@ -10,13 +10,13 @@ Version 0.6.0 | March 2026 | Created by Aditya Goyal
 
 Mirai is a full-stack AI system that evaluates startup viability using a combination of multi-model research, LLM council deliberation, crowd simulation via persona-based swarm intelligence, and forward-looking market trajectory modeling. The name "Mirai" (未来) means "future" in Japanese — the system's purpose is to predict whether a startup will succeed or fail.
 
-A user provides a startup's executive summary (company name, industry, product, target market, business model, traction). Mirai then executes a 5-phase pipeline:
+A user submits a startup via the website form (122 industries, 789 keyword tags, 195 countries, structured fields for stage/funding/traction/team). Mirai then executes a 5-phase pipeline:
 
-1. **Multi-Model Parallel Research** — Three frontier LLMs (Claude, GPT, Gemini) simultaneously research the startup's market, competitors, and regulatory landscape using live web search
-2. **4-Elder Council Scoring** — Four LLMs independently score the startup across 7 weighted dimensions, with disagreements flagged as "contested"
-3. **Zone-Based Swarm Prediction** — 10 to 1,000 AI persona agents, drawn from a pool of 1.6 million real-world personas, evaluate the startup from six distinct perspectives (Investors, Customers, Operators, Analysts, Contrarians, Wild Cards)
-4. **OASIS Market Simulation** — A 6-month multi-round simulation where 12 agents react to generated market events, producing a sentiment trajectory over time
-5. **ReACT Report Agent** — Six LLM-generated professional report sections compiled into a PitchBook-quality PDF with inline SVG charts
+1. **Agentic Research** — OpenClaw primary (deep web research via subagent), Gemini grounded search fallback. Blind council scoring runs in parallel with research.
+2. **11-Model Council Scoring** — Eleven LLMs across 8 model families independently score the startup across 10 weighted dimensions, with Karpathy 3-stage pattern (individual, peer review, chairman synthesis). Industry weights capped at 1.5x, no geographic or personality-based bias.
+3. **Zone-Based Swarm Prediction** — 50 AI persona agents across 6 NVIDIA NIM models (8 concurrent workers), drawn from 88.5B+ persona combinations, evaluate from six zones (Investors, Customers, Operators, Analysts, Contrarians, Wild Cards). Equal deliberation weight, neutral geographic and behavioral lenses.
+4. **OASIS Market Simulation** — A 4-round multi-month simulation where 12 swarm-sourced panelists react to LLM-generated market events, producing a sentiment trajectory with uncertainty bands. Auto-enabled on all analyses.
+5. **HTML Report** — Professional report with inline charts, agent reasoning, competitive landscape, risk assessment, strategic recommendations, and market trajectory. Opens in new tab.
 
 The output is a comprehensive investment analysis: a composite score out of 10, a verdict (Strong Hit / Likely Hit / Uncertain / Likely Miss / Strong Miss), dimension-by-dimension breakdowns, per-agent reasoning, competitive landscape analysis, risk assessment, strategic recommendations, and a 6-month market trajectory forecast — all exportable as a publication-ready PDF.
 
@@ -27,10 +27,10 @@ The output is a comprehensive investment analysis: a composite score out of 10, 
 Mirai runs as four coordinated subsystems:
 
 ```
-Dashboard (port 5000)        Gateway (port 19789)        SearXNG (port 8888)
+Dashboard (port 5000)        Gateway (port 19789)        SearXNG (port 8888) / Brave Search API
     |                              |                          |
-    | WebSocket: startAnalysis     | /v1/chat/completions     | /search?format=json
-    +----------------------------->|<-------------------------+
+    | WebSocket: startAnalysis     | /v1/chat/completions     | /search?format=json  |  api.search.brave.com
+    +----------------------------->|<-------------------------+-------------------->+
     |                              |                          |
     |  Phase 1: Multi-Model Research (Claude + GPT + Gemini parallel)
     |  Phase 2: Council (4 Elders score 7 dimensions)
@@ -75,9 +75,9 @@ The backend is a Flask application serving both the REST API and WebSocket endpo
 | OASIS Simulator | `oasis_simulator.py` | ~170 | 6-month multi-round market simulation |
 | Data Enrichment | `data_enrichment.py` | ~190 | Competitor/company enrichment from 231K company DB |
 | Funding Signals | `funding_signals.py` | ~140 | SearXNG news search for live funding rounds |
-| Fact Checker | `fact_checker.py` | ~64 | Validates executive summary claims against web data |
+| Fact Checker | `fact_checker.py` | ~64 | Real fact verification against 5 sources (Brave + SearXNG + SEC EDGAR + Yahoo Finance + Jina) |
 | Research Cache | `research_cache.py` | ~105 | Caches research results to avoid redundant fetches |
-| Search Engine | `search_engine.py` | ~190 | SearXNG integration |
+| Search Engine | `search_engine.py` | ~190 | SearXNG + Brave Search API integration |
 | Web Researcher | `web_researcher.py` | ~360 | Crawl4AI + browser-use content extraction |
 | LLM Client | `llm_client.py` | ~200 | OpenAI-compatible client with JSON parsing |
 | Persona Data | `data/` | 538MB | 1.6M personas + 231K companies |
@@ -168,7 +168,17 @@ A pixel art war room built with React, Canvas 2D, and Vite. Forked from pablodel
 | miraiApi | `miraiApi.ts` | REST + WebSocket client |
 | generate-warroom.py | `scripts/` | 52x35 tile grid, 7 rooms, 165 furniture items |
 
-### 2.5 SearXNG (Docker, port 8888)
+### 2.5 Verification & Observability
+
+Mirai v0.8.0 replaced LLM-circular fact-checking with a real verification pipeline grounded in external data sources:
+
+- **Real Fact Verification** — Claims are verified against 5 independent sources: Brave Search API (free tier, 1,000 queries/month), SearXNG (self-hosted metasearch), SEC EDGAR (public filings), Yahoo Finance (market data), and Jina DeepSearch (optional deep web grounding). This eliminates the circular problem of asking an LLM to verify its own outputs.
+- **Hallucination Guard** — TF-IDF traceability scoring compares generated report narratives against source research. If faithfulness drops below 0.6, the section is automatically re-synthesized from source material. Semantic dedup (TF-IDF cosine similarity) removes redundant findings before they enter the pipeline.
+- **Prompt Registry** — All LLM prompts are version-tracked with SHA-256 hashes, enabling prompt regression testing (17 test cases, pure Python) and reproducible evaluations via the Mirai Eval Suite (LLM-as-judge, no deepeval dependency).
+- **LLM Observability** — Every LLM call is logged to `~/.mirai/logs/llm_calls.jsonl` with model, provider, latency, token counts, and prompt hashes. A calibration pipeline tracks per-dimension, per-zone, and per-model accuracy over time.
+- **Zero External Dependencies** — All verification, evaluation, and observability tooling is implemented in pure Python with no external package dependencies (removed semhash, deepeval, edgartools, yfinance, langfuse, promptfoo).
+
+### 2.6 SearXNG (Docker, port 8888)
 
 A self-hosted metasearch engine aggregating 70+ search engines via JSON API. Provides structured web search results for the research phase. Runs as a Docker container with custom settings enabling JSON format output.
 
@@ -189,7 +199,7 @@ Three frontier LLMs research the startup simultaneously using `ThreadPoolExecuto
 **Process:**
 
 1. Each model generates 4 targeted search queries via LLM (not hardcoded), tailored to the startup's industry
-2. SearXNG executes the queries, returning structured results from 70+ search engines
+2. Brave Search API and SearXNG execute the queries, returning structured results from multiple sources
 3. Crawl4AI extracts full-page content from the top results (with browser-use as fallback for dynamic pages)
 4. Each model synthesizes its findings independently, producing a JSON structure with summary, competitors, facts, and trends
 5. **Round 2 (Gap Analysis):** Claude Sonnet analyzes what's missing from the combined findings and generates 3 follow-up search queries
@@ -281,12 +291,12 @@ Investors: 6, Customers: 4, Operators: 4, Analysts: 3, Contrarians: 3, Wild Card
 
 OASIS (Opinion and Sentiment Interactive Simulation) runs a 6-month forward-looking simulation:
 
-1. A panel of 12 diverse agents is created (Seed VC, Enterprise Customer, Industry Analyst, Competitor PM, Regulatory Expert, Serial Entrepreneur, End User, Growth Investor, Tech Journalist, Domain Expert, Skeptical PE, Impact Investor)
+1. A panel of 12 agents is sourced from the actual swarm panelists (not a separate hardcoded roster), preserving their persona perspectives from Phase 3
 2. For each of 6 months:
-   - The LLM generates a realistic market event specific to the startup's industry (e.g., "A major agricultural cooperative announces it will standardize on a competing legacy water monitoring platform")
+   - Real market events are sourced via Brave Search API and SearXNG news queries specific to the startup's industry (replacing purely LLM-generated events)
    - All 12 agents evaluate whether the event IMPROVED or WORSENED their sentiment, with accumulated context from all previous months
-   - Sentiment percentage is computed (% of agents who said IMPROVED)
-3. Output: Timeline of events and sentiment, overall trajectory (improving / stable / declining), start and end sentiment percentages
+   - Sentiment percentage is computed (% of agents who said IMPROVED), with uncertainty bands (confidence_low/high per round)
+3. Output: Timeline of events and sentiment, overall trajectory (improving / stable / declining), start and end sentiment percentages, confidence intervals
 
 The simulation runs with `ThreadPoolExecutor(max_workers=6)` for agent parallelism within each round, but rounds are sequential (each round sees the history of previous rounds).
 
@@ -303,11 +313,12 @@ Six separate LLM calls generate professional report sections:
 | Strategic Recommendations | 400 | 5 actionable moves with effort, impact, timeline |
 | Investment Verdict | 300 | Invest or pass, at what terms, milestone triggers |
 
-**Anti-hallucination rules are enforced in every prompt:**
+**Anti-hallucination rules are enforced in every prompt and verified post-generation:**
 - "Use ONLY facts from AVAILABLE DATA. Do NOT invent statistics."
 - "If data unavailable, say so. Do NOT fabricate."
 - "Name competitors. Cite specific numbers."
 - "No markdown formatting. Plain flowing prose only."
+- Generated sections are passed through the hallucination guard (TF-IDF faithfulness check); sections scoring below 0.6 are re-synthesized from verified source material.
 
 Each section receives the full data context: extraction, prediction scores, research findings, swarm results (HIT/MISS reasons), plan risks and moves.
 
@@ -330,7 +341,8 @@ The final output is a PitchBook-quality PDF generated via WeasyPrint (HTML to PD
 11. **Strategic Recommendations**: Numbered move cards
 12. **Investment Verdict**: Final thesis
 13. **Actionable Improvements**: Auto-generated suggestions for dimensions scoring below 7
-14. **Footer**: Data sources, model count, agent count, timestamp
+14. **Appendix D — Source Citations**: Cited facts traced through the verification pipeline with source URLs and confidence scores
+15. **Footer**: Data sources, model count, agent count, timestamp
 
 All charts are inline SVGs (no external dependencies). The PDF uses a professional navy/white color scheme inspired by PitchBook reports.
 

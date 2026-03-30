@@ -81,11 +81,11 @@ describe("tool display details", () => {
     const detail = formatToolDetail(
       resolveToolDisplay({
         name: "web_search",
-        args: { query: "OpenClaw docs", count: 3 },
+        args: { query: "Mirai docs", count: 3 },
       }),
     );
 
-    expect(detail).toBe('for "OpenClaw docs" (top 3)');
+    expect(detail).toBe('for "Mirai docs" (top 3)');
   });
 
   it("summarizes exec commands with context", () => {
@@ -94,14 +94,14 @@ describe("tool display details", () => {
         name: "exec",
         args: {
           command:
-            "set -euo pipefail\ngit -C /Users/adityasingh/.openclaw/workspace status --short | head -n 3",
-          workdir: "/Users/adityasingh/.openclaw/workspace",
+            "set -euo pipefail\ngit -C /Users/adityasingh/.mirai/workspace status --short | head -n 3",
+          workdir: "/Users/adityasingh/.mirai/workspace",
         },
       }),
     );
 
     expect(detail).toContain("check git status -> show first 3 lines");
-    expect(detail).toContain(".openclaw/workspace)");
+    expect(detail).toContain(".mirai/workspace)");
   });
 
   it("moves cd path to context suffix and appends raw command", () => {
@@ -112,7 +112,9 @@ describe("tool display details", () => {
       }),
     );
 
-    expect(detail).toBe("install dependencies (in ~/my-project), `cd ~/my-project && npm install`");
+    expect(detail).toBe(
+      "install dependencies (in ~/my-project)\n\n`cd ~/my-project && npm install`",
+    );
   });
 
   it("moves cd path to context suffix with multiple stages and raw command", () => {
@@ -124,7 +126,7 @@ describe("tool display details", () => {
     );
 
     expect(detail).toBe(
-      "install dependencies → run tests (in ~/my-project), `cd ~/my-project && npm install && npm test`",
+      "install dependencies → run tests (in ~/my-project)\n\n`cd ~/my-project && npm install && npm test`",
     );
   });
 
@@ -136,7 +138,7 @@ describe("tool display details", () => {
       }),
     );
 
-    expect(detail).toBe("check git status (in /tmp), `pushd /tmp && git status`");
+    expect(detail).toBe("check git status (in /tmp)\n\n`pushd /tmp && git status`");
   });
 
   it("clears inferred cwd when popd is stripped from preamble", () => {
@@ -147,7 +149,7 @@ describe("tool display details", () => {
       }),
     );
 
-    expect(detail).toBe("install dependencies, `pushd /tmp && popd && npm install`");
+    expect(detail).toBe("install dependencies\n\n`pushd /tmp && popd && npm install`");
   });
 
   it("moves cd path to context suffix with || separator", () => {
@@ -171,7 +173,7 @@ describe("tool display details", () => {
       }),
     );
 
-    expect(detail).toBe("install dependencies (in /app), `cd /tmp && npm install`");
+    expect(detail).toBe("install dependencies (in /app)\n\n`cd /tmp && npm install`");
   });
 
   it("summarizes all stages and appends raw command", () => {
@@ -183,7 +185,7 @@ describe("tool display details", () => {
     );
 
     expect(detail).toBe(
-      "fetch git changes → rebase git branch, `git fetch && git rebase origin/main`",
+      "fetch git changes → rebase git branch\n\n`git fetch && git rebase origin/main`",
     );
   });
 
@@ -265,7 +267,7 @@ describe("tool display details", () => {
         name: "exec",
         args: {
           command: "python3 <<PY\nprint('x')\nPY",
-          workdir: "/Users/adityasingh/.openclaw/workspace",
+          workdir: "/Users/adityasingh/.mirai/workspace",
         },
       }),
     );
@@ -274,7 +276,7 @@ describe("tool display details", () => {
         name: "exec",
         args: {
           command: "node --check /tmp/test.js",
-          workdir: "/Users/adityasingh/.openclaw/workspace",
+          workdir: "/Users/adityasingh/.mirai/workspace",
         },
       }),
     );
@@ -283,7 +285,7 @@ describe("tool display details", () => {
         name: "exec",
         args: {
           command: "node -c /tmp/test.js",
-          workdir: "/Users/adityasingh/.openclaw/workspace",
+          workdir: "/Users/adityasingh/.mirai/workspace",
         },
       }),
     );

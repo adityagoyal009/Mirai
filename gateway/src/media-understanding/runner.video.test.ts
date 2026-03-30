@@ -1,23 +1,39 @@
-import fs from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
 import { describe, expect, it } from "vitest";
-import type { OpenClawConfig } from "../config/config.js";
+import type { MiraiConfig } from "../config/config.js";
 import { withEnvAsync } from "../test-utils/env.js";
 import { runCapability } from "./runner.js";
-import { withVideoFixture } from "./runner.test-utils.js";
+import { withMediaFixture } from "./runner.test-utils.js";
+
+async function withVideoFixture(
+  filePrefix: string,
+  run: (params: {
+    ctx: { MediaPath: string; MediaType: string };
+    media: ReturnType<typeof import("./runner.js").normalizeMediaAttachments>;
+    cache: ReturnType<typeof import("./runner.js").createMediaAttachmentCache>;
+  }) => Promise<void>,
+) {
+  await withMediaFixture(
+    {
+      filePrefix,
+      extension: "mp4",
+      mediaType: "video/mp4",
+      fileContents: Buffer.from("video"),
+    },
+    run,
+  );
+}
 
 describe("runCapability video provider wiring", () => {
   it("merges video baseUrl and headers with entry precedence", async () => {
     let seenBaseUrl: string | undefined;
     let seenHeaders: Record<string, string> | undefined;
 
-    await withVideoFixture("openclaw-video-merge", async ({ ctx, media, cache }) => {
+    await withVideoFixture("mirai-video-merge", async ({ ctx, media, cache }) => {
       const cfg = {
         models: {
           providers: {
             moonshot: {
-              apiKey: "provider-key", // pragma: allowlist secret
+              apiKey: "provider-key",
               baseUrl: "https://provider.example/v1",
               headers: { "X-Provider": "1" },
               models: [],
@@ -41,7 +57,7 @@ describe("runCapability video provider wiring", () => {
             },
           },
         },
-      } as unknown as OpenClawConfig;
+      } as unknown as MiraiConfig;
 
       const result = await runCapability({
         capability: "video",
@@ -77,70 +93,62 @@ describe("runCapability video provider wiring", () => {
   });
 
   it("auto-selects moonshot for video when google is unavailable", async () => {
-    const isolatedAgentDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-video-agent-"));
-    try {
-      await withEnvAsync(
-        {
-          GEMINI_API_KEY: undefined,
-          GOOGLE_API_KEY: undefined,
-          MOONSHOT_API_KEY: undefined,
-          OPENCLAW_AGENT_DIR: isolatedAgentDir,
-          PI_CODING_AGENT_DIR: isolatedAgentDir,
-        },
-        async () => {
-          await withVideoFixture("openclaw-video-auto-moonshot", async ({ ctx, media, cache }) => {
-            const cfg = {
-              models: {
-                providers: {
-                  moonshot: {
-                    apiKey: "moonshot-key", // pragma: allowlist secret
-                    models: [],
-                  },
+    await withEnvAsync(
+      {
+        GEMINI_API_KEY: undefined,
+        MOONSHOT_API_KEY: undefined,
+      },
+      async () => {
+        await withVideoFixture("mirai-video-auto-moonshot", async ({ ctx, media, cache }) => {
+          const cfg = {
+            models: {
+              providers: {
+                moonshot: {
+                  apiKey: "moonshot-key",
+                  models: [],
                 },
               },
-              tools: {
-                media: {
-                  video: {
-                    enabled: true,
-                  },
+            },
+            tools: {
+              media: {
+                video: {
+                  enabled: true,
                 },
               },
-            } as unknown as OpenClawConfig;
+            },
+          } as unknown as MiraiConfig;
 
-            const result = await runCapability({
-              capability: "video",
-              cfg,
-              ctx,
-              attachments: cache,
-              media,
-              providerRegistry: new Map([
-                [
-                  "google",
-                  {
-                    id: "google",
-                    capabilities: ["video"],
-                    describeVideo: async () => ({ text: "google" }),
-                  },
-                ],
-                [
-                  "moonshot",
-                  {
-                    id: "moonshot",
-                    capabilities: ["video"],
-                    describeVideo: async () => ({ text: "moonshot", model: "kimi-k2.5" }),
-                  },
-                ],
-              ]),
-            });
-
-            expect(result.decision.outcome).toBe("success");
-            expect(result.outputs[0]?.provider).toBe("moonshot");
-            expect(result.outputs[0]?.text).toBe("moonshot");
+          const result = await runCapability({
+            capability: "video",
+            cfg,
+            ctx,
+            attachments: cache,
+            media,
+            providerRegistry: new Map([
+              [
+                "google",
+                {
+                  id: "google",
+                  capabilities: ["video"],
+                  describeVideo: async () => ({ text: "google" }),
+                },
+              ],
+              [
+                "moonshot",
+                {
+                  id: "moonshot",
+                  capabilities: ["video"],
+                  describeVideo: async () => ({ text: "moonshot", model: "kimi-k2.5" }),
+                },
+              ],
+            ]),
           });
-        },
-      );
-    } finally {
-      await fs.rm(isolatedAgentDir, { recursive: true, force: true });
-    }
+
+          expect(result.decision.outcome).toBe("success");
+          expect(result.outputs[0]?.provider).toBe("moonshot");
+          expect(result.outputs[0]?.text).toBe("moonshot");
+        });
+      },
+    );
   });
 });

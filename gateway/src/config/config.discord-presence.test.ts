@@ -57,40 +57,7 @@ describe("config discord presence", () => {
       channels: {
         discord: {
           activity: "Live",
-          activityUrl: "https://twitch.tv/openclaw",
-        },
-      },
-    });
-
-    expect(res.ok).toBe(false);
-  });
-
-  it("accepts auto presence config", () => {
-    const res = validateConfigObject({
-      channels: {
-        discord: {
-          autoPresence: {
-            enabled: true,
-            intervalMs: 30000,
-            minUpdateIntervalMs: 15000,
-            exhaustedText: "token exhausted",
-          },
-        },
-      },
-    });
-
-    expect(res.ok).toBe(true);
-  });
-
-  it("rejects auto presence min update interval above check interval", () => {
-    const res = validateConfigObject({
-      channels: {
-        discord: {
-          autoPresence: {
-            enabled: true,
-            intervalMs: 5000,
-            minUpdateIntervalMs: 6000,
-          },
+          activityUrl: "https://twitch.tv/mirai",
         },
       },
     });

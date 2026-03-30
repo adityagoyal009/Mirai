@@ -12,13 +12,23 @@ Key rules:
 - Dashboard (pixel art war room) has its own separate design system — do not apply report design rules to it
 
 ## Pipeline Architecture
-- Research: OpenClaw primary (port 18789), Gemini grounded search fallback
-- Council: 10 models across 8 families. Karpathy 3-stage pattern (individual → peer review → chairman)
+- Research: OpenClaw primary (port 18789), Gemini grounded search fallback, BI built-in fallback
+- Council: 11 models across 8 families. Karpathy 3-stage pattern (individual → peer review → chairman)
 - Chairman: Opus primary, Qwen3.5 397B (NVIDIA) fallback
-- Swarm: 50-100 agents across 6 free models (Groq + SambaNova + Mistral)
+- Swarm: 50 agents across 6 NVIDIA NIM models, 8 concurrent workers (40 RPM safe)
+- OASIS: 4-round market simulation, auto-enabled, uses swarm agents as panelists
 - All data flows WITHOUT truncation — full research context to council and swarm
 - Hallucination guard runs on every swarm agent reasoning
-- Report: HTML (not PDF). Opens in new tab. No Playwright/Chromium dependency.
+- Bias controls: neutral GEO_BEHAVIORAL, no MBTI scoring directives, DELIBERATION_WEIGHT=1.0, industry weights capped 1.5x, stage vocabulary normalized, verdict override removed (advisory note only)
+- Report: HTML via `generate_html_report()`. Opens in new tab. No Playwright/Chromium dependency.
+- Async API: `/api/bi/analyze` returns job_id, poll `/api/bi/job/{id}` every 15s
+
+## Website Form
+- 122 industries (searchable), 789 keywords (multiselect, max 15), 195 countries (searchable)
+- 7 structured fields: country, industryPriorityAreas, keywords, hasCustomers, generatingRevenue, currentlyFundraising, referralSource
+- Backend validation: enum checks, URL format, 100K char limit, atomic Prisma transactions
+- Structured fields passthrough to backend (skips LLM extraction)
+- Retry queue: 3 retries with 10s delay, health check before each attempt, 60 min timeout
 
 ## Model Routing (llm_client.py)
 - `@cf/` models → Cloudflare Workers AI (kept but not in active council)
@@ -27,13 +37,15 @@ Key rules:
 - SambaNova models → `_call_sambanova()` direct REST API
 - Mistral models → `_call_mistral()` direct REST API
 - NVIDIA NIM models → `_call_nvidia()` direct REST API
-- Claude models → `_call_claude_cli()` subprocess, gateway fallback
-- OpenAI/GPT/O3 models → `_call_codex_cli()` subprocess, gateway fallback
+- Claude models → `_call_claude_cli()` subprocess (7 min timeout), gateway fallback
+- OpenAI/GPT models → `_call_codex_cli()` subprocess, gateway fallback
 - OpenClaw models → `_call_openclaw_gateway()` port 18789
 
 ## Key Decisions
-- No Gemini in council or swarm (unreliable CLI, hangs)
+- No Gemini in council or swarm (unreliable CLI, hangs). Gemini used for research fallback only.
 - No backtest with known companies (temporal mismatch)
 - No research fallback/degraded mode — if both OpenClaw AND Gemini fail, pipeline stops
 - Swarm agents are blind to council scores (independent evaluation)
 - Frontend sends structured fields directly (bypasses LLM extraction for form data)
+- Pipeline bias fixes: no geographic stereotypes, no personality-based scoring, equal deliberation weight, no verdict hard-overrides, capped industry dimension weights, softened data quality penalty
+- REST API matches dashboard pipeline 1:1 (structured passthrough, blind scoring, OpenClaw/Gemini research, council deep, swarm 50, OASIS, HTML report)

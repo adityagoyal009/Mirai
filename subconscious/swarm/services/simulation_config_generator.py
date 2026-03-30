@@ -520,13 +520,15 @@ class SimulationConfigGenerator:
             
             try:
                 return json.loads(json_str)
-            except:
-                # 尝试移除所有控制 characters
+            except Exception as e:
+                logger.debug(f"[SimConfigGenerator] JSON repair pass 1 failed: {e}")
+                # Try removing all control characters
                 json_str = re.sub(r'[\x00-\x1f\x7f-\x9f]', ' ', json_str)
                 json_str = re.sub(r'\s+', ' ', json_str)
                 try:
                     return json.loads(json_str)
-                except:
+                except Exception as e2:
+                    logger.debug(f"[SimConfigGenerator] JSON repair pass 2 failed: {e2}")
                     pass
         
         return None
@@ -705,13 +707,13 @@ Return JSON format (No markdown):
         try:
             return self._call_llm_with_retry(prompt, system_prompt)
         except Exception as e:
-            logger.warning(f"Event configLLM生成失败: {e}, Using default configuration")
-            return {
-                "hot_topics": [],
-                "narrative_direction": "",
-                "initial_posts": [],
-                "reasoning": "Using default configuration"
-            }
+            logger.error(
+                f"[SimConfigGenerator] Event config LLM generation failed: {e}. "
+                "An empty event config means the simulation will have NO initial posts and NO hot topics — "
+                "the social simulation has no seed events and will produce meaningless data. "
+                "Raising to prevent a silently broken simulation."
+            )
+            raise
     
     def _parse_event_config(self, result: Dict[str, Any]) -> EventConfig:
         """解析Event config结果"""

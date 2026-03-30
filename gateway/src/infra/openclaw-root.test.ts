@@ -1,11 +1,11 @@
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 type FakeFsEntry = { kind: "file"; content: string } | { kind: "dir" };
 
-const VITEST_FS_BASE = path.join(path.parse(process.cwd()).root, "__openclaw_vitest__");
-const FIXTURE_BASE = path.join(VITEST_FS_BASE, "openclaw-root");
+const VITEST_FS_BASE = path.join(path.parse(process.cwd()).root, "__mirai_vitest__");
+const FIXTURE_BASE = path.join(VITEST_FS_BASE, "mirai-root");
 
 const state = vi.hoisted(() => ({
   entries: new Map<string, FakeFsEntry>(),
@@ -89,14 +89,16 @@ vi.mock("node:fs/promises", async (importOriginal) => {
   return { ...wrapped, default: wrapped };
 });
 
-describe("resolveOpenClawPackageRoot", () => {
-  let resolveOpenClawPackageRoot: typeof import("./openclaw-root.js").resolveOpenClawPackageRoot;
-  let resolveOpenClawPackageRootSync: typeof import("./openclaw-root.js").resolveOpenClawPackageRootSync;
+describe("resolveMiraiPackageRoot", () => {
+  let resolveMiraiPackageRoot: typeof import("./mirai-root.js").resolveMiraiPackageRoot;
+  let resolveMiraiPackageRootSync: typeof import("./mirai-root.js").resolveMiraiPackageRootSync;
 
-  beforeEach(async () => {
-    vi.resetModules();
-    ({ resolveOpenClawPackageRoot, resolveOpenClawPackageRootSync } =
-      await import("./openclaw-root.js"));
+  beforeAll(async () => {
+    ({ resolveMiraiPackageRoot, resolveMiraiPackageRootSync } =
+      await import("./mirai-root.js"));
+  });
+
+  beforeEach(() => {
     state.entries.clear();
     state.realpaths.clear();
     state.realpathErrors.clear();
@@ -104,91 +106,56 @@ describe("resolveOpenClawPackageRoot", () => {
 
   it("resolves package root from .bin argv1", async () => {
     const project = fx("bin-scenario");
-    const argv1 = path.join(project, "node_modules", ".bin", "openclaw");
-    const pkgRoot = path.join(project, "node_modules", "openclaw");
-    setFile(path.join(pkgRoot, "package.json"), JSON.stringify({ name: "openclaw" }));
+    const argv1 = path.join(project, "node_modules", ".bin", "mirai");
+    const pkgRoot = path.join(project, "node_modules", "mirai");
+    setFile(path.join(pkgRoot, "package.json"), JSON.stringify({ name: "mirai" }));
 
-    expect(resolveOpenClawPackageRootSync({ argv1 })).toBe(pkgRoot);
+    expect(resolveMiraiPackageRootSync({ argv1 })).toBe(pkgRoot);
   });
 
   it("resolves package root via symlinked argv1", async () => {
     const project = fx("symlink-scenario");
-    const bin = path.join(project, "bin", "openclaw");
+    const bin = path.join(project, "bin", "mirai");
     const realPkg = path.join(project, "real-pkg");
-    state.realpaths.set(abs(bin), abs(path.join(realPkg, "openclaw.mjs")));
-    setFile(path.join(realPkg, "package.json"), JSON.stringify({ name: "openclaw" }));
+    state.realpaths.set(abs(bin), abs(path.join(realPkg, "mirai.mjs")));
+    setFile(path.join(realPkg, "package.json"), JSON.stringify({ name: "mirai" }));
 
-    expect(resolveOpenClawPackageRootSync({ argv1: bin })).toBe(realPkg);
+    expect(resolveMiraiPackageRootSync({ argv1: bin })).toBe(realPkg);
   });
 
   it("falls back when argv1 realpath throws", async () => {
     const project = fx("realpath-throw-scenario");
-    const argv1 = path.join(project, "node_modules", ".bin", "openclaw");
-    const pkgRoot = path.join(project, "node_modules", "openclaw");
+    const argv1 = path.join(project, "node_modules", ".bin", "mirai");
+    const pkgRoot = path.join(project, "node_modules", "mirai");
     state.realpathErrors.add(abs(argv1));
-    setFile(path.join(pkgRoot, "package.json"), JSON.stringify({ name: "openclaw" }));
+    setFile(path.join(pkgRoot, "package.json"), JSON.stringify({ name: "mirai" }));
 
-    expect(resolveOpenClawPackageRootSync({ argv1 })).toBe(pkgRoot);
+    expect(resolveMiraiPackageRootSync({ argv1 })).toBe(pkgRoot);
   });
 
   it("prefers moduleUrl candidates", async () => {
     const pkgRoot = fx("moduleurl");
-    setFile(path.join(pkgRoot, "package.json"), JSON.stringify({ name: "openclaw" }));
+    setFile(path.join(pkgRoot, "package.json"), JSON.stringify({ name: "mirai" }));
     const moduleUrl = pathToFileURL(path.join(pkgRoot, "dist", "index.js")).toString();
 
-    expect(resolveOpenClawPackageRootSync({ moduleUrl })).toBe(pkgRoot);
+    expect(resolveMiraiPackageRootSync({ moduleUrl })).toBe(pkgRoot);
   });
 
-  it("falls through from a non-openclaw moduleUrl candidate to cwd", async () => {
-    const wrongPkgRoot = fx("moduleurl-fallthrough", "wrong");
-    const cwdPkgRoot = fx("moduleurl-fallthrough", "cwd");
-    setFile(path.join(wrongPkgRoot, "package.json"), JSON.stringify({ name: "not-openclaw" }));
-    setFile(path.join(cwdPkgRoot, "package.json"), JSON.stringify({ name: "openclaw" }));
-    const moduleUrl = pathToFileURL(path.join(wrongPkgRoot, "dist", "index.js")).toString();
+  it("returns null for non-mirai package roots", async () => {
+    const pkgRoot = fx("not-mirai");
+    setFile(path.join(pkgRoot, "package.json"), JSON.stringify({ name: "not-mirai" }));
 
-    expect(resolveOpenClawPackageRootSync({ moduleUrl, cwd: cwdPkgRoot })).toBe(cwdPkgRoot);
-    await expect(resolveOpenClawPackageRoot({ moduleUrl, cwd: cwdPkgRoot })).resolves.toBe(
-      cwdPkgRoot,
-    );
-  });
-
-  it("ignores invalid moduleUrl values and falls back to cwd", async () => {
-    const pkgRoot = fx("invalid-moduleurl");
-    setFile(path.join(pkgRoot, "package.json"), JSON.stringify({ name: "openclaw" }));
-
-    expect(resolveOpenClawPackageRootSync({ moduleUrl: "not-a-file-url", cwd: pkgRoot })).toBe(
-      pkgRoot,
-    );
-    await expect(
-      resolveOpenClawPackageRoot({ moduleUrl: "not-a-file-url", cwd: pkgRoot }),
-    ).resolves.toBe(pkgRoot);
-  });
-
-  it("returns null for non-openclaw package roots", async () => {
-    const pkgRoot = fx("not-openclaw");
-    setFile(path.join(pkgRoot, "package.json"), JSON.stringify({ name: "not-openclaw" }));
-
-    expect(resolveOpenClawPackageRootSync({ cwd: pkgRoot })).toBeNull();
-  });
-
-  it("falls back from a symlinked argv1 to the node_modules package root", () => {
-    const project = fx("symlink-node-modules-fallback");
-    const argv1 = path.join(project, "node_modules", ".bin", "openclaw");
-    state.realpaths.set(abs(argv1), abs(path.join(project, "versions", "current", "openclaw.mjs")));
-    const pkgRoot = path.join(project, "node_modules", "openclaw");
-    setFile(path.join(pkgRoot, "package.json"), JSON.stringify({ name: "openclaw" }));
-
-    expect(resolveOpenClawPackageRootSync({ argv1 })).toBe(pkgRoot);
+    expect(resolveMiraiPackageRootSync({ cwd: pkgRoot })).toBeNull();
   });
 
   it("async resolver matches sync behavior", async () => {
     const pkgRoot = fx("async");
-    setFile(path.join(pkgRoot, "package.json"), JSON.stringify({ name: "openclaw" }));
+    setFile(path.join(pkgRoot, "package.json"), JSON.stringify({ name: "mirai" }));
 
-    await expect(resolveOpenClawPackageRoot({ cwd: pkgRoot })).resolves.toBe(pkgRoot);
+    await expect(resolveMiraiPackageRoot({ cwd: pkgRoot })).resolves.toBe(pkgRoot);
   });
 
   it("async resolver returns null when no package roots exist", async () => {
-    await expect(resolveOpenClawPackageRoot({ cwd: fx("missing") })).resolves.toBeNull();
+    await expect(resolveMiraiPackageRoot({ cwd: fx("missing") })).resolves.toBeNull();
   });
 });

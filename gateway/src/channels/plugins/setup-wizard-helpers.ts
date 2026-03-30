@@ -1,4 +1,4 @@
-import type { OpenClawConfig } from "../../config/config.js";
+import type { MiraiConfig } from "../../config/config.js";
 import type { DmPolicy, GroupPolicy } from "../../config/types.js";
 import type { SecretInput } from "../../config/types.secrets.js";
 import { DEFAULT_ACCOUNT_ID, normalizeAccountId } from "../../routing/session-key.js";
@@ -163,12 +163,12 @@ export function resolveSetupAccountId(params: {
 }
 
 export async function resolveAccountIdForConfigure(params: {
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   prompter: WizardPrompter;
   label: string;
   accountOverride?: string;
   shouldPromptAccountIds: boolean;
-  listAccountIds: (cfg: OpenClawConfig) => string[];
+  listAccountIds: (cfg: MiraiConfig) => string[];
   defaultAccountId: string;
 }): Promise<string> {
   const override = params.accountOverride?.trim();
@@ -187,11 +187,11 @@ export async function resolveAccountIdForConfigure(params: {
 }
 
 export function setAccountAllowFromForChannel(params: {
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   channel: "imessage" | "signal";
   accountId: string;
   allowFrom: string[];
-}): OpenClawConfig {
+}): MiraiConfig {
   const { cfg, channel, accountId, allowFrom } = params;
   return patchConfigForScopedAccount({
     cfg,
@@ -203,12 +203,12 @@ export function setAccountAllowFromForChannel(params: {
 }
 
 export function patchTopLevelChannelConfigSection(params: {
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   channel: string;
   enabled?: boolean;
   clearFields?: string[];
   patch: Record<string, unknown>;
-}): OpenClawConfig {
+}): MiraiConfig {
   const channelConfig = {
     ...(params.cfg.channels?.[params.channel] as Record<string, unknown> | undefined),
   };
@@ -229,13 +229,13 @@ export function patchTopLevelChannelConfigSection(params: {
 }
 
 export function patchNestedChannelConfigSection(params: {
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   channel: string;
   section: string;
   enabled?: boolean;
   clearFields?: string[];
   patch: Record<string, unknown>;
-}): OpenClawConfig {
+}): MiraiConfig {
   const channelConfig = {
     ...(params.cfg.channels?.[params.channel] as Record<string, unknown> | undefined),
   };
@@ -262,11 +262,11 @@ export function patchNestedChannelConfigSection(params: {
 }
 
 export function setTopLevelChannelAllowFrom(params: {
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   channel: string;
   allowFrom: string[];
   enabled?: boolean;
-}): OpenClawConfig {
+}): MiraiConfig {
   return patchTopLevelChannelConfigSection({
     cfg: params.cfg,
     channel: params.channel,
@@ -276,12 +276,12 @@ export function setTopLevelChannelAllowFrom(params: {
 }
 
 export function setNestedChannelAllowFrom(params: {
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   channel: string;
   section: string;
   allowFrom: string[];
   enabled?: boolean;
-}): OpenClawConfig {
+}): MiraiConfig {
   return patchNestedChannelConfigSection({
     cfg: params.cfg,
     channel: params.channel,
@@ -292,11 +292,11 @@ export function setNestedChannelAllowFrom(params: {
 }
 
 export function setTopLevelChannelDmPolicyWithAllowFrom(params: {
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   channel: string;
   dmPolicy: DmPolicy;
-  getAllowFrom?: (cfg: OpenClawConfig) => Array<string | number> | undefined;
-}): OpenClawConfig {
+  getAllowFrom?: (cfg: MiraiConfig) => Array<string | number> | undefined;
+}): MiraiConfig {
   const channelConfig =
     (params.cfg.channels?.[params.channel] as Record<string, unknown> | undefined) ?? {};
   const existingAllowFrom =
@@ -316,13 +316,13 @@ export function setTopLevelChannelDmPolicyWithAllowFrom(params: {
 }
 
 export function setNestedChannelDmPolicyWithAllowFrom(params: {
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   channel: string;
   section: string;
   dmPolicy: DmPolicy;
-  getAllowFrom?: (cfg: OpenClawConfig) => Array<string | number> | undefined;
+  getAllowFrom?: (cfg: MiraiConfig) => Array<string | number> | undefined;
   enabled?: boolean;
-}): OpenClawConfig {
+}): MiraiConfig {
   const channelConfig =
     (params.cfg.channels?.[params.channel] as Record<string, unknown> | undefined) ?? {};
   const sectionConfig =
@@ -346,11 +346,11 @@ export function setNestedChannelDmPolicyWithAllowFrom(params: {
 }
 
 export function setTopLevelChannelGroupPolicy(params: {
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   channel: string;
   groupPolicy: GroupPolicy;
   enabled?: boolean;
-}): OpenClawConfig {
+}): MiraiConfig {
   return patchTopLevelChannelConfigSection({
     cfg: params.cfg,
     channel: params.channel,
@@ -364,9 +364,9 @@ export function createTopLevelChannelDmPolicy(params: {
   channel: string;
   policyKey: string;
   allowFromKey: string;
-  getCurrent: (cfg: OpenClawConfig) => DmPolicy;
+  getCurrent: (cfg: MiraiConfig) => DmPolicy;
   promptAllowFrom?: ChannelSetupDmPolicy["promptAllowFrom"];
-  getAllowFrom?: (cfg: OpenClawConfig) => Array<string | number> | undefined;
+  getAllowFrom?: (cfg: MiraiConfig) => Array<string | number> | undefined;
 }): ChannelSetupDmPolicy {
   const setPolicy = createTopLevelChannelDmPolicySetter({
     channel: params.channel,
@@ -389,9 +389,9 @@ export function createNestedChannelDmPolicy(params: {
   section: string;
   policyKey: string;
   allowFromKey: string;
-  getCurrent: (cfg: OpenClawConfig) => DmPolicy;
+  getCurrent: (cfg: MiraiConfig) => DmPolicy;
   promptAllowFrom?: ChannelSetupDmPolicy["promptAllowFrom"];
-  getAllowFrom?: (cfg: OpenClawConfig) => Array<string | number> | undefined;
+  getAllowFrom?: (cfg: MiraiConfig) => Array<string | number> | undefined;
   enabled?: boolean;
 }): ChannelSetupDmPolicy {
   const setPolicy = createNestedChannelDmPolicySetter({
@@ -413,8 +413,8 @@ export function createNestedChannelDmPolicy(params: {
 
 export function createTopLevelChannelDmPolicySetter(params: {
   channel: string;
-  getAllowFrom?: (cfg: OpenClawConfig) => Array<string | number> | undefined;
-}): (cfg: OpenClawConfig, dmPolicy: DmPolicy) => OpenClawConfig {
+  getAllowFrom?: (cfg: MiraiConfig) => Array<string | number> | undefined;
+}): (cfg: MiraiConfig, dmPolicy: DmPolicy) => MiraiConfig {
   return (cfg, dmPolicy) =>
     setTopLevelChannelDmPolicyWithAllowFrom({
       cfg,
@@ -427,9 +427,9 @@ export function createTopLevelChannelDmPolicySetter(params: {
 export function createNestedChannelDmPolicySetter(params: {
   channel: string;
   section: string;
-  getAllowFrom?: (cfg: OpenClawConfig) => Array<string | number> | undefined;
+  getAllowFrom?: (cfg: MiraiConfig) => Array<string | number> | undefined;
   enabled?: boolean;
-}): (cfg: OpenClawConfig, dmPolicy: DmPolicy) => OpenClawConfig {
+}): (cfg: MiraiConfig, dmPolicy: DmPolicy) => MiraiConfig {
   return (cfg, dmPolicy) =>
     setNestedChannelDmPolicyWithAllowFrom({
       cfg,
@@ -444,7 +444,7 @@ export function createNestedChannelDmPolicySetter(params: {
 export function createTopLevelChannelAllowFromSetter(params: {
   channel: string;
   enabled?: boolean;
-}): (cfg: OpenClawConfig, allowFrom: string[]) => OpenClawConfig {
+}): (cfg: MiraiConfig, allowFrom: string[]) => MiraiConfig {
   return (cfg, allowFrom) =>
     setTopLevelChannelAllowFrom({
       cfg,
@@ -458,7 +458,7 @@ export function createNestedChannelAllowFromSetter(params: {
   channel: string;
   section: string;
   enabled?: boolean;
-}): (cfg: OpenClawConfig, allowFrom: string[]) => OpenClawConfig {
+}): (cfg: MiraiConfig, allowFrom: string[]) => MiraiConfig {
   return (cfg, allowFrom) =>
     setNestedChannelAllowFrom({
       cfg,
@@ -472,7 +472,7 @@ export function createNestedChannelAllowFromSetter(params: {
 export function createTopLevelChannelGroupPolicySetter(params: {
   channel: string;
   enabled?: boolean;
-}): (cfg: OpenClawConfig, groupPolicy: "open" | "allowlist" | "disabled") => OpenClawConfig {
+}): (cfg: MiraiConfig, groupPolicy: "open" | "allowlist" | "disabled") => MiraiConfig {
   return (cfg, groupPolicy) =>
     setTopLevelChannelGroupPolicy({
       cfg,
@@ -483,10 +483,10 @@ export function createTopLevelChannelGroupPolicySetter(params: {
 }
 
 export function setChannelDmPolicyWithAllowFrom(params: {
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   channel: "imessage" | "signal" | "telegram";
   dmPolicy: DmPolicy;
-}): OpenClawConfig {
+}): MiraiConfig {
   const { cfg, channel, dmPolicy } = params;
   const allowFrom =
     dmPolicy === "open" ? addWildcardAllowFrom(cfg.channels?.[channel]?.allowFrom) : undefined;
@@ -504,10 +504,10 @@ export function setChannelDmPolicyWithAllowFrom(params: {
 }
 
 export function setLegacyChannelDmPolicyWithAllowFrom(params: {
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   channel: LegacyDmChannel;
   dmPolicy: DmPolicy;
-}): OpenClawConfig {
+}): MiraiConfig {
   const channelConfig = (params.cfg.channels?.[params.channel] as
     | {
         allowFrom?: Array<string | number>;
@@ -531,10 +531,10 @@ export function setLegacyChannelDmPolicyWithAllowFrom(params: {
 }
 
 export function setLegacyChannelAllowFrom(params: {
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   channel: LegacyDmChannel;
   allowFrom: string[];
-}): OpenClawConfig {
+}): MiraiConfig {
   return patchLegacyDmChannelConfig({
     cfg: params.cfg,
     channel: params.channel,
@@ -543,11 +543,11 @@ export function setLegacyChannelAllowFrom(params: {
 }
 
 export function setAccountGroupPolicyForChannel(params: {
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   channel: "discord" | "slack";
   accountId: string;
   groupPolicy: GroupPolicy;
-}): OpenClawConfig {
+}): MiraiConfig {
   return patchChannelConfigForAccount({
     cfg: params.cfg,
     channel: params.channel,
@@ -557,11 +557,11 @@ export function setAccountGroupPolicyForChannel(params: {
 }
 
 export function setAccountDmAllowFromForChannel(params: {
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   channel: "discord" | "slack";
   accountId: string;
   allowFrom: string[];
-}): OpenClawConfig {
+}): MiraiConfig {
   return patchChannelConfigForAccount({
     cfg: params.cfg,
     channel: params.channel,
@@ -678,10 +678,10 @@ export function createAccountScopedGroupAccessSection<TResolved>(params: {
   >;
   fallbackResolved: (entries: string[]) => TResolved;
   applyAllowlist: (params: {
-    cfg: OpenClawConfig;
+    cfg: MiraiConfig;
     accountId: string;
     resolved: TResolved;
-  }) => OpenClawConfig;
+  }) => MiraiConfig;
 }): NonNullable<ChannelSetupWizard["groupAccess"]> {
   return {
     label: params.label,
@@ -738,10 +738,10 @@ type AccountScopedChannel =
 type LegacyDmChannel = "discord" | "slack";
 
 export function patchLegacyDmChannelConfig(params: {
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   channel: LegacyDmChannel;
   patch: Record<string, unknown>;
-}): OpenClawConfig {
+}): MiraiConfig {
   const { cfg, channel, patch } = params;
   const channelConfig = (cfg.channels?.[channel] as Record<string, unknown> | undefined) ?? {};
   const dmConfig = (channelConfig.dm as Record<string, unknown> | undefined) ?? {};
@@ -762,10 +762,10 @@ export function patchLegacyDmChannelConfig(params: {
 }
 
 export function setSetupChannelEnabled(
-  cfg: OpenClawConfig,
+  cfg: MiraiConfig,
   channel: string,
   enabled: boolean,
-): OpenClawConfig {
+): MiraiConfig {
   const channelConfig = (cfg.channels?.[channel] as Record<string, unknown> | undefined) ?? {};
   return {
     ...cfg,
@@ -780,12 +780,12 @@ export function setSetupChannelEnabled(
 }
 
 function patchConfigForScopedAccount(params: {
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   channel: AccountScopedChannel;
   accountId: string;
   patch: Record<string, unknown>;
   ensureEnabled: boolean;
-}): OpenClawConfig {
+}): MiraiConfig {
   const { cfg, channel, accountId, patch, ensureEnabled } = params;
   const seededCfg =
     accountId === DEFAULT_ACCOUNT_ID
@@ -805,11 +805,11 @@ function patchConfigForScopedAccount(params: {
 }
 
 export function patchChannelConfigForAccount(params: {
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   channel: AccountScopedChannel;
   accountId: string;
   patch: Record<string, unknown>;
-}): OpenClawConfig {
+}): MiraiConfig {
   return patchConfigForScopedAccount({
     ...params,
     ensureEnabled: true,
@@ -817,7 +817,7 @@ export function patchChannelConfigForAccount(params: {
 }
 
 export function applySingleTokenPromptResult(params: {
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   channel: "discord" | "telegram";
   accountId: string;
   tokenPatchKey: "token" | "botToken";
@@ -825,7 +825,7 @@ export function applySingleTokenPromptResult(params: {
     useEnv: boolean;
     token: SecretInput | null;
   };
-}): OpenClawConfig {
+}): MiraiConfig {
   let next = params.cfg;
   if (params.tokenResult.useEnv) {
     next = patchChannelConfigForAccount({
@@ -910,7 +910,7 @@ export type SingleChannelSecretInputPromptResult =
   | { action: "set"; value: SecretInput; resolvedValue: string };
 
 export async function runSingleChannelSecretStep(params: {
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   prompter: Pick<WizardPrompter, "confirm" | "text" | "select" | "note">;
   providerHint: string;
   credentialLabel: string;
@@ -924,14 +924,14 @@ export async function runSingleChannelSecretStep(params: {
   inputPrompt: string;
   preferredEnvVar?: string;
   onMissingConfigured?: () => Promise<void>;
-  applyUseEnv?: (cfg: OpenClawConfig) => OpenClawConfig | Promise<OpenClawConfig>;
+  applyUseEnv?: (cfg: MiraiConfig) => MiraiConfig | Promise<MiraiConfig>;
   applySet?: (
-    cfg: OpenClawConfig,
+    cfg: MiraiConfig,
     value: SecretInput,
     resolvedValue: string,
-  ) => OpenClawConfig | Promise<OpenClawConfig>;
+  ) => MiraiConfig | Promise<MiraiConfig>;
 }): Promise<{
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   action: SingleChannelSecretInputPromptResult["action"];
   resolvedValue?: string;
 }> {
@@ -986,7 +986,7 @@ export async function runSingleChannelSecretStep(params: {
 }
 
 export async function promptSingleChannelSecretInput(params: {
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   prompter: Pick<WizardPrompter, "confirm" | "text" | "select" | "note">;
   providerHint: string;
   credentialLabel: string;
@@ -1049,9 +1049,9 @@ export async function promptSingleChannelSecretInput(params: {
     preferredEnvVar: params.preferredEnvVar,
     copy: {
       sourceMessage: `Where is this ${params.credentialLabel} stored?`,
-      envVarPlaceholder: params.preferredEnvVar ?? "OPENCLAW_SECRET",
+      envVarPlaceholder: params.preferredEnvVar ?? "MIRAI_SECRET",
       envVarFormatError:
-        'Use an env var name like "OPENCLAW_SECRET" (uppercase letters, numbers, underscores).',
+        'Use an env var name like "MIRAI_SECRET" (uppercase letters, numbers, underscores).',
       noProvidersMessage:
         "No file/exec secret providers are configured yet. Add one under secrets.providers, or select Environment variable.",
     },
@@ -1065,7 +1065,7 @@ export async function promptSingleChannelSecretInput(params: {
 
 type ParsedAllowFromResult = { entries: string[]; error?: string };
 
-export async function promptParsedAllowFromForAccount<TConfig extends OpenClawConfig>(params: {
+export async function promptParsedAllowFromForAccount<TConfig extends MiraiConfig>(params: {
   cfg: TConfig;
   accountId?: string;
   defaultAccountId: string;
@@ -1118,7 +1118,7 @@ export async function promptParsedAllowFromForAccount<TConfig extends OpenClawCo
 }
 
 export async function promptParsedAllowFromForScopedChannel(params: {
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   channel: "imessage" | "signal";
   accountId?: string;
   defaultAccountId: string;
@@ -1129,10 +1129,10 @@ export async function promptParsedAllowFromForScopedChannel(params: {
   placeholder: string;
   parseEntries: (raw: string) => ParsedAllowFromResult;
   getExistingAllowFrom: (params: {
-    cfg: OpenClawConfig;
+    cfg: MiraiConfig;
     accountId: string;
   }) => Array<string | number>;
-}): Promise<OpenClawConfig> {
+}): Promise<MiraiConfig> {
   return await promptParsedAllowFromForAccount({
     cfg: params.cfg,
     accountId: params.accountId,
@@ -1303,7 +1303,7 @@ export async function promptResolvedAllowFrom(params: {
 }
 
 export async function promptLegacyChannelAllowFrom(params: {
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   channel: LegacyDmChannel;
   prompter: WizardPrompter;
   existing: Array<string | number>;
@@ -1315,7 +1315,7 @@ export async function promptLegacyChannelAllowFrom(params: {
   parseId: (value: string) => string | null;
   invalidWithoutTokenNote: string;
   resolveEntries: (params: { token: string; entries: string[] }) => Promise<AllowFromResolution[]>;
-}): Promise<OpenClawConfig> {
+}): Promise<MiraiConfig> {
   await params.prompter.note(params.noteLines.join("\n"), params.noteTitle);
   const unique = await promptResolvedAllowFrom({
     prompter: params.prompter,
@@ -1337,13 +1337,13 @@ export async function promptLegacyChannelAllowFrom(params: {
 }
 
 export async function promptLegacyChannelAllowFromForAccount<TAccount>(params: {
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   channel: LegacyDmChannel;
   prompter: WizardPrompter;
   accountId?: string;
   defaultAccountId: string;
-  resolveAccount: (cfg: OpenClawConfig, accountId: string) => TAccount;
-  resolveExisting: (account: TAccount, cfg: OpenClawConfig) => Array<string | number>;
+  resolveAccount: (cfg: MiraiConfig, accountId: string) => TAccount;
+  resolveExisting: (account: TAccount, cfg: MiraiConfig) => Array<string | number>;
   resolveToken: (account: TAccount) => string | null | undefined;
   noteTitle: string;
   noteLines: string[];
@@ -1352,7 +1352,7 @@ export async function promptLegacyChannelAllowFromForAccount<TAccount>(params: {
   parseId: (value: string) => string | null;
   invalidWithoutTokenNote: string;
   resolveEntries: (params: { token: string; entries: string[] }) => Promise<AllowFromResolution[]>;
-}): Promise<OpenClawConfig> {
+}): Promise<MiraiConfig> {
   const accountId = resolveSetupAccountId({
     accountId: params.accountId,
     defaultAccountId: params.defaultAccountId,

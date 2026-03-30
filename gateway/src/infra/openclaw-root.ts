@@ -3,16 +3,13 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const CORE_PACKAGE_NAMES = new Set(["mirai-gateway", "openclaw"]);
-
-function parsePackageName(raw: string): string | null {
-  const parsed = JSON.parse(raw) as { name?: unknown };
-  return typeof parsed.name === "string" ? parsed.name : null;
-}
+const CORE_PACKAGE_NAMES = new Set(["mirai"]);
 
 async function readPackageName(dir: string): Promise<string | null> {
   try {
-    return parsePackageName(await fs.readFile(path.join(dir, "package.json"), "utf-8"));
+    const raw = await fs.readFile(path.join(dir, "package.json"), "utf-8");
+    const parsed = JSON.parse(raw) as { name?: unknown };
+    return typeof parsed.name === "string" ? parsed.name : null;
   } catch {
     return null;
   }
@@ -20,7 +17,9 @@ async function readPackageName(dir: string): Promise<string | null> {
 
 function readPackageNameSync(dir: string): string | null {
   try {
-    return parsePackageName(fsSync.readFileSync(path.join(dir, "package.json"), "utf-8"));
+    const raw = fsSync.readFileSync(path.join(dir, "package.json"), "utf-8");
+    const parsed = JSON.parse(raw) as { name?: unknown };
+    return typeof parsed.name === "string" ? parsed.name : null;
   } catch {
     return null;
   }
@@ -83,7 +82,7 @@ function candidateDirsFromArgv1(argv1: string): string[] {
   return candidates;
 }
 
-export async function resolveOpenClawPackageRoot(opts: {
+export async function resolveMiraiPackageRoot(opts: {
   cwd?: string;
   argv1?: string;
   moduleUrl?: string;
@@ -98,7 +97,7 @@ export async function resolveOpenClawPackageRoot(opts: {
   return null;
 }
 
-export function resolveOpenClawPackageRootSync(opts: {
+export function resolveMiraiPackageRootSync(opts: {
   cwd?: string;
   argv1?: string;
   moduleUrl?: string;
@@ -117,11 +116,7 @@ function buildCandidates(opts: { cwd?: string; argv1?: string; moduleUrl?: strin
   const candidates: string[] = [];
 
   if (opts.moduleUrl) {
-    try {
-      candidates.push(path.dirname(fileURLToPath(opts.moduleUrl)));
-    } catch {
-      // Ignore invalid file:// URLs and keep other package-root hints.
-    }
+    candidates.push(path.dirname(fileURLToPath(opts.moduleUrl)));
   }
   if (opts.argv1) {
     candidates.push(...candidateDirsFromArgv1(opts.argv1));

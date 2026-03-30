@@ -59,14 +59,24 @@ class ReportAgent:
             ("Investment Verdict", 300, "Final investment thesis or anti-thesis. Should someone invest? At what terms? What milestones would change the verdict?"),
         ]
 
-        for title, words, instruction in configs:
-            try:
-                content = self._generate_section(company, title, instruction, data_context, words)
-                sections[title] = content
-                logger.info(f"[ReportAgent] Generated '{title}': {len(content)} chars")
-            except Exception as e:
-                logger.warning(f"[ReportAgent] Failed '{title}': {e}")
-                sections[title] = ""
+        # Generate all 6 sections in parallel (no inter-dependencies)
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            futures = {
+                pool.submit(self._generate_section, company, title, instruction, data_context, words): title
+                for title, words, instruction in configs
+            }
+            for f in as_completed(futures):
+                title = futures[f]
+                try:
+                    content = f.result()
+                    sections[title] = content
+                    logger.info(f"[ReportAgent] Generated '{title}': {len(content)} chars")
+                except Exception as e:
+                    # RA-1 FIX: Use a visible placeholder instead of empty string.
+                    # Empty string looks like "no content" vs a clear generation failure.
+                    logger.warning(f"[ReportAgent] Failed '{title}': {e}")
+                    sections[title] = f"[Section generation failed: {type(e).__name__}: {e}]"
 
         return sections
 

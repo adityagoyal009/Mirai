@@ -1,6 +1,6 @@
-import * as allowFromSdk from "openclaw/plugin-sdk/allow-from";
-import * as channelActionsSdk from "openclaw/plugin-sdk/channel-actions";
-import * as channelConfigHelpersSdk from "openclaw/plugin-sdk/channel-config-helpers";
+import * as allowFromSdk from "mirai-gateway/plugin-sdk/allow-from";
+import * as channelActionsSdk from "mirai-gateway/plugin-sdk/channel-actions";
+import * as channelConfigHelpersSdk from "mirai-gateway/plugin-sdk/channel-config-helpers";
 import type {
   BaseProbeResult as ContractBaseProbeResult,
   BaseTokenResolution as ContractBaseTokenResolution,
@@ -14,47 +14,47 @@ import type {
   ChannelStatusIssue as ContractChannelStatusIssue,
   ChannelThreadingContext as ContractChannelThreadingContext,
   ChannelThreadingToolContext as ContractChannelThreadingToolContext,
-} from "openclaw/plugin-sdk/channel-contract";
-import * as channelFeedbackSdk from "openclaw/plugin-sdk/channel-feedback";
-import * as channelInboundSdk from "openclaw/plugin-sdk/channel-inbound";
-import * as channelLifecycleSdk from "openclaw/plugin-sdk/channel-lifecycle";
-import * as channelPairingSdk from "openclaw/plugin-sdk/channel-pairing";
-import * as channelReplyPipelineSdk from "openclaw/plugin-sdk/channel-reply-pipeline";
-import * as channelRuntimeSdk from "openclaw/plugin-sdk/channel-runtime";
-import * as channelSendResultSdk from "openclaw/plugin-sdk/channel-send-result";
-import * as channelSetupSdk from "openclaw/plugin-sdk/channel-setup";
-import * as channelTargetsSdk from "openclaw/plugin-sdk/channel-targets";
-import * as commandAuthSdk from "openclaw/plugin-sdk/command-auth";
-import * as configRuntimeSdk from "openclaw/plugin-sdk/config-runtime";
-import * as conversationRuntimeSdk from "openclaw/plugin-sdk/conversation-runtime";
-import * as coreSdk from "openclaw/plugin-sdk/core";
+} from "mirai-gateway/plugin-sdk/channel-contract";
+import * as channelFeedbackSdk from "mirai-gateway/plugin-sdk/channel-feedback";
+import * as channelInboundSdk from "mirai-gateway/plugin-sdk/channel-inbound";
+import * as channelLifecycleSdk from "mirai-gateway/plugin-sdk/channel-lifecycle";
+import * as channelPairingSdk from "mirai-gateway/plugin-sdk/channel-pairing";
+import * as channelReplyPipelineSdk from "mirai-gateway/plugin-sdk/channel-reply-pipeline";
+import * as channelRuntimeSdk from "mirai-gateway/plugin-sdk/channel-runtime";
+import * as channelSendResultSdk from "mirai-gateway/plugin-sdk/channel-send-result";
+import * as channelSetupSdk from "mirai-gateway/plugin-sdk/channel-setup";
+import * as channelTargetsSdk from "mirai-gateway/plugin-sdk/channel-targets";
+import * as commandAuthSdk from "mirai-gateway/plugin-sdk/command-auth";
+import * as configRuntimeSdk from "mirai-gateway/plugin-sdk/config-runtime";
+import * as conversationRuntimeSdk from "mirai-gateway/plugin-sdk/conversation-runtime";
+import * as coreSdk from "mirai-gateway/plugin-sdk/core";
 import type {
   ChannelMessageActionContext as CoreChannelMessageActionContext,
-  OpenClawPluginApi as CoreOpenClawPluginApi,
+  MiraiPluginApi as CoreMiraiPluginApi,
   PluginRuntime as CorePluginRuntime,
-} from "openclaw/plugin-sdk/core";
-import * as directoryRuntimeSdk from "openclaw/plugin-sdk/directory-runtime";
-import * as infraRuntimeSdk from "openclaw/plugin-sdk/infra-runtime";
-import * as lazyRuntimeSdk from "openclaw/plugin-sdk/lazy-runtime";
-import * as matrixRuntimeSharedSdk from "openclaw/plugin-sdk/matrix-runtime-shared";
-import * as mediaRuntimeSdk from "openclaw/plugin-sdk/media-runtime";
-import * as ollamaSetupSdk from "openclaw/plugin-sdk/ollama-setup";
-import * as providerAuthSdk from "openclaw/plugin-sdk/provider-auth";
-import * as providerModelsSdk from "openclaw/plugin-sdk/provider-models";
-import * as providerSetupSdk from "openclaw/plugin-sdk/provider-setup";
-import * as replyHistorySdk from "openclaw/plugin-sdk/reply-history";
-import * as replyPayloadSdk from "openclaw/plugin-sdk/reply-payload";
-import * as replyRuntimeSdk from "openclaw/plugin-sdk/reply-runtime";
-import * as routingSdk from "openclaw/plugin-sdk/routing";
-import * as runtimeSdk from "openclaw/plugin-sdk/runtime";
-import * as sandboxSdk from "openclaw/plugin-sdk/sandbox";
-import * as secretInputSdk from "openclaw/plugin-sdk/secret-input";
-import * as selfHostedProviderSetupSdk from "openclaw/plugin-sdk/self-hosted-provider-setup";
-import * as setupSdk from "openclaw/plugin-sdk/setup";
-import * as ssrfRuntimeSdk from "openclaw/plugin-sdk/ssrf-runtime";
-import * as testingSdk from "openclaw/plugin-sdk/testing";
-import * as threadBindingsRuntimeSdk from "openclaw/plugin-sdk/thread-bindings-runtime";
-import * as webhookIngressSdk from "openclaw/plugin-sdk/webhook-ingress";
+} from "mirai-gateway/plugin-sdk/core";
+import * as directoryRuntimeSdk from "mirai-gateway/plugin-sdk/directory-runtime";
+import * as infraRuntimeSdk from "mirai-gateway/plugin-sdk/infra-runtime";
+import * as lazyRuntimeSdk from "mirai-gateway/plugin-sdk/lazy-runtime";
+import * as matrixRuntimeSharedSdk from "mirai-gateway/plugin-sdk/matrix-runtime-shared";
+import * as mediaRuntimeSdk from "mirai-gateway/plugin-sdk/media-runtime";
+import * as ollamaSetupSdk from "mirai-gateway/plugin-sdk/ollama-setup";
+import * as providerAuthSdk from "mirai-gateway/plugin-sdk/provider-auth";
+import * as providerModelsSdk from "mirai-gateway/plugin-sdk/provider-models";
+import * as providerSetupSdk from "mirai-gateway/plugin-sdk/provider-setup";
+import * as replyHistorySdk from "mirai-gateway/plugin-sdk/reply-history";
+import * as replyPayloadSdk from "mirai-gateway/plugin-sdk/reply-payload";
+import * as replyRuntimeSdk from "mirai-gateway/plugin-sdk/reply-runtime";
+import * as routingSdk from "mirai-gateway/plugin-sdk/routing";
+import * as runtimeSdk from "mirai-gateway/plugin-sdk/runtime";
+import * as sandboxSdk from "mirai-gateway/plugin-sdk/sandbox";
+import * as secretInputSdk from "mirai-gateway/plugin-sdk/secret-input";
+import * as selfHostedProviderSetupSdk from "mirai-gateway/plugin-sdk/self-hosted-provider-setup";
+import * as setupSdk from "mirai-gateway/plugin-sdk/setup";
+import * as ssrfRuntimeSdk from "mirai-gateway/plugin-sdk/ssrf-runtime";
+import * as testingSdk from "mirai-gateway/plugin-sdk/testing";
+import * as threadBindingsRuntimeSdk from "mirai-gateway/plugin-sdk/thread-bindings-runtime";
+import * as webhookIngressSdk from "mirai-gateway/plugin-sdk/webhook-ingress";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import type { ChannelMessageActionContext } from "../channels/plugins/types.js";
 import type {
@@ -71,10 +71,10 @@ import type {
   ChannelThreadingToolContext,
 } from "../channels/plugins/types.js";
 import type { PluginRuntime } from "../plugins/runtime/types.js";
-import type { OpenClawPluginApi } from "../plugins/types.js";
+import type { MiraiPluginApi } from "../plugins/types.js";
 import type {
   ChannelMessageActionContext as SharedChannelMessageActionContext,
-  OpenClawPluginApi as SharedOpenClawPluginApi,
+  MiraiPluginApi as SharedMiraiPluginApi,
   PluginRuntime as SharedPluginRuntime,
 } from "./channel-plugin-common.js";
 import { pluginSdkSubpaths } from "./entrypoints.js";
@@ -83,13 +83,13 @@ const importPluginSdkSubpath = (specifier: string) => import(/* @vite-ignore */ 
 
 const bundledExtensionSubpathLoaders = pluginSdkSubpaths.map((id: string) => ({
   id,
-  load: () => importPluginSdkSubpath(`openclaw/plugin-sdk/${id}`),
+  load: () => importPluginSdkSubpath(`mirai/plugin-sdk/${id}`),
 }));
 
 const asExports = (mod: object) => mod as Record<string, unknown>;
-const accountHelpersSdk = await import("openclaw/plugin-sdk/account-helpers");
-const allowlistEditSdk = await import("openclaw/plugin-sdk/allowlist-config-edit");
-const statusHelpersSdk = await import("openclaw/plugin-sdk/status-helpers");
+const accountHelpersSdk = await import("mirai-gateway/plugin-sdk/account-helpers");
+const allowlistEditSdk = await import("mirai-gateway/plugin-sdk/allowlist-config-edit");
+const statusHelpersSdk = await import("mirai-gateway/plugin-sdk/status-helpers");
 
 describe("plugin-sdk subpath exports", () => {
   it("keeps the curated public list free of internal implementation subpaths", () => {
@@ -186,7 +186,7 @@ describe("plugin-sdk subpath exports", () => {
   });
 
   it("exports device bootstrap helpers from the dedicated subpath", async () => {
-    const deviceBootstrapSdk = await import("openclaw/plugin-sdk/device-bootstrap");
+    const deviceBootstrapSdk = await import("mirai-gateway/plugin-sdk/device-bootstrap");
     expect(typeof deviceBootstrapSdk.approveDevicePairing).toBe("function");
     expect(typeof deviceBootstrapSdk.issueDeviceBootstrapToken).toBe("function");
     expect(typeof deviceBootstrapSdk.listDevicePairing).toBe("function");
@@ -614,7 +614,7 @@ describe("plugin-sdk subpath exports", () => {
   });
 
   it("exports shared core types used by bundled extensions", () => {
-    expectTypeOf<CoreOpenClawPluginApi>().toMatchTypeOf<OpenClawPluginApi>();
+    expectTypeOf<CoreMiraiPluginApi>().toMatchTypeOf<MiraiPluginApi>();
     expectTypeOf<CorePluginRuntime>().toMatchTypeOf<PluginRuntime>();
     expectTypeOf<CoreChannelMessageActionContext>().toMatchTypeOf<ChannelMessageActionContext>();
   });
@@ -625,7 +625,7 @@ describe("plugin-sdk subpath exports", () => {
   });
 
   it("keeps core shared types aligned with the channel prelude", () => {
-    expectTypeOf<CoreOpenClawPluginApi>().toMatchTypeOf<SharedOpenClawPluginApi>();
+    expectTypeOf<CoreMiraiPluginApi>().toMatchTypeOf<SharedMiraiPluginApi>();
     expectTypeOf<CorePluginRuntime>().toMatchTypeOf<SharedPluginRuntime>();
     expectTypeOf<CoreChannelMessageActionContext>().toMatchTypeOf<SharedChannelMessageActionContext>();
   });

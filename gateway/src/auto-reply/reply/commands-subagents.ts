@@ -1,4 +1,4 @@
-import { listSubagentRunsForController } from "../../agents/subagent-registry.js";
+import { listSubagentRunsForRequester } from "../../agents/subagent-registry.js";
 import { logVerbose } from "../../globals.js";
 import { handleSubagentsAgentsAction } from "./commands-subagents/action-agents.js";
 import { handleSubagentsFocusAction } from "./commands-subagents/action-focus.js";
@@ -47,12 +47,9 @@ export const handleSubagentsCommand: CommandHandler = async (params, allowTextCo
     return handleSubagentsHelpAction();
   }
 
-  const requesterKey =
-    action === "spawn"
-      ? resolveRequesterSessionKey(params, {
-          preferCommandTarget: true,
-        })
-      : resolveRequesterSessionKey(params);
+  const requesterKey = resolveRequesterSessionKey(params, {
+    preferCommandTarget: action === "spawn",
+  });
   if (!requesterKey) {
     return stopWithText("⚠️ Missing session key.");
   }
@@ -61,7 +58,7 @@ export const handleSubagentsCommand: CommandHandler = async (params, allowTextCo
     params,
     handledPrefix,
     requesterKey,
-    runs: listSubagentRunsForController(requesterKey),
+    runs: listSubagentRunsForRequester(requesterKey),
     restTokens,
   };
 
@@ -73,7 +70,7 @@ export const handleSubagentsCommand: CommandHandler = async (params, allowTextCo
     case "focus":
       return await handleSubagentsFocusAction(ctx);
     case "unfocus":
-      return await handleSubagentsUnfocusAction(ctx);
+      return handleSubagentsUnfocusAction(ctx);
     case "list":
       return handleSubagentsListAction(ctx);
     case "kill":

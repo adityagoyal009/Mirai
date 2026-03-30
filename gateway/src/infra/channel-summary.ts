@@ -1,17 +1,10 @@
 import {
-  hasConfiguredUnavailableCredentialStatus,
-  hasResolvedCredentialValue,
-} from "../channels/account-snapshot-fields.js";
-import {
   buildChannelAccountSnapshot,
   formatChannelAllowFrom,
-  resolveChannelAccountConfigured,
-  resolveChannelAccountEnabled,
 } from "../channels/account-summary.js";
 import { listChannelPlugins } from "../channels/plugins/index.js";
 import type { ChannelAccountSnapshot, ChannelPlugin } from "../channels/plugins/types.js";
-import { inspectReadOnlyChannelAccount } from "../channels/read-only-account-inspect.js";
-import { type OpenClawConfig, loadConfig } from "../config/config.js";
+import { type MiraiConfig, loadConfig } from "../config/config.js";
 import { DEFAULT_ACCOUNT_ID } from "../routing/session-key.js";
 import { theme } from "../terminal/theme.js";
 import { formatTimeAgo } from "./format-time/format-relative.ts";
@@ -19,10 +12,9 @@ import { formatTimeAgo } from "./format-time/format-relative.ts";
 export type ChannelSummaryOptions = {
   colorize?: boolean;
   includeAllowFrom?: boolean;
-  sourceConfig?: OpenClawConfig;
 };
 
-const DEFAULT_OPTIONS: Omit<Required<ChannelSummaryOptions>, "sourceConfig"> = {
+const DEFAULT_OPTIONS: Required<ChannelSummaryOptions> = {
   colorize: false,
   includeAllowFrom: false,
 };
@@ -46,10 +38,36 @@ const formatAccountLabel = (params: { accountId: string; name?: string }) => {
 const accountLine = (label: string, details: string[]) =>
   `  - ${label}${details.length ? ` (${details.join(", ")})` : ""}`;
 
+const resolveAccountEnabled = (
+  plugin: ChannelPlugin,
+  account: unknown,
+  cfg: MiraiConfig,
+): boolean => {
+  if (plugin.config.isEnabled) {
+    return plugin.config.isEnabled(account, cfg);
+  }
+  if (!account || typeof account !== "object") {
+    return true;
+  }
+  const enabled = (account as { enabled?: boolean }).enabled;
+  return enabled !== false;
+};
+
+const resolveAccountConfigured = async (
+  plugin: ChannelPlugin,
+  account: unknown,
+  cfg: MiraiConfig,
+): Promise<boolean> => {
+  if (plugin.config.isConfigured) {
+    return await plugin.config.isConfigured(account, cfg);
+  }
+  return true;
+};
+
 const buildAccountDetails = (params: {
   entry: ChannelAccountEntry;
   plugin: ChannelPlugin;
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   includeAllowFrom: boolean;
 }): string[] => {
   const details: string[] = [];
@@ -68,15 +86,6 @@ const buildAccountDetails = (params: {
   }
   if (snapshot.appTokenSource && snapshot.appTokenSource !== "none") {
     details.push(`app:${snapshot.appTokenSource}`);
-  }
-  if (
-    snapshot.signingSecretSource &&
-    snapshot.signingSecretSource !== "none" /* pragma: allowlist secret */
-  ) {
-    details.push(`signing:${snapshot.signingSecretSource}`);
-  }
-  if (hasConfiguredUnavailableCredentialStatus(params.entry.account)) {
-    details.push("secret unavailable in this command path");
   }
   if (snapshot.baseUrl) {
     details.push(snapshot.baseUrl);
@@ -105,23 +114,8 @@ const buildAccountDetails = (params: {
   return details;
 };
 
-async function inspectChannelAccount(
-  plugin: ChannelPlugin,
-  cfg: OpenClawConfig,
-  accountId: string,
-) {
-  return (
-    plugin.config.inspectAccount?.(cfg, accountId) ??
-    (await inspectReadOnlyChannelAccount({
-      channelId: plugin.id,
-      cfg,
-      accountId,
-    }))
-  );
-}
-
 export async function buildChannelSummary(
-  cfg?: OpenClawConfig,
+  cfg?: MiraiConfig,
   options?: ChannelSummaryOptions,
 ): Promise<string[]> {
   const effective = cfg ?? loadConfig();
@@ -129,7 +123,6 @@ export async function buildChannelSummary(
   const resolved = { ...DEFAULT_OPTIONS, ...options };
   const tint = (value: string, color?: (input: string) => string) =>
     resolved.colorize && color ? color(value) : value;
-  const sourceConfig = options?.sourceConfig ?? effective;
 
   for (const plugin of listChannelPlugins()) {
     const accountIds = plugin.config.listAccountIds(effective);
@@ -139,39 +132,9 @@ export async function buildChannelSummary(
     const entries: ChannelAccountEntry[] = [];
 
     for (const accountId of resolvedAccountIds) {
-      const sourceInspectedAccount = await inspectChannelAccount(plugin, sourceConfig, accountId);
-      const resolvedInspectedAccount = await inspectChannelAccount(plugin, effective, accountId);
-      const resolvedInspection = resolvedInspectedAccount as {
-        enabled?: boolean;
-        configured?: boolean;
-      } | null;
-      const sourceInspection = sourceInspectedAccount as {
-        enabled?: boolean;
-        configured?: boolean;
-      } | null;
-      const resolvedAccount =
-        resolvedInspectedAccount ?? plugin.config.resolveAccount(effective, accountId);
-      const useSourceUnavailableAccount = Boolean(
-        sourceInspectedAccount &&
-        hasConfiguredUnavailableCredentialStatus(sourceInspectedAccount) &&
-        (!hasResolvedCredentialValue(resolvedAccount) ||
-          (sourceInspection?.configured === true && resolvedInspection?.configured === false)),
-      );
-      const account = useSourceUnavailableAccount ? sourceInspectedAccount : resolvedAccount;
-      const selectedInspection = useSourceUnavailableAccount
-        ? sourceInspection
-        : resolvedInspection;
-      const enabled =
-        selectedInspection?.enabled ??
-        resolveChannelAccountEnabled({ plugin, account, cfg: effective });
-      const configured =
-        selectedInspection?.configured ??
-        (await resolveChannelAccountConfigured({
-          plugin,
-          account,
-          cfg: effective,
-          readAccountConfiguredField: true,
-        }));
+      const account = plugin.config.resolveAccount(effective, accountId);
+      const enabled = resolveAccountEnabled(plugin, account, effective);
+      const configured = await resolveAccountConfigured(plugin, account, effective);
       const snapshot = buildChannelAccountSnapshot({
         plugin,
         account,

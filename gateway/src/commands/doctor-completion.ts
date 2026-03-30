@@ -9,7 +9,7 @@ import {
   resolveShellFromEnv,
   usesSlowDynamicCompletion,
 } from "../cli/completion-cli.js";
-import { resolveOpenClawPackageRoot } from "../infra/openclaw-root.js";
+import { resolveMiraiPackageRoot } from "../infra/mirai-root.js";
 import type { RuntimeEnv } from "../runtime.js";
 import { note } from "../terminal/note.js";
 import type { DoctorPrompter } from "./doctor-prompter.js";
@@ -18,7 +18,7 @@ type CompletionShell = "zsh" | "bash" | "fish" | "powershell";
 
 /** Generate the completion cache by spawning the CLI. */
 async function generateCompletionCache(): Promise<boolean> {
-  const root = await resolveOpenClawPackageRoot({
+  const root = await resolveMiraiPackageRoot({
     moduleUrl: import.meta.url,
     argv1: process.argv[1],
     cwd: process.cwd(),
@@ -42,13 +42,13 @@ export type ShellCompletionStatus = {
   profileInstalled: boolean;
   cacheExists: boolean;
   cachePath: string;
-  /** True if profile uses slow dynamic pattern like `source <(openclaw completion ...)` */
+  /** True if profile uses slow dynamic pattern like `source <(mirai completion ...)` */
   usesSlowPattern: boolean;
 };
 
 /** Check the status of shell completion for the current shell. */
 export async function checkShellCompletionStatus(
-  binName = "openclaw",
+  binName = "mirai",
 ): Promise<ShellCompletionStatus> {
   const shell = resolveShellFromEnv() as CompletionShell;
   const profileInstalled = await isCompletionInstalled(shell, binName);
@@ -163,11 +163,11 @@ export async function doctorShellCompletion(
 }
 
 /**
- * Ensure completion cache exists. Used during setup/update to fix
+ * Ensure completion cache exists. Used during onboarding/update to fix
  * cases where profile has completion but no cache.
  * This is a silent fix - no prompts.
  */
-export async function ensureCompletionCacheExists(binName = "openclaw"): Promise<boolean> {
+export async function ensureCompletionCacheExists(binName = "mirai"): Promise<boolean> {
   const shell = resolveShellFromEnv() as CompletionShell;
   const cacheExists = await completionCacheExists(shell, binName);
 

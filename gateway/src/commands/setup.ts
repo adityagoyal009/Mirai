@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import JSON5 from "json5";
 import { DEFAULT_AGENT_WORKSPACE_DIR, ensureAgentWorkspace } from "../agents/workspace.js";
-import { type OpenClawConfig, createConfigIO, writeConfigFile } from "../config/config.js";
+import { type MiraiConfig, createConfigIO, writeConfigFile } from "../config/config.js";
 import { formatConfigPath, logConfigUpdated } from "../config/logging.js";
 import { resolveSessionTranscriptsDir } from "../config/sessions.js";
 import type { RuntimeEnv } from "../runtime.js";
@@ -10,13 +10,13 @@ import { shortenHomePath } from "../utils.js";
 
 async function readConfigFileRaw(configPath: string): Promise<{
   exists: boolean;
-  parsed: OpenClawConfig;
+  parsed: MiraiConfig;
 }> {
   try {
     const raw = await fs.readFile(configPath, "utf-8");
     const parsed = JSON5.parse(raw);
     if (parsed && typeof parsed === "object") {
-      return { exists: true, parsed: parsed as OpenClawConfig };
+      return { exists: true, parsed: parsed as MiraiConfig };
     }
     return { exists: true, parsed: {} };
   } catch {
@@ -41,7 +41,7 @@ export async function setupCommand(
 
   const workspace = desiredWorkspace ?? defaults.workspace ?? DEFAULT_AGENT_WORKSPACE_DIR;
 
-  const next: OpenClawConfig = {
+  const next: MiraiConfig = {
     ...cfg,
     agents: {
       ...cfg.agents,
@@ -50,30 +50,14 @@ export async function setupCommand(
         workspace,
       },
     },
-    gateway: {
-      ...cfg.gateway,
-      mode: cfg.gateway?.mode ?? "local",
-    },
   };
 
-  if (
-    !existingRaw.exists ||
-    defaults.workspace !== workspace ||
-    cfg.gateway?.mode !== next.gateway?.mode
-  ) {
+  if (!existingRaw.exists || defaults.workspace !== workspace) {
     await writeConfigFile(next);
     if (!existingRaw.exists) {
       runtime.log(`Wrote ${formatConfigPath(configPath)}`);
     } else {
-      const updates: string[] = [];
-      if (defaults.workspace !== workspace) {
-        updates.push("set agents.defaults.workspace");
-      }
-      if (cfg.gateway?.mode !== next.gateway?.mode) {
-        updates.push("set gateway.mode");
-      }
-      const suffix = updates.length > 0 ? `(${updates.join(", ")})` : undefined;
-      logConfigUpdated(runtime, { path: configPath, suffix });
+      logConfigUpdated(runtime, { path: configPath, suffix: "(set agents.defaults.workspace)" });
     }
   } else {
     runtime.log(`Config OK: ${formatConfigPath(configPath)}`);

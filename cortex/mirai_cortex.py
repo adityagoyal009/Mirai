@@ -23,6 +23,12 @@ _BLOCKED_COMMANDS = [
     r"\bchmod\s+-R\s+777\s+/",
     r"\bcurl\b.*\|\s*bash",
     r"\bwget\b.*\|\s*bash",
+    r"\bsudo\b",
+    r"\bdoas\b",
+    r"\bsu\s+-?\s",
+    r"\bpkexec\b",
+    r"\bnc\s+-l",             # netcat listener
+    r"\bpython[23]?\s+-m\s+http",  # python http server
 ]
 _BLOCKED_RE = re.compile("|".join(_BLOCKED_COMMANDS), re.IGNORECASE)
 
@@ -135,7 +141,7 @@ class GatewayManager:
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
             if result.returncode == 0:
                 return f"Message sent to {recipient}: {text}"
-        except (FileNotFoundError, subprocess.TimeoutExpired, subprocess.CalledProcessError):
+        except (subprocess.TimeoutExpired, Exception):
             pass
 
         print(f"[COMMS] Message (not delivered): {text}")

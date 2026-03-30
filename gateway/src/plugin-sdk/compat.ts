@@ -4,13 +4,13 @@
 const shouldWarnCompatImport =
   process.env.VITEST !== "true" &&
   process.env.NODE_ENV !== "test" &&
-  process.env.OPENCLAW_SUPPRESS_PLUGIN_SDK_COMPAT_WARNING !== "1";
+  process.env.MIRAI_SUPPRESS_PLUGIN_SDK_COMPAT_WARNING !== "1";
 
 if (shouldWarnCompatImport) {
   process.emitWarning(
-    "openclaw/plugin-sdk/compat is deprecated for new plugins. Migrate to focused openclaw/plugin-sdk/<subpath> imports. See https://github.com/adityagoyal009/Mirai/tree/main/gateway/docs/plugins/sdk-migration",
+    "mirai-gateway/plugin-sdk/compat is deprecated for new plugins. Migrate to focused mirai/plugin-sdk/<subpath> imports. See https://github.com/adityagoyal009/Mirai/tree/main/gateway/docs/plugins/sdk-migration",
     {
-      code: "OPENCLAW_PLUGIN_SDK_COMPAT_DEPRECATED",
+      code: "MIRAI_PLUGIN_SDK_COMPAT_DEPRECATED",
       detail:
         "Bundled plugins must use scoped plugin-sdk subpaths. External plugins may keep compat temporarily while migrating. Migration guide: https://github.com/adityagoyal009/Mirai/tree/main/gateway/docs/plugins/sdk-migration",
     },

@@ -75,6 +75,76 @@ def load_dataset(path: str = OUTPUT_FILE) -> List[Dict]:
         return json.load(f)
 
 
+DB_PATH = os.path.join(DATA_DIR, 'companies.db')
+
+
+def load_from_db(outcome_filter: str = None, industry: str = None,
+                 limit: int = 100, exclude_active: bool = True) -> List[Dict]:
+    """
+    Load companies from SQLite database for backtesting.
+
+    Args:
+        outcome_filter: 'success', 'acquired', 'failed', or None for all
+        industry: Filter by industry name
+        limit: Max companies to return
+        exclude_active: Skip 'active' companies (unknown outcome)
+    """
+    import sqlite3
+    if not os.path.exists(DB_PATH):
+        logger.warning(f"[Scraper] Database not found at {DB_PATH}")
+        return get_seed_dataset()
+
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+
+    conditions = []
+    params = []
+
+    if exclude_active:
+        conditions.append("outcome != 'active'")
+    if outcome_filter:
+        conditions.append("outcome = ?")
+        params.append(outcome_filter)
+    if industry:
+        conditions.append("industry LIKE ?")
+        params.append(f"%{industry}%")
+
+    # Prefer companies with descriptions
+    conditions.append("long_description IS NOT NULL AND long_description != ''")
+
+    where = " AND ".join(conditions) if conditions else "1=1"
+    query = f"""
+        SELECT * FROM companies
+        WHERE {where}
+        ORDER BY RANDOM()
+        LIMIT ?
+    """
+    params.append(limit)
+
+    c.execute(query, params)
+    rows = c.fetchall()
+    conn.close()
+
+    results = []
+    for row in rows:
+        results.append({
+            "company": row["name"],
+            "industry": row["industry"] or "Unknown",
+            "product": row["one_liner"] or row["long_description"][:200] if row["long_description"] else "Unknown",
+            "target_market": "",
+            "business_model": "",
+            "stage": row["stage"] or "Seed",
+            "outcome": row["outcome"],
+            "outcome_detail": f"Status: {row['status']}, Team: {row['team_size'] or '?'}",
+            "batch": row["batch"] or "",
+            "db_id": row["id"],
+        })
+
+    logger.info(f"[Scraper] Loaded {len(results)} companies from DB (filter: {outcome_filter}, industry: {industry})")
+    return results
+
+
 def startup_to_exec_summary(startup: Dict) -> str:
     """Convert a startup record to an exec summary string."""
     parts = [

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { OpenClawConfig } from "../config/config.js";
+import type { MiraiConfig } from "../config/config.js";
 
 function createManagerStatus(params: {
   backend: "qmd" | "builtin";
@@ -29,72 +29,53 @@ function createManagerStatus(params: {
   };
 }
 
-function createManagerMock(params: {
-  backend: "qmd" | "builtin";
-  provider: string;
-  model: string;
-  requestedProvider: string;
-  searchResults?: Array<{
-    path: string;
-    startLine: number;
-    endLine: number;
-    score: number;
-    snippet: string;
-    source: "memory";
-  }>;
-  withMemorySourceCounts?: boolean;
-}) {
-  return {
-    search: vi.fn(async () => params.searchResults ?? []),
-    readFile: vi.fn(async () => ({ text: "", path: "MEMORY.md" })),
-    status: vi.fn(() =>
-      createManagerStatus({
-        backend: params.backend,
-        provider: params.provider,
-        model: params.model,
-        requestedProvider: params.requestedProvider,
-        withMemorySourceCounts: params.withMemorySourceCounts,
-      }),
-    ),
-    sync: vi.fn(async () => {}),
-    probeEmbeddingAvailability: vi.fn(async () => ({ ok: true })),
-    probeVectorAvailability: vi.fn(async () => true),
-    close: vi.fn(async () => {}),
-  };
-}
+const qmdManagerStatus = createManagerStatus({
+  backend: "qmd",
+  provider: "qmd",
+  model: "qmd",
+  requestedProvider: "qmd",
+  withMemorySourceCounts: true,
+});
 
-const mockPrimary = vi.hoisted(() => ({
-  ...createManagerMock({
-    backend: "qmd",
-    provider: "qmd",
-    model: "qmd",
-    requestedProvider: "qmd",
-    withMemorySourceCounts: true,
-  }),
-}));
+const fallbackManagerStatus = createManagerStatus({
+  backend: "builtin",
+  provider: "openai",
+  model: "text-embedding-3-small",
+  requestedProvider: "openai",
+});
 
-const fallbackManager = vi.hoisted(() => ({
-  ...createManagerMock({
-    backend: "builtin",
-    provider: "openai",
-    model: "text-embedding-3-small",
-    requestedProvider: "openai",
-    searchResults: [
-      {
-        path: "MEMORY.md",
-        startLine: 1,
-        endLine: 1,
-        score: 1,
-        snippet: "fallback",
-        source: "memory",
-      },
-    ],
-  }),
-}));
+const mockPrimary = {
+  search: vi.fn(async () => []),
+  readFile: vi.fn(async () => ({ text: "", path: "MEMORY.md" })),
+  status: vi.fn(() => qmdManagerStatus),
+  sync: vi.fn(async () => {}),
+  probeEmbeddingAvailability: vi.fn(async () => ({ ok: true })),
+  probeVectorAvailability: vi.fn(async () => true),
+  close: vi.fn(async () => {}),
+};
 
-const fallbackSearch = fallbackManager.search;
-const mockMemoryIndexGet = vi.hoisted(() => vi.fn(async () => fallbackManager));
-const mockCloseAllMemoryIndexManagers = vi.hoisted(() => vi.fn(async () => {}));
+const fallbackSearch = vi.fn(async () => [
+  {
+    path: "MEMORY.md",
+    startLine: 1,
+    endLine: 1,
+    score: 1,
+    snippet: "fallback",
+    source: "memory" as const,
+  },
+]);
+
+const fallbackManager = {
+  search: fallbackSearch,
+  readFile: vi.fn(async () => ({ text: "", path: "MEMORY.md" })),
+  status: vi.fn(() => fallbackManagerStatus),
+  sync: vi.fn(async () => {}),
+  probeEmbeddingAvailability: vi.fn(async () => ({ ok: true })),
+  probeVectorAvailability: vi.fn(async () => true),
+  close: vi.fn(async () => {}),
+};
+
+const mockMemoryIndexGet = vi.fn(async () => fallbackManager);
 
 vi.mock("./qmd-manager.js", () => ({
   QmdMemoryManager: {
@@ -102,22 +83,21 @@ vi.mock("./qmd-manager.js", () => ({
   },
 }));
 
-vi.mock("./manager-runtime.js", () => ({
+vi.mock("./manager.js", () => ({
   MemoryIndexManager: {
     get: mockMemoryIndexGet,
   },
-  closeAllMemoryIndexManagers: mockCloseAllMemoryIndexManagers,
 }));
 
 import { QmdMemoryManager } from "./qmd-manager.js";
-import { closeAllMemorySearchManagers, getMemorySearchManager } from "./search-manager.js";
+import { getMemorySearchManager } from "./search-manager.js";
 // eslint-disable-next-line @typescript-eslint/unbound-method -- mocked static function
 const createQmdManagerMock = vi.mocked(QmdMemoryManager.create);
 
 type SearchManagerResult = Awaited<ReturnType<typeof getMemorySearchManager>>;
 type SearchManager = NonNullable<SearchManagerResult["manager"]>;
 
-function createQmdCfg(agentId: string): OpenClawConfig {
+function createQmdCfg(agentId: string): MiraiConfig {
   return {
     memory: { backend: "qmd", qmd: {} },
     agents: { list: [{ id: agentId, default: true, workspace: "/tmp/workspace" }] },
@@ -139,8 +119,7 @@ async function createFailedQmdSearchHarness(params: { agentId: string; errorMess
   return { cfg, manager: requireManager(first), firstResult: first };
 }
 
-beforeEach(async () => {
-  await closeAllMemorySearchManagers();
+beforeEach(() => {
   mockPrimary.search.mockClear();
   mockPrimary.readFile.mockClear();
   mockPrimary.status.mockClear();
@@ -155,7 +134,6 @@ beforeEach(async () => {
   fallbackManager.probeEmbeddingAvailability.mockClear();
   fallbackManager.probeVectorAvailability.mockClear();
   fallbackManager.close.mockClear();
-  mockCloseAllMemoryIndexManagers.mockClear();
   mockMemoryIndexGet.mockClear();
   mockMemoryIndexGet.mockResolvedValue(fallbackManager);
   createQmdManagerMock.mockClear();
@@ -264,35 +242,5 @@ describe("getMemorySearchManager caching", () => {
     mockMemoryIndexGet.mockRejectedValueOnce(new Error("No API key found for provider openai"));
 
     await expect(firstManager.search("hello")).rejects.toThrow("qmd query failed");
-  });
-
-  it("closes cached managers on global teardown", async () => {
-    const cfg = createQmdCfg("teardown-agent");
-    const first = await getMemorySearchManager({ cfg, agentId: "teardown-agent" });
-    const firstManager = requireManager(first);
-
-    await closeAllMemorySearchManagers();
-
-    expect(mockPrimary.close).toHaveBeenCalledTimes(1);
-    expect(mockCloseAllMemoryIndexManagers).toHaveBeenCalledTimes(1);
-
-    const second = await getMemorySearchManager({ cfg, agentId: "teardown-agent" });
-    expect(second.manager).toBeTruthy();
-    expect(second.manager).not.toBe(firstManager);
-    // eslint-disable-next-line @typescript-eslint/unbound-method
-    expect(createQmdManagerMock).toHaveBeenCalledTimes(2);
-  });
-
-  it("closes builtin index managers on teardown after runtime is loaded", async () => {
-    const retryAgentId = "teardown-with-fallback";
-    const { manager } = await createFailedQmdSearchHarness({
-      agentId: retryAgentId,
-      errorMessage: "qmd query failed",
-    });
-    await manager.search("hello");
-
-    await closeAllMemorySearchManagers();
-
-    expect(mockCloseAllMemoryIndexManagers).toHaveBeenCalledTimes(1);
   });
 });

@@ -6,10 +6,7 @@ import type { SessionScope } from "../config/sessions/types.js";
 
 const agentCommand = vi.fn();
 
-vi.mock("../commands/agent.js", () => ({
-  agentCommand,
-  agentCommandFromIngress: agentCommand,
-}));
+vi.mock("../commands/agent.js", () => ({ agentCommand }));
 
 const { runBootOnce } = await import("./boot.js");
 const { resolveAgentIdFromSessionKey, resolveAgentMainSessionKey, resolveMainSessionKey } =
@@ -54,7 +51,7 @@ describe("runBootOnce", () => {
     options: BootWorkspaceOptions,
     run: (workspaceDir: string) => Promise<void>,
   ) => {
-    const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-boot-"));
+    const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), "mirai-boot-"));
     try {
       const bootPath = path.join(workspaceDir, "BOOT.md");
       if (options.bootAsDirectory) {

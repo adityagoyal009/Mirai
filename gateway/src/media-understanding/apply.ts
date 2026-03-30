@@ -1,9 +1,8 @@
 import path from "node:path";
 import { finalizeInboundContext } from "../auto-reply/reply/inbound-context.js";
 import type { MsgContext } from "../auto-reply/templating.js";
-import type { OpenClawConfig } from "../config/config.js";
+import type { MiraiConfig } from "../config/config.js";
 import { logVerbose, shouldLogVerbose } from "../globals.js";
-import { renderFileContextBlock } from "../media/file-context.js";
 import {
   extractFileContentFromSource,
   normalizeMimeType,
@@ -11,7 +10,6 @@ import {
 } from "../media/input-files.js";
 import { resolveAttachmentKind } from "./attachments.js";
 import { runWithConcurrency } from "./concurrency.js";
-import { DEFAULT_ECHO_TRANSCRIPT_FORMAT, sendTranscriptEcho } from "./echo-transcript.js";
 import {
   extractMediaUserText,
   formatAudioTranscripts,
@@ -69,6 +67,25 @@ const TEXT_EXT_MIME = new Map<string, string>([
   [".xml", "application/xml"],
 ]);
 
+const XML_ESCAPE_MAP: Record<string, string> = {
+  "<": "&lt;",
+  ">": "&gt;",
+  "&": "&amp;",
+  '"': "&quot;",
+  "'": "&apos;",
+};
+
+/**
+ * Escapes special XML characters in attribute values to prevent injection.
+ */
+function xmlEscapeAttr(value: string): string {
+  return value.replace(/[<>&"']/g, (char) => XML_ESCAPE_MAP[char] ?? char);
+}
+
+function escapeFileBlockContent(value: string): string {
+  return value.replace(/<\s*\/\s*file\s*>/gi, "&lt;/file&gt;").replace(/<\s*file\b/gi, "&lt;file");
+}
+
 function sanitizeMimeType(value?: string): string | undefined {
   if (!value) {
     return undefined;
@@ -81,7 +98,7 @@ function sanitizeMimeType(value?: string): string | undefined {
   return match?.[1];
 }
 
-function resolveFileLimits(cfg: OpenClawConfig) {
+function resolveFileLimits(cfg: MiraiConfig) {
   const files = cfg.gateway?.http?.endpoints?.responses?.files;
   const allowedMimesConfigured = Boolean(files?.allowedMimes?.length);
   return {
@@ -434,13 +451,12 @@ async function extractFileBlocks(params: {
         blockText = "[No extractable text]";
       }
     }
+    const safeName = (bufferResult.fileName ?? `file-${attachment.index + 1}`)
+      .replace(/[\r\n\t]+/g, " ")
+      .trim();
+    // Escape XML special characters in attributes to prevent injection
     blocks.push(
-      renderFileContextBlock({
-        filename: bufferResult.fileName,
-        fallbackName: `file-${attachment.index + 1}`,
-        mimeType,
-        content: blockText,
-      }),
+      `<file name="${xmlEscapeAttr(safeName)}" mime="${xmlEscapeAttr(mimeType)}">\n${escapeFileBlockContent(blockText)}\n</file>`,
     );
   }
   return blocks;
@@ -448,7 +464,7 @@ async function extractFileBlocks(params: {
 
 export async function applyMediaUnderstanding(params: {
   ctx: MsgContext;
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   agentDir?: string;
   providers?: Record<string, MediaUnderstandingProvider>;
   activeModel?: ActiveMediaModel;
@@ -511,16 +527,6 @@ export async function applyMediaUnderstanding(params: {
         } else {
           ctx.CommandBody = transcript;
           ctx.RawBody = transcript;
-        }
-        // Echo transcript back to chat before agent processing, if configured.
-        const audioCfg = cfg.tools?.media?.audio;
-        if (audioCfg?.echoTranscript && transcript) {
-          await sendTranscriptEcho({
-            ctx,
-            cfg,
-            transcript,
-            format: audioCfg.echoFormat ?? DEFAULT_ECHO_TRANSCRIPT_FORMAT,
-          });
         }
       } else if (originalUserText) {
         ctx.CommandBody = originalUserText;

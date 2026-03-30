@@ -2,7 +2,7 @@ import fsSync from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { resolveOpenClawPackageRootSync } from "../infra/openclaw-root.js";
+import { resolveMiraiPackageRootSync } from "../infra/mirai-root.js";
 import { FIELD_HELP } from "./schema.help.js";
 import type { ConfigSchemaResponse } from "./schema.js";
 import { findWildcardHintMatch, schemaHasChildren } from "./schema.shared.js";
@@ -74,13 +74,13 @@ const DEFAULT_STATEFILE_OUTPUT = "docs/.generated/config-baseline.jsonl";
 let cachedConfigDocBaselinePromise: Promise<ConfigDocBaseline> | null = null;
 
 function logConfigDocBaselineDebug(message: string): void {
-  if (process.env.OPENCLAW_CONFIG_DOC_BASELINE_DEBUG === "1") {
+  if (process.env.MIRAI_CONFIG_DOC_BASELINE_DEBUG === "1") {
     console.error(`[config-doc-baseline] ${message}`);
   }
 }
 
 function resolveRepoRoot(): string {
-  const fromPackage = resolveOpenClawPackageRootSync({
+  const fromPackage = resolveMiraiPackageRootSync({
     cwd: path.dirname(fileURLToPath(import.meta.url)),
     moduleUrl: import.meta.url,
   });
@@ -282,8 +282,8 @@ async function loadBundledConfigSchemaResponse(): Promise<ConfigSchemaResponse> 
   const env = {
     ...process.env,
     HOME: os.tmpdir(),
-    OPENCLAW_STATE_DIR: path.join(os.tmpdir(), "openclaw-config-doc-baseline-state"),
-    OPENCLAW_BUNDLED_PLUGINS_DIR: path.join(repoRoot, "extensions"),
+    MIRAI_STATE_DIR: path.join(os.tmpdir(), "mirai-config-doc-baseline-state"),
+    MIRAI_BUNDLED_PLUGINS_DIR: path.join(repoRoot, "extensions"),
   };
 
   const manifestRegistry = loadPluginManifestRegistry({
@@ -302,7 +302,7 @@ async function loadBundledConfigSchemaResponse(): Promise<ConfigSchemaResponse> 
     (plugin) => plugin.origin === "bundled" && plugin.channels.length > 0,
   );
   const channelPlugins =
-    process.env.OPENCLAW_CONFIG_DOC_BASELINE_DEBUG === "1"
+    process.env.MIRAI_CONFIG_DOC_BASELINE_DEBUG === "1"
       ? await bundledChannelPlugins.reduce<Promise<ChannelSurfaceMetadata[]>>(
           async (promise, plugin) => {
             const loaded = await promise;

@@ -1,5 +1,4 @@
 import type { AuthProfileStore } from "../agents/auth-profiles.js";
-import type { OpenClawConfig } from "../config/config.js";
 import type { WizardPrompter } from "../wizard/prompts.js";
 import { buildAuthChoiceGroups } from "./auth-choice-options.js";
 import type { AuthChoice } from "./onboard-types.js";
@@ -10,9 +9,6 @@ export async function promptAuthChoiceGrouped(params: {
   prompter: WizardPrompter;
   store: AuthProfileStore;
   includeSkip: boolean;
-  config?: OpenClawConfig;
-  workspaceDir?: string;
-  env?: NodeJS.ProcessEnv;
 }): Promise<AuthChoice> {
   const { groups, skipOption } = buildAuthChoiceGroups(params);
   const availableGroups = groups.filter((group) => group.options.length > 0);
@@ -59,6 +55,6 @@ export async function promptAuthChoiceGrouped(params: {
       continue;
     }
 
-    return methodSelection;
+    return methodSelection as AuthChoice;
   }
 }

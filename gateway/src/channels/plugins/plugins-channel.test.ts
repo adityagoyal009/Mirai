@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { normalizeSignalAccountInput } from "../../../extensions/signal/src/setup-surface.js";
-import { telegramOutbound, whatsappOutbound } from "../../../test/channel-outbounds.js";
-import type { OpenClawConfig } from "../../config/config.js";
+import type { MiraiConfig } from "../../config/config.js";
 import { normalizeIMessageMessagingTarget } from "./normalize/imessage.js";
 import { looksLikeSignalTargetId, normalizeSignalMessagingTarget } from "./normalize/signal.js";
+import { normalizeSignalAccountInput } from "./onboarding/signal.js";
+import { telegramOutbound } from "./outbound/telegram.js";
+import { whatsappOutbound } from "./outbound/whatsapp.js";
 
 function expectWhatsAppTargetResolutionError(result: unknown) {
   expect(result).toEqual({
@@ -75,7 +76,7 @@ describe("telegramOutbound.sendPayload", () => {
     const sendTelegram = vi.fn(async () => ({ messageId: "m1", chatId: "c1" }));
 
     const result = await telegramOutbound.sendPayload?.({
-      cfg: {} as OpenClawConfig,
+      cfg: {} as MiraiConfig,
       to: "telegram:123",
       text: "ignored",
       payload: {
@@ -86,7 +87,7 @@ describe("telegramOutbound.sendPayload", () => {
           },
         },
       },
-      deps: { telegram: sendTelegram },
+      deps: { sendTelegram },
     });
 
     expect(sendTelegram).toHaveBeenCalledTimes(1);
@@ -108,7 +109,7 @@ describe("telegramOutbound.sendPayload", () => {
       .mockResolvedValueOnce({ messageId: "m2", chatId: "c1" });
 
     const result = await telegramOutbound.sendPayload?.({
-      cfg: {} as OpenClawConfig,
+      cfg: {} as MiraiConfig,
       to: "telegram:123",
       text: "ignored",
       payload: {
@@ -120,7 +121,7 @@ describe("telegramOutbound.sendPayload", () => {
           },
         },
       },
-      deps: { telegram: sendTelegram },
+      deps: { sendTelegram },
     });
 
     expect(sendTelegram).toHaveBeenCalledTimes(2);

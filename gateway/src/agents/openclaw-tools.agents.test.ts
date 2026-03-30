@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createPerSenderSessionConfig } from "./test-helpers/session-config.js";
 
 let configOverride: ReturnType<(typeof import("../config/config.js"))["loadConfig"]> = {
-  session: createPerSenderSessionConfig(),
+  session: {
+    mainKey: "main",
+    scope: "per-sender",
+  },
 };
 
 vi.mock("../config/config.js", async (importOriginal) => {
@@ -15,14 +17,17 @@ vi.mock("../config/config.js", async (importOriginal) => {
 });
 
 import "./test-helpers/fast-core-tools.js";
-import { createOpenClawTools } from "./openclaw-tools.js";
+import { createMiraiTools } from "./mirai-tools.js";
 
 describe("agents_list", () => {
   type AgentConfig = NonNullable<NonNullable<typeof configOverride.agents>["list"]>[number];
 
   function setConfigWithAgentList(agentList: AgentConfig[]) {
     configOverride = {
-      session: createPerSenderSessionConfig(),
+      session: {
+        mainKey: "main",
+        scope: "per-sender",
+      },
       agents: {
         list: agentList,
       },
@@ -30,7 +35,7 @@ describe("agents_list", () => {
   }
 
   function requireAgentsListTool() {
-    const tool = createOpenClawTools({
+    const tool = createMiraiTools({
       agentSessionKey: "main",
     }).find((candidate) => candidate.name === "agents_list");
     if (!tool) {
@@ -46,7 +51,10 @@ describe("agents_list", () => {
 
   beforeEach(() => {
     configOverride = {
-      session: createPerSenderSessionConfig(),
+      session: {
+        mainKey: "main",
+        scope: "per-sender",
+      },
     };
   });
 

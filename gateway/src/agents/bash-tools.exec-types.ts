@@ -21,9 +21,6 @@ export type ExecToolDefaults = {
   scopeKey?: string;
   sessionKey?: string;
   messageProvider?: string;
-  currentChannelId?: string;
-  currentThreadTs?: string;
-  accountId?: string;
   notifyOnExit?: boolean;
   notifyOnExitEmptySuccess?: boolean;
   cwd?: string;
@@ -60,19 +57,4 @@ export type ExecToolDetails =
       command: string;
       cwd?: string;
       nodeId?: string;
-      warningText?: string;
-    }
-  | {
-      status: "approval-unavailable";
-      reason:
-        | "initiating-platform-disabled"
-        | "initiating-platform-unsupported"
-        | "no-approval-route";
-      channelLabel?: string;
-      sentApproverDms?: boolean;
-      host: ExecHost;
-      command: string;
-      cwd?: string;
-      nodeId?: string;
-      warningText?: string;
     };

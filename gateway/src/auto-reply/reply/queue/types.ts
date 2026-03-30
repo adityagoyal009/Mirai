@@ -1,8 +1,7 @@
 import type { ExecToolDefaults } from "../../../agents/bash-tools.js";
 import type { SkillSnapshot } from "../../../agents/skills.js";
-import type { OpenClawConfig } from "../../../config/config.js";
+import type { MiraiConfig } from "../../../config/config.js";
 import type { SessionEntry } from "../../../config/sessions.js";
-import type { InputProvenance } from "../../../sessions/input-provenance.js";
 import type { OriginatingChannelType } from "../../templating.js";
 import type { ElevatedLevel, ReasoningLevel, ThinkLevel, VerboseLevel } from "../directives.js";
 
@@ -59,7 +58,7 @@ export type FollowupRun = {
     senderIsOwner?: boolean;
     sessionFile: string;
     workspaceDir: string;
-    config: OpenClawConfig;
+    config: MiraiConfig;
     skillsSnapshot?: SkillSnapshot;
     provider: string;
     model: string;
@@ -78,14 +77,13 @@ export type FollowupRun = {
     timeoutMs: number;
     blockReplyBreak: "text_end" | "message_end";
     ownerNumbers?: string[];
-    inputProvenance?: InputProvenance;
     extraSystemPrompt?: string;
     enforceFinalTag?: boolean;
   };
 };
 
 export type ResolveQueueSettingsParams = {
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   channel?: string;
   sessionEntry?: SessionEntry;
   inlineMode?: QueueMode;

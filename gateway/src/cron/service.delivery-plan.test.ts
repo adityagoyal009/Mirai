@@ -8,7 +8,7 @@ import {
 } from "./service.test-harness.js";
 
 const noopLogger = createNoopLogger();
-const { makeStorePath } = createCronStoreHarness({ prefix: "openclaw-cron-delivery-" });
+const { makeStorePath } = createCronStoreHarness({ prefix: "mirai-cron-delivery-" });
 
 type DeliveryMode = "none" | "announce";
 
@@ -32,7 +32,7 @@ async function withCronService(
     {
       makeStorePath,
       logger: noopLogger,
-      cronEnabled: false,
+      cronEnabled: true,
       runIsolatedAgentJob: params.runIsolatedAgentJob,
     },
     run,
@@ -86,7 +86,7 @@ describe("CronService delivery plan consistency", () => {
     });
   });
 
-  it("treats delivery object without mode as announce without reviving legacy relay fallback", async () => {
+  it("treats delivery object without mode as announce", async () => {
     await withCronService({}, async ({ cron, enqueueSystemEvent }) => {
       const job = await addIsolatedAgentTurnJob(cron, {
         name: "partial-delivery",
@@ -96,8 +96,10 @@ describe("CronService delivery plan consistency", () => {
 
       const result = await cron.run(job.id, "force");
       expect(result).toEqual({ ok: true, ran: true });
-      expect(enqueueSystemEvent).not.toHaveBeenCalled();
-      expect(cron.getJob(job.id)?.state.lastDeliveryStatus).toBe("unknown");
+      expect(enqueueSystemEvent).toHaveBeenCalledWith(
+        "Cron: done",
+        expect.objectContaining({ agentId: undefined }),
+      );
     });
   });
 

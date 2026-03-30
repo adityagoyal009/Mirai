@@ -1,4 +1,4 @@
-const warningFilterKey = Symbol.for("openclaw.warning-filter");
+const warningFilterKey = Symbol.for("mirai.warning-filter");
 
 export type ProcessWarning = {
   code?: string;
@@ -73,20 +73,6 @@ export function installProcessWarningFilter(): void {
   const originalEmitWarning = process.emitWarning.bind(process);
   const wrappedEmitWarning: typeof process.emitWarning = ((...args: unknown[]) => {
     if (shouldIgnoreWarning(normalizeWarningArgs(args))) {
-      return;
-    }
-    if (
-      args[0] instanceof Error &&
-      args[1] &&
-      typeof args[1] === "object" &&
-      !Array.isArray(args[1])
-    ) {
-      const warning = args[0];
-      const emitted = Object.assign(new Error(warning.message), {
-        name: warning.name,
-        code: (warning as Error & { code?: string }).code,
-      });
-      process.emit("warning", emitted);
       return;
     }
     return Reflect.apply(originalEmitWarning, process, args);

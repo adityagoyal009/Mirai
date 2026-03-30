@@ -1,26 +1,28 @@
 import { randomUUID } from "node:crypto";
+import { resolveSessionAgentId } from "../agents/agent-scope.js";
 import { normalizeChannelId } from "../channels/plugins/index.js";
 import { createOutboundSendDeps } from "../cli/outbound-send-deps.js";
-import { agentCommandFromIngress } from "../commands/agent.js";
+import { agentCommand } from "../commands/agent.js";
 import { loadConfig } from "../config/config.js";
 import { updateSessionStore } from "../config/sessions.js";
-import { loadOrCreateDeviceIdentity } from "../infra/device-identity.js";
 import { requestHeartbeatNow } from "../infra/heartbeat-wake.js";
 import { deliverOutboundPayloads } from "../infra/outbound/deliver.js";
-import { buildOutboundSessionContext } from "../infra/outbound/session-context.js";
 import { resolveOutboundTarget } from "../infra/outbound/targets.js";
-import { registerApnsRegistration } from "../infra/push-apns.js";
+import { registerApnsToken } from "../infra/push-apns.js";
 import { enqueueSystemEvent } from "../infra/system-events.js";
-import { normalizeMainKey, scopedHeartbeatWakeOptions } from "../routing/session-key.js";
+import { normalizeMainKey } from "../routing/session-key.js";
 import { defaultRuntime } from "../runtime.js";
 import { parseMessageWithAttachments } from "./chat-attachments.js";
 import { normalizeRpcAttachmentsToChatAttachments } from "./server-methods/attachment-normalize.js";
 import type { NodeEvent, NodeEventContext } from "./server-node-events-types.js";
-import { loadSessionEntry, migrateAndPruneGatewaySessionStoreKey } from "./session-utils.js";
+import {
+  loadSessionEntry,
+  pruneLegacyStoreKeys,
+  resolveGatewaySessionStoreTarget,
+} from "./session-utils.js";
 import { formatForLog } from "./ws-log.js";
 
 const MAX_EXEC_EVENT_OUTPUT_CHARS = 180;
-const MAX_NOTIFICATION_EVENT_TEXT_CHARS = 120;
 const VOICE_TRANSCRIPT_DEDUPE_WINDOW_MS = 1500;
 const MAX_RECENT_VOICE_TRANSCRIPTS = 200;
 
@@ -120,18 +122,6 @@ function compactExecEventOutput(raw: string) {
   return `${normalized.slice(0, safe)}…`;
 }
 
-function compactNotificationEventText(raw: string) {
-  const normalized = raw.replace(/\s+/g, " ").trim();
-  if (!normalized) {
-    return "";
-  }
-  if (normalized.length <= MAX_NOTIFICATION_EVENT_TEXT_CHARS) {
-    return normalized;
-  }
-  const safe = Math.max(1, MAX_NOTIFICATION_EVENT_TEXT_CHARS - 1);
-  return `${normalized.slice(0, safe)}…`;
-}
-
 type LoadedSessionEntry = ReturnType<typeof loadSessionEntry>;
 
 async function touchSessionStore(params: {
@@ -148,16 +138,20 @@ async function touchSessionStore(params: {
     return;
   }
   await updateSessionStore(storePath, (store) => {
-    const { primaryKey } = migrateAndPruneGatewaySessionStoreKey({
+    const target = resolveGatewaySessionStoreTarget({
       cfg: params.cfg,
       key: params.sessionKey,
       store,
     });
-    store[primaryKey] = {
+    pruneLegacyStoreKeys({
+      store,
+      canonicalKey: target.canonicalKey,
+      candidates: target.storeKeys,
+    });
+    store[params.canonicalKey] = {
       sessionId: params.sessionId,
       updatedAt: params.now,
       thinkingLevel: params.entry?.thinkingLevel,
-      fastMode: params.entry?.fastMode,
       verboseLevel: params.entry?.verboseLevel,
       reasoningLevel: params.entry?.reasoningLevel,
       systemSent: params.entry?.systemSent,
@@ -238,16 +232,13 @@ async function sendReceiptAck(params: {
   if (!resolved.ok) {
     throw new Error(String(resolved.error));
   }
-  const session = buildOutboundSessionContext({
-    cfg: params.cfg,
-    sessionKey: params.sessionKey,
-  });
+  const agentId = resolveSessionAgentId({ sessionKey: params.sessionKey, config: params.cfg });
   await deliverOutboundPayloads({
     cfg: params.cfg,
     channel: params.channel,
     to: resolved.to,
     payloads: [{ text: params.text }],
-    session,
+    agentId,
     bestEffort: true,
     deps: createOutboundSendDeps(params.deps),
   });
@@ -288,18 +279,16 @@ export const handleNodeEvent = async (ctx: NodeEventContext, nodeId: string, evt
         sessionId,
         now,
       });
-      const runId = randomUUID();
 
       // Ensure chat UI clients refresh when this run completes (even though it wasn't started via chat.send).
-      // This maps agent bus events (keyed by per-turn runId) to chat events (keyed by clientRunId).
-      ctx.addChatRun(runId, {
+      // This maps agent bus events (keyed by sessionId) to chat events (keyed by clientRunId).
+      ctx.addChatRun(sessionId, {
         sessionKey: canonicalKey,
         clientRunId: `voice-${randomUUID()}`,
       });
 
-      void agentCommandFromIngress(
+      void agentCommand(
         {
-          runId,
           message: text,
           sessionId,
           sessionKey: canonicalKey,
@@ -311,8 +300,6 @@ export const handleNodeEvent = async (ctx: NodeEventContext, nodeId: string, evt
             sourceChannel: "voice",
             sourceTool: "gateway.voice.transcript",
           },
-          senderIsOwner: false,
-          allowModelOverride: false,
         },
         defaultRuntime,
         ctx.deps,
@@ -406,6 +393,7 @@ export const handleNodeEvent = async (ctx: NodeEventContext, nodeId: string, evt
       const deliver = deliverRequested && Boolean(channel && to);
       const deliveryChannel = deliver ? channel : undefined;
       const deliveryTo = deliver ? to : undefined;
+
       if (deliverRequested && !deliver) {
         ctx.logGateway.warn(
           `agent delivery disabled node=${nodeId}: missing session delivery route (channel=${channel ?? "-"} to=${to ?? "-"})`,
@@ -429,9 +417,8 @@ export const handleNodeEvent = async (ctx: NodeEventContext, nodeId: string, evt
         );
       }
 
-      void agentCommandFromIngress(
+      void agentCommand(
         {
-          runId: sessionId,
           message,
           images,
           sessionId,
@@ -443,54 +430,12 @@ export const handleNodeEvent = async (ctx: NodeEventContext, nodeId: string, evt
           timeout:
             typeof link?.timeoutSeconds === "number" ? link.timeoutSeconds.toString() : undefined,
           messageChannel: "node",
-          senderIsOwner: false,
-          allowModelOverride: false,
         },
         defaultRuntime,
         ctx.deps,
       ).catch((err) => {
         ctx.logGateway.warn(`agent failed node=${nodeId}: ${formatForLog(err)}`);
       });
-      return;
-    }
-    case "notifications.changed": {
-      const obj = parsePayloadObject(evt.payloadJSON);
-      if (!obj) {
-        return;
-      }
-      const change = normalizeNonEmptyString(obj.change)?.toLowerCase();
-      if (change !== "posted" && change !== "removed") {
-        return;
-      }
-      const key = normalizeNonEmptyString(obj.key);
-      if (!key) {
-        return;
-      }
-      const sessionKeyRaw = normalizeNonEmptyString(obj.sessionKey) ?? `node-${nodeId}`;
-      const { canonicalKey: sessionKey } = loadSessionEntry(sessionKeyRaw);
-      const packageName = normalizeNonEmptyString(obj.packageName);
-      const title = compactNotificationEventText(normalizeNonEmptyString(obj.title) ?? "");
-      const text = compactNotificationEventText(normalizeNonEmptyString(obj.text) ?? "");
-
-      let summary = `Notification ${change} (node=${nodeId} key=${key}`;
-      if (packageName) {
-        summary += ` package=${packageName}`;
-      }
-      summary += ")";
-      if (change === "posted") {
-        const messageParts = [title, text].filter(Boolean);
-        if (messageParts.length > 0) {
-          summary += `: ${messageParts.join(" - ")}`;
-        }
-      }
-
-      const queued = enqueueSystemEvent(summary, {
-        sessionKey,
-        contextKey: `notification:${key}`,
-      });
-      if (queued) {
-        requestHeartbeatNow({ reason: "notifications-event", sessionKey });
-      }
       return;
     }
     case "chat.subscribe": {
@@ -535,9 +480,6 @@ export const handleNodeEvent = async (ctx: NodeEventContext, nodeId: string, evt
       if (!notifyOnExit) {
         return;
       }
-      if (obj.suppressNotifyOnExit === true) {
-        return;
-      }
 
       const runId = typeof obj.runId === "string" ? obj.runId.trim() : "";
       const command = typeof obj.command === "string" ? obj.command.trim() : "";
@@ -574,10 +516,7 @@ export const handleNodeEvent = async (ctx: NodeEventContext, nodeId: string, evt
       }
 
       enqueueSystemEvent(text, { sessionKey, contextKey: runId ? `exec:${runId}` : "exec" });
-      // Scope wakes only for canonical agent sessions. Synthetic node-* fallback
-      // keys should keep legacy unscoped behavior so enabled non-main heartbeat
-      // agents still run when no explicit agent session is provided.
-      requestHeartbeatNow(scopedHeartbeatWakeOptions(sessionKey, { reason: "exec-event" }));
+      requestHeartbeatNow({ reason: "exec-event" });
       return;
     }
     case "push.apns.register": {
@@ -585,41 +524,16 @@ export const handleNodeEvent = async (ctx: NodeEventContext, nodeId: string, evt
       if (!obj) {
         return;
       }
-      const transport =
-        typeof obj.transport === "string" ? obj.transport.trim().toLowerCase() : "direct";
+      const token = typeof obj.token === "string" ? obj.token : "";
       const topic = typeof obj.topic === "string" ? obj.topic : "";
       const environment = obj.environment;
       try {
-        if (transport === "relay") {
-          const gatewayDeviceId =
-            typeof obj.gatewayDeviceId === "string" ? obj.gatewayDeviceId.trim() : "";
-          const currentGatewayDeviceId = loadOrCreateDeviceIdentity().deviceId;
-          if (!gatewayDeviceId || gatewayDeviceId !== currentGatewayDeviceId) {
-            ctx.logGateway.warn(
-              `push relay register rejected node=${nodeId}: gateway identity mismatch`,
-            );
-            return;
-          }
-          await registerApnsRegistration({
-            nodeId,
-            transport: "relay",
-            relayHandle: typeof obj.relayHandle === "string" ? obj.relayHandle : "",
-            sendGrant: typeof obj.sendGrant === "string" ? obj.sendGrant : "",
-            installationId: typeof obj.installationId === "string" ? obj.installationId : "",
-            topic,
-            environment,
-            distribution: obj.distribution,
-            tokenDebugSuffix: obj.tokenDebugSuffix,
-          });
-        } else {
-          await registerApnsRegistration({
-            nodeId,
-            transport: "direct",
-            token: typeof obj.token === "string" ? obj.token : "",
-            topic,
-            environment,
-          });
-        }
+        await registerApnsToken({
+          nodeId,
+          token,
+          topic,
+          environment,
+        });
       } catch (err) {
         ctx.logGateway.warn(`push apns register failed node=${nodeId}: ${formatForLog(err)}`);
       }

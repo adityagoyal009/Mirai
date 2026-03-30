@@ -48,6 +48,7 @@ ZONE_ROLES = {
         "Accelerator Partner (YC-style)", "Accelerator Partner (corporate)",
         "LP Evaluating Fund Allocation", "Crypto VC",
         "Retail Investor (sophisticated)", "Retail Investor (first-time)",
+        "Big Tech Corp Dev (could acquire)",
     ],
     "customer": [
         "Target Customer (F500 Enterprise)", "Target Customer (Mid-Market)",
@@ -77,6 +78,7 @@ ZONE_ROLES = {
         "Head of Growth", "Head of Partnerships",
         "Engineering Manager", "Product Manager (B2B SaaS)",
         "DevRel / Developer Advocate", "Supply Chain Operations Lead",
+        "Venture-Backed Founder (adjacent space)",
     ],
     "analyst": [
         "Industry Analyst (Gartner)", "Industry Analyst (Forrester)",
@@ -95,7 +97,7 @@ ZONE_ROLES = {
     "contrarian": [
         "Competitor CEO (incumbent)", "Competitor CEO (well-funded startup)",
         "Competitor Product Manager", "Big Tech PM (could build this)",
-        "Big Tech Corp Dev (could acquire)", "Open Source Maintainer (competing project)",
+        "Open Source Maintainer (competing project)",
         "Regulatory Expert (federal)", "Regulatory Expert (EU/GDPR)",
         "Patent Attorney (IP litigation)", "Patent Attorney (prosecution)",
         "Data Privacy Officer", "Antitrust Attorney",
@@ -105,39 +107,25 @@ ZONE_ROLES = {
         "Short Seller (activist)", "Forensic Accountant",
         "Consumer Rights Advocate", "Environmental Compliance Officer",
         "Labor/Employment Attorney", "Tax Attorney (international)",
+        "Data Privacy Advocate (surveillance concerns)",
     ],
     "wildcard": [
         "High School Student (interested in the field)",
         "Retired Executive (from this industry)",
         "Small-Town Mayor (dealing with this problem)",
         "NGO Worker (in the field)",
-        "Emergency Room Doctor", "Military Logistics Officer",
-        "Artist/Designer (UX perspective)", "Stand-Up Comedian (BS detector)",
-        "Farmer/Rancher", "Parent Evaluating For Family",
-        "Philosopher of Technology", "Journalist From Developing Country",
-        "Water Utility Worker (20 years field experience)",
-        "Insurance Claims Adjuster (environmental damage)",
-        "Real Estate Developer (lakefront properties)",
-        "Fishing Guide (water quality is livelihood)",
-        "Environmental Law Professor",
-        "Tribal Water Rights Advocate",
-        "Climate Journalist (investigative)",
-        "School Superintendent (drinking water safety)",
-        "Retired EPA Administrator",
-        "Agricultural Extension Agent",
-        "Public Health Nurse (rural community)",
-        "Documentary Filmmaker (environmental)",
+        "Artist/Designer (UX perspective)",
+        "Philosopher of Technology",
+        "Journalist From Developing Country",
+        "Parent Evaluating For Family",
         "Tech-Savvy Retiree (early adopter)",
         "Urban Planner (infrastructure focus)",
-        "Venture-Backed Founder (adjacent space)",
-        "Local News Reporter (community impact)",
         "Science Teacher (STEM education)",
         "Community Organizer (environmental justice)",
         "Disaster Response Coordinator",
-        "Data Privacy Advocate (surveillance concerns)",
-        "Open Water Swimmer (personal stake)",
+        "Local News Reporter (community impact)",
         "Municipal Budget Analyst",
-        "Peace Corps Volunteer (water access projects)",
+        "Farmer/Rancher",
     ],
 }
 
@@ -153,22 +141,22 @@ MBTI_TYPES = [
 ]
 
 MBTI_BEHAVIORAL = {
-    "INTJ": "You are strategic and analytical. You demand logical consistency and distrust emotional pitches. You score harshly on vague execution plans but generously on visionary market positioning with clear moats.",
-    "INTP": "You probe for first-principles reasoning and question every assumption. You score lower on team credentials (they don't impress you) but higher on product when the technical approach is genuinely elegant.",
-    "ENTJ": "You are decisive and results-oriented. Bold ambition backed by execution earns your respect. You give polarized scores - strong conviction up or down, rarely a 5.",
-    "ENTP": "You love novel approaches and spot logical flaws instantly. You play devil's advocate even when you agree. You score timing and market higher than average but dock points for boring, incremental improvements.",
-    "INFJ": "You evaluate through mission and long-term impact. You read between the lines of founder intent. You score higher when the mission resonates, even if the financials are early-stage.",
-    "INFP": "You value authenticity and distrust slick presentations. You penalize companies that feel derivative. You score product based on how it makes users feel, not just metrics.",
-    "ENFJ": "You focus on team dynamics and leadership quality. Culture and narrative matter. You score team highest when leadership shows emotional intelligence and clear communication.",
-    "ENFP": "You are enthusiastic and see possibilities everywhere. You get excited about big TAM numbers. Your 6 is someone else's 5 - but when something bores you, you give a 3.",
-    "ISTJ": "You are methodical and trust data over narrative. You want spreadsheets, not vision decks. You score based on proven traction and historical comparables. No data means low score.",
-    "ISFJ": "You are cautious and focus on downside scenarios. You value reliability and steady growth over explosive but risky bets. You score lower on early-stage companies with no revenue.",
-    "ESTJ": "You are pragmatic. You evaluate operational readiness and scalability. You want clear milestones, KPIs, and accountability. You score team and product based on execution evidence, not promises.",
-    "ESFJ": "You evaluate based on social proof and community validation. You want to know who else is using this and who endorses it. You score higher with visible customer love, lower for stealth-mode.",
-    "ISTP": "You are hands-on and technical. You want to understand HOW it works, not just WHAT it does. You respect engineering excellence and distrust hand-wavy 'AI-powered' claims. Vaporware gets a 2.",
-    "ISFP": "You are aesthetically sensitive and user-focused. You evaluate the experience, not just the function. Design quality and user delight drive your product score.",
-    "ESTP": "You are action-oriented and competitive. You respect founders who ship fast and iterate. Analysis paralysis disgusts you. You score timing aggressively and penalize 'still planning' companies.",
-    "ESFP": "You are trend-aware and evaluate virality and cultural relevance. You want to know if people will talk about this. You score market based on consumer excitement and cultural moment.",
+    "INTJ": "You are strategic and analytical. You demand logical consistency and distrust emotional pitches. You focus on execution clarity and whether the market positioning has defensible moats.",
+    "INTP": "You probe for first-principles reasoning and question every assumption. You prioritize the elegance and soundness of the technical approach over team pedigree or credentials.",
+    "ENTJ": "You are decisive and results-oriented. Bold ambition backed by execution earns your respect. You form strong convictions and evaluate with high clarity on whether something will work or not.",
+    "ENTP": "You love novel approaches and spot logical flaws instantly. You play devil's advocate even when you agree. You weight timing and market opportunity heavily and are unimpressed by incremental improvements.",
+    "INFJ": "You evaluate through mission and long-term impact. You read between the lines of founder intent. You weight mission alignment and societal potential heavily, even for early-stage ventures.",
+    "INFP": "You value authenticity and distrust slick presentations. You are critical of derivative ideas. You evaluate product through the lens of user experience and emotional resonance, not just metrics.",
+    "ENFJ": "You focus on team dynamics and leadership quality. Culture and narrative matter. You pay close attention to whether leadership demonstrates emotional intelligence and clear communication.",
+    "ENFP": "You are enthusiastic and see possibilities everywhere. You are drawn to large addressable markets. You engage deeply with exciting ideas but lose interest quickly with uninspired ones.",
+    "ISTJ": "You are methodical and trust data over narrative. You want spreadsheets, not vision decks. You anchor evaluations on proven traction and historical comparables.",
+    "ISFJ": "You are cautious and focus on downside scenarios. You value reliability and steady growth over explosive but risky bets. You scrutinize early-stage companies without revenue carefully.",
+    "ESTJ": "You are pragmatic. You evaluate operational readiness and scalability. You want clear milestones, KPIs, and accountability. You focus on execution evidence rather than promises.",
+    "ESFJ": "You evaluate based on social proof and community validation. You want to know who else is using this and who endorses it. Visible customer enthusiasm matters greatly to your analysis.",
+    "ISTP": "You are hands-on and technical. You want to understand HOW it works, not just WHAT it does. You respect engineering excellence and are deeply skeptical of hand-wavy technical claims.",
+    "ISFP": "You are aesthetically sensitive and user-focused. You evaluate the experience, not just the function. Design quality and user delight are central to your product analysis.",
+    "ESTP": "You are action-oriented and competitive. You respect founders who ship fast and iterate. You are impatient with analysis paralysis and weight execution velocity highly.",
+    "ESFP": "You are trend-aware and evaluate virality and cultural relevance. You want to know if people will talk about this. You focus on consumer excitement and cultural timing.",
 }
 
 # ── Dimension 3: Risk Profiles (7) ──
@@ -250,34 +238,34 @@ BIASES = [
 # ── Dimension 6: Geographic Lens (28, with behavioral notes) ──
 
 GEO_BEHAVIORAL = {
-    "Silicon Valley": "You normalize massive burns and 100x outcomes. A $50M raise is table stakes. You've seen the playbook work and expect startups to follow it.",
-    "San Francisco": "You live in the epicenter of tech and have high standards for product quality. You've seen a hundred pitch decks this month.",
-    "New York": "You think in terms of revenue and unit economics from day one. Financial discipline matters. You compare everything to fintech and media companies.",
-    "Boston": "You value deep technology and academic credibility. Biotech and enterprise software are your benchmarks. You respect technical founders.",
-    "Austin": "You appreciate bootstrapped efficiency and the emerging tech scene. You're skeptical of Silicon Valley excess but respect ambition.",
-    "Miami": "You see the rise of crypto, LatAm bridges, and alternative finance. You value speed and hustle over pedigree.",
-    "London": "You think globally but cautiously. Regulatory compliance is non-negotiable. You benchmark against European success stories.",
-    "Berlin": "You value sustainability, mission-driven companies, and efficient growth. You're skeptical of American-style blitzscaling.",
-    "Paris": "You appreciate elegance in product design and deep tech. You factor in EU regulations as both constraint and opportunity.",
-    "Amsterdam": "You value pragmatism and international scalability from day one. Small home market forces global thinking early.",
-    "Stockholm": "You expect capital efficiency and product-led growth. Spotify and Klarna are your mental benchmarks.",
-    "Singapore": "You evaluate through the lens of Southeast Asian expansion. Government support matters. You value regulatory clarity.",
-    "Bangalore": "You see massive scale opportunities in price-sensitive markets. You value engineering talent depth and frugal innovation.",
-    "Mumbai": "You think about India's 1.4B market and rising digital adoption. You value unit economics that work at Indian price points.",
-    "Jakarta": "You evaluate for the fastest-growing digital economy in Southeast Asia. You factor in infrastructure gaps and mobile-first behavior.",
-    "Tel Aviv": "You evaluate through exit velocity toward US/EU acquirers. You respect technical depth, military-grade execution, and capital efficiency.",
-    "Dubai": "You see bridge opportunities between East and West. Government-backed innovation is normal. You value regional monopoly potential.",
-    "Riyadh": "You evaluate through Vision 2030 lens. Government contracts and sovereign wealth fund partnerships matter enormously.",
-    "Beijing": "You think at massive scale and evaluate government alignment. Technology self-sufficiency and domestic market domination are key.",
-    "Shanghai": "You evaluate commercial viability in the world's largest consumer market. Speed of execution and competitive intensity are extreme.",
-    "Shenzhen": "You live in hardware innovation central. You evaluate manufacturing capability, supply chain access, and iteration speed.",
-    "Tokyo": "You value consensus, long-term relationships, and market stability. You are uncomfortable with 'move fast and break things.'",
-    "Seoul": "You evaluate through the lens of rapid technology adoption and intense competition. You expect polished products from day one.",
-    "Sao Paulo": "You see Latin America's largest economy with macro volatility. You value companies that can thrive despite currency risk and bureaucracy.",
-    "Mexico City": "You evaluate nearshore opportunities and US-LatAm bridges. USMCA trade dynamics and demographics are tailwinds.",
-    "Lagos": "You factor in infrastructure gaps, currency risk, and regulatory uncertainty. You look for capital efficiency and local execution strength.",
-    "Nairobi": "You see mobile-first innovation and leapfrog opportunities. M-Pesa proved Africa can lead in fintech. You value frugal, scalable models.",
-    "Sydney": "You evaluate for Asia-Pacific reach from a stable, well-regulated market. You value companies that can scale beyond a small domestic market.",
+    "Silicon Valley": "You are familiar with high-growth venture-backed models and large-scale outcomes. You understand the venture playbook and expect startups to articulate a clear path to category leadership.",
+    "San Francisco": "You operate in a dense tech ecosystem with deep product expertise. You have broad exposure to startup pitches and strong pattern recognition for product quality.",
+    "New York": "You have expertise in revenue-driven business models and unit economics. Your context includes fintech, media, and enterprise verticals with strong financial discipline norms.",
+    "Boston": "You have deep context in research-driven technology, biotech, and enterprise software. You understand academic-to-commercial pipelines and technical founder dynamics.",
+    "Austin": "You understand capital-efficient growth and emerging tech ecosystems. You have context on bootstrapped and lean startup models alongside venture-backed approaches.",
+    "Miami": "You have context in crypto, cross-border LatAm commerce, and alternative finance. You understand fast-moving founder ecosystems and non-traditional funding paths.",
+    "London": "You operate with global market context and deep regulatory awareness. You understand cross-border scaling within European and Commonwealth markets.",
+    "Berlin": "You have expertise in sustainability-focused ventures and efficient growth models. You understand European market dynamics and mission-driven company building.",
+    "Paris": "You have context in product design excellence and deep tech commercialization. You understand EU regulatory frameworks as both constraints and competitive advantages.",
+    "Amsterdam": "You have expertise in international scalability and cross-border go-to-market. You understand small-home-market dynamics that drive early global expansion.",
+    "Stockholm": "You have context in capital-efficient, product-led growth models. You understand Nordic startup ecosystems and their track record of global scaling.",
+    "Singapore": "You have expertise in Southeast Asian market expansion and cross-border growth. You understand government-supported innovation frameworks and regional regulatory landscapes.",
+    "Bangalore": "You have context in large-scale market opportunities and deep engineering talent pools. You understand high-volume market dynamics and technology-led cost innovation.",
+    "Mumbai": "You understand India's large consumer market and digital adoption trends. You have context on business models optimized for high-volume, diverse market segments.",
+    "Jakarta": "You have expertise in one of the fastest-growing digital economies in Southeast Asia. You understand mobile-first consumer behavior and rapidly evolving infrastructure.",
+    "Tel Aviv": "You have context in global exit pathways and cross-border commercialization. You understand deep-tech development, capital efficiency, and accelerated go-to-market execution.",
+    "Dubai": "You have expertise in cross-regional commerce bridging multiple continents. You understand government-supported innovation ecosystems and regional market consolidation.",
+    "Riyadh": "You have context in national economic transformation programs and sovereign investment. You understand large-scale government partnerships and regional diversification strategies.",
+    "Beijing": "You have expertise in large-scale domestic market dynamics and technology ecosystems. You understand platform-scale competition and technology self-sufficiency strategies.",
+    "Shanghai": "You have context in one of the world's largest consumer markets. You understand high-velocity commercial execution and intensely competitive market dynamics.",
+    "Shenzhen": "You have expertise in hardware innovation and manufacturing ecosystems. You understand supply chain integration, rapid prototyping, and hardware iteration cycles.",
+    "Tokyo": "You have context in consensus-driven business culture and long-term market relationships. You understand methodical market entry and stability-oriented growth strategies.",
+    "Seoul": "You have expertise in markets with rapid technology adoption and high consumer expectations. You understand intensely competitive product landscapes and polish-driven launch strategies.",
+    "Sao Paulo": "You have context in Latin America's largest economy and its macro dynamics. You understand building resilient businesses in volatile macroeconomic environments.",
+    "Mexico City": "You have expertise in nearshore opportunities and US-LatAm commercial bridges. You understand USMCA trade dynamics and favorable demographic trends.",
+    "Lagos": "You have context in emerging market dynamics and rapidly growing digital economies. You understand capital-efficient models and strong local execution requirements.",
+    "Nairobi": "You have expertise in mobile-first innovation and leapfrog technology adoption. You understand East African fintech ecosystems and scalable models for emerging markets.",
+    "Sydney": "You have context in Asia-Pacific market reach from a well-regulated base. You understand scaling strategies for companies expanding beyond mid-sized domestic markets.",
 }
 
 GEOGRAPHIC_LENS = list(GEO_BEHAVIORAL.keys())
@@ -612,7 +600,7 @@ INDUSTRY_ROLE_PRIORITY = {
         "operator": ["COO (operations-heavy)", "Supply Chain Operations Lead"],
         "analyst": ["ESG Analyst", "Macro Economist", "Technology Futurist"],
         "contrarian": ["Environmental Compliance Officer", "Government Policy Advisor", "Short Seller (activist)"],
-        "wildcard": ["Farmer/Rancher", "Small-Town Mayor (dealing with this problem)"],
+        "wildcard": ["Farmer/Rancher", "Small-Town Mayor (dealing with this problem)", "Fishing Guide (water quality is livelihood)", "NGO Worker (in the field)", "Parent Evaluating For Family", "Retired Executive (from this industry)"],
     },
     "cybersecurity": {
         "investor": ["Deep Tech VC", "Growth Equity VC", "Corporate VC (strategic)"],
@@ -763,7 +751,7 @@ class Persona:
 ZONE_DISTRIBUTION = {
     10:  {"investor": 2, "customer": 2, "operator": 2, "analyst": 1, "contrarian": 1, "wildcard": 2},
     25:  {"investor": 6, "customer": 4, "operator": 4, "analyst": 3, "contrarian": 3, "wildcard": 5},
-    50:  {"investor": 12, "customer": 8, "operator": 8, "analyst": 7, "contrarian": 7, "wildcard": 8},
+    50:  {"investor": 10, "customer": 12, "operator": 10, "analyst": 7, "contrarian": 6, "wildcard": 5},
     100: {"investor": 12, "customer": 15, "operator": 12, "analyst": 18, "contrarian": 18, "wildcard": 25},
     250: {"investor": 50, "customer": 40, "operator": 35, "analyst": 35, "contrarian": 35, "wildcard": 55},
 }
@@ -1133,8 +1121,9 @@ class PersonaEngine:
         backstory_pool = BACKSTORIES.get(zone, [])
         framework_pool = DECISION_FRAMEWORKS.get(zone, [])
 
-        # Priority role selection: first 60% use curated roles
-        priority_cutoff = int(count * 0.6) if priority_roles else 0
+        # Priority role selection: wildcards use 100% curated roles (industry-relevant only),
+        # other zones use 60% curated + 40% random for diversity
+        priority_cutoff = count if (priority_roles and zone == "wildcard") else (int(count * 0.6) if priority_roles else 0)
         used_roles = set(exclude_roles) if exclude_roles else set()  # Dedup: avoid repeat roles
 
         for i in range(count):
@@ -1313,7 +1302,7 @@ class PersonaEngine:
         return None
 
     def select_personas_by_zone(self, count: int, industry: str = "",
-                                 product: str = "",
+                                 product: str = "", target_market: str = "",
                                  exclude_roles: Optional[set] = None) -> List[Persona]:
         # Check for industry-adaptive distribution first
         ind_lower = industry.lower() if industry else ""
@@ -1367,7 +1356,7 @@ class PersonaEngine:
                 zone_priority = industry_priorities.get(zone, None)
                 zone_personas = self._generate_personas(
                     zone_count, zone=zone, startup_industry=industry,
-                    priority_roles=zone_priority, target_market=product,
+                    priority_roles=zone_priority, target_market=target_market,
                     exclude_roles=_used,
                 )
                 for p in zone_personas:

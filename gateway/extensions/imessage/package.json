@@ -1,0 +1,12 @@
+{
+  "name": "@mirai/imessage",
+  "version": "2026.3.13",
+  "private": true,
+  "description": "Mirai iMessage channel plugin",
+  "type": "module",
+  "mirai": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}

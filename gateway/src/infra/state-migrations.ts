@@ -1,9 +1,8 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { listTelegramAccountIds } from "../../extensions/telegram/api.js";
 import { resolveDefaultAgentId } from "../agents/agent-scope.js";
-import type { OpenClawConfig } from "../config/config.js";
+import type { MiraiConfig } from "../config/config.js";
 import {
   resolveLegacyStateDirs,
   resolveNewStateDir,
@@ -15,7 +14,6 @@ import { saveSessionStore } from "../config/sessions.js";
 import { canonicalizeMainSessionAlias } from "../config/sessions/main-session.js";
 import type { SessionScope } from "../config/sessions/types.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
-import { resolveChannelAllowFromPath } from "../pairing/pairing-store.js";
 import {
   buildAgentMainSessionKey,
   DEFAULT_ACCOUNT_ID,
@@ -58,16 +56,11 @@ export type LegacyStateDetection = {
     hasLegacy: boolean;
   };
   pairingAllowFrom: {
+    legacyTelegramPath: string;
+    targetTelegramPath: string;
     hasLegacyTelegram: boolean;
-    copyPlans: FileCopyPlan[];
   };
   preview: string[];
-};
-
-type FileCopyPlan = {
-  label: string;
-  sourcePath: string;
-  targetPath: string;
 };
 
 type MigrationLogger = {
@@ -102,30 +95,6 @@ function isLegacyGroupKey(key: string): boolean {
     return true;
   }
   return false;
-}
-
-function buildFileCopyPreview(plan: FileCopyPlan): string {
-  return `- ${plan.label}: ${plan.sourcePath} → ${plan.targetPath}`;
-}
-
-async function runFileCopyPlans(
-  plans: FileCopyPlan[],
-): Promise<{ changes: string[]; warnings: string[] }> {
-  const changes: string[] = [];
-  const warnings: string[] = [];
-  for (const plan of plans) {
-    if (fileExists(plan.targetPath)) {
-      continue;
-    }
-    try {
-      ensureDir(path.dirname(plan.targetPath));
-      fs.copyFileSync(plan.sourcePath, plan.targetPath);
-      changes.push(`Copied ${plan.label} → ${plan.targetPath}`);
-    } catch (err) {
-      warnings.push(`Failed migrating ${plan.label} (${plan.sourcePath}): ${String(err)}`);
-    }
-  }
-  return { changes, warnings };
 }
 
 function canonicalizeSessionKeyForAgent(params: {
@@ -465,7 +434,7 @@ export async function autoMigrateLegacyStateDir(params: {
   autoMigrateStateDirChecked = true;
 
   const env = params.env ?? process.env;
-  if (env.OPENCLAW_STATE_DIR?.trim()) {
+  if (env.MIRAI_STATE_DIR?.trim()) {
     return { migrated: false, skipped: true, changes: [], warnings: [] };
   }
 
@@ -591,7 +560,7 @@ export async function autoMigrateLegacyStateDir(params: {
           `State dir moved but failed to link legacy path (${legacyDir ?? "unknown"} → ${targetDir}): ${String(fallbackErr)}`,
         );
         warnings.push(
-          `Rollback failed; set OPENCLAW_STATE_DIR=${targetDir} to avoid split state: ${String(rollbackErr)}`,
+          `Rollback failed; set MIRAI_STATE_DIR=${targetDir} to avoid split state: ${String(rollbackErr)}`,
         );
         changes.push(`State dir: ${legacyDir ?? "unknown"} → ${targetDir}`);
       }
@@ -602,7 +571,7 @@ export async function autoMigrateLegacyStateDir(params: {
 }
 
 export async function detectLegacyStateMigrations(params: {
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   env?: NodeJS.ProcessEnv;
   homedir?: () => string;
 }): Promise<LegacyStateDetection> {
@@ -648,25 +617,13 @@ export async function detectLegacyStateMigrations(params: {
   const hasLegacyWhatsAppAuth =
     fileExists(path.join(oauthDir, "creds.json")) &&
     !fileExists(path.join(targetWhatsAppAuthDir, "creds.json"));
-  const legacyTelegramAllowFromPath = resolveChannelAllowFromPath("telegram", env);
-  const telegramPairingAllowFromPlans = fileExists(legacyTelegramAllowFromPath)
-    ? Array.from(
-        new Set(
-          listTelegramAccountIds(params.cfg).map((accountId) =>
-            resolveChannelAllowFromPath("telegram", env, accountId),
-          ),
-        ),
-      )
-        .filter((targetPath) => !fileExists(targetPath))
-        .map(
-          (targetPath): FileCopyPlan => ({
-            label: "Telegram pairing allowFrom",
-            sourcePath: legacyTelegramAllowFromPath,
-            targetPath,
-          }),
-        )
-    : [];
-  const hasLegacyTelegramAllowFrom = telegramPairingAllowFromPlans.length > 0;
+  const legacyTelegramAllowFromPath = path.join(oauthDir, "telegram-allowFrom.json");
+  const targetTelegramAllowFromPath = path.join(
+    oauthDir,
+    `telegram-${DEFAULT_ACCOUNT_ID}-allowFrom.json`,
+  );
+  const hasLegacyTelegramAllowFrom =
+    fileExists(legacyTelegramAllowFromPath) && !fileExists(targetTelegramAllowFromPath);
 
   const preview: string[] = [];
   if (hasLegacySessions) {
@@ -682,7 +639,9 @@ export async function detectLegacyStateMigrations(params: {
     preview.push(`- WhatsApp auth: ${oauthDir} → ${targetWhatsAppAuthDir} (keep oauth.json)`);
   }
   if (hasLegacyTelegramAllowFrom) {
-    preview.push(...telegramPairingAllowFromPlans.map(buildFileCopyPreview));
+    preview.push(
+      `- Telegram pairing allowFrom: ${legacyTelegramAllowFromPath} → ${targetTelegramAllowFromPath}`,
+    );
   }
 
   return {
@@ -710,8 +669,9 @@ export async function detectLegacyStateMigrations(params: {
       hasLegacy: hasLegacyWhatsAppAuth,
     },
     pairingAllowFrom: {
+      legacyTelegramPath: legacyTelegramAllowFromPath,
+      targetTelegramPath: targetTelegramAllowFromPath,
       hasLegacyTelegram: hasLegacyTelegramAllowFrom,
-      copyPlans: telegramPairingAllowFromPlans,
     },
     preview,
   };
@@ -937,7 +897,18 @@ async function migrateLegacyTelegramPairingAllowFrom(
   if (!detected.pairingAllowFrom.hasLegacyTelegram) {
     return { changes, warnings };
   }
-  return await runFileCopyPlans(detected.pairingAllowFrom.copyPlans);
+
+  const legacyPath = detected.pairingAllowFrom.legacyTelegramPath;
+  const targetPath = detected.pairingAllowFrom.targetTelegramPath;
+  try {
+    ensureDir(path.dirname(targetPath));
+    fs.copyFileSync(legacyPath, targetPath);
+    changes.push(`Copied Telegram pairing allowFrom → ${targetPath}`);
+  } catch (err) {
+    warnings.push(`Failed migrating Telegram pairing allowFrom (${legacyPath}): ${String(err)}`);
+  }
+
+  return { changes, warnings };
 }
 
 export async function runLegacyStateMigrations(params: {
@@ -967,7 +938,7 @@ export async function runLegacyStateMigrations(params: {
 }
 
 export async function autoMigrateLegacyAgentDir(params: {
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   env?: NodeJS.ProcessEnv;
   homedir?: () => string;
   log?: MigrationLogger;
@@ -982,7 +953,7 @@ export async function autoMigrateLegacyAgentDir(params: {
 }
 
 export async function autoMigrateLegacyState(params: {
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   env?: NodeJS.ProcessEnv;
   homedir?: () => string;
   log?: MigrationLogger;
@@ -1004,7 +975,7 @@ export async function autoMigrateLegacyState(params: {
     homedir: params.homedir,
     log: params.log,
   });
-  if (env.OPENCLAW_AGENT_DIR?.trim() || env.PI_CODING_AGENT_DIR?.trim()) {
+  if (env.MIRAI_AGENT_DIR?.trim() || env.PI_CODING_AGENT_DIR?.trim()) {
     return {
       migrated: stateDirResult.migrated,
       skipped: true,

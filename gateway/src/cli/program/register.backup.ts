@@ -72,7 +72,7 @@ export function registerBackupCommand(program: Command) {
       () =>
         `\n${theme.heading("Examples:")}\n${formatHelpExamples([
           [
-            "mirai backup verify ./2026-03-09T00-00-00.000Z-openclaw-backup.tar.gz",
+            "mirai backup verify ./2026-03-09T00-00-00.000Z-mirai-backup.tar.gz",
             "Check that the archive structure and manifest are intact.",
           ],
           [

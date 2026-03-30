@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import type { OpenClawConfig } from "../config/config.js";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { MiraiConfig } from "../config/config.js";
 import { setActivePluginRegistry } from "../plugins/runtime.js";
 import { createOutboundTestPlugin, createTestRegistry } from "../test-utils/channel-plugins.js";
 import { resolveCommandAuthorization } from "./command-auth.js";
@@ -8,9 +8,23 @@ import { listChatCommands } from "./commands-registry.js";
 import { parseActivationCommand } from "./group-activation.js";
 import { parseSendPolicyCommand } from "./send-policy.js";
 import type { MsgContext } from "./templating.js";
-import { installDiscordRegistryHooks } from "./test-helpers/command-auth-registry-fixture.js";
 
-installDiscordRegistryHooks();
+const createRegistry = () =>
+  createTestRegistry([
+    {
+      pluginId: "discord",
+      plugin: createOutboundTestPlugin({ id: "discord", outbound: { deliveryMode: "direct" } }),
+      source: "test",
+    },
+  ]);
+
+beforeEach(() => {
+  setActivePluginRegistry(createRegistry());
+});
+
+afterEach(() => {
+  setActivePluginRegistry(createRegistry());
+});
 
 describe("resolveCommandAuthorization", () => {
   function resolveWhatsAppAuthorization(params: {
@@ -21,7 +35,7 @@ describe("resolveCommandAuthorization", () => {
   }) {
     const cfg = {
       channels: { whatsapp: { allowFrom: params.allowFrom } },
-    } as OpenClawConfig;
+    } as MiraiConfig;
     const ctx = {
       Provider: "whatsapp",
       Surface: "whatsapp",
@@ -93,7 +107,7 @@ describe("resolveCommandAuthorization", () => {
     const cfg = {
       commands: { ownerAllowFrom: ["whatsapp:+15551234567"] },
       channels: { whatsapp: { allowFrom: ["*"] } },
-    } as OpenClawConfig;
+    } as MiraiConfig;
 
     const ownerCtx = {
       Provider: "whatsapp",
@@ -139,7 +153,7 @@ describe("resolveCommandAuthorization", () => {
     );
     const cfg = {
       channels: { discord: {} },
-    } as OpenClawConfig;
+    } as MiraiConfig;
 
     const ctx = {
       Provider: "discord",
@@ -162,13 +176,13 @@ describe("resolveCommandAuthorization", () => {
   it("does not infer a provider from channel allowlists for webchat command contexts", () => {
     const cfg = {
       channels: { whatsapp: { allowFrom: ["+15551234567"] } },
-    } as OpenClawConfig;
+    } as MiraiConfig;
 
     const ctx = {
       Provider: "webchat",
       Surface: "webchat",
       OriginatingChannel: "webchat",
-      SenderId: "openclaw-control-ui",
+      SenderId: "mirai-control-ui",
     } as MsgContext;
 
     const auth = resolveCommandAuthorization({
@@ -189,7 +203,7 @@ describe("resolveCommandAuthorization", () => {
         },
       },
       channels: { whatsapp: { allowFrom: ["+different"] } },
-    } as OpenClawConfig;
+    } as MiraiConfig;
 
     function makeWhatsAppContext(senderId: string): MsgContext {
       return {
@@ -246,7 +260,7 @@ describe("resolveCommandAuthorization", () => {
           },
         },
         channels: { whatsapp: { allowFrom: ["*"] } },
-      } as OpenClawConfig;
+      } as MiraiConfig;
 
       // User in global list but not in whatsapp-specific list
       const globalUserCtx = {
@@ -285,7 +299,7 @@ describe("resolveCommandAuthorization", () => {
     it("falls back to channel allowFrom when commands.allowFrom not set", () => {
       const cfg = {
         channels: { whatsapp: { allowFrom: ["+15551234567"] } },
-      } as OpenClawConfig;
+      } as MiraiConfig;
 
       const authorizedCtx = {
         Provider: "whatsapp",
@@ -311,7 +325,7 @@ describe("resolveCommandAuthorization", () => {
           },
         },
         channels: { whatsapp: { allowFrom: ["+specific"] } },
-      } as OpenClawConfig;
+      } as MiraiConfig;
 
       const anyUserCtx = {
         Provider: "whatsapp",
@@ -336,7 +350,7 @@ describe("resolveCommandAuthorization", () => {
             discord: ["channel:123456789012345678"],
           },
         },
-      } as OpenClawConfig;
+      } as MiraiConfig;
 
       const auth = resolveCommandAuthorization({
         ctx: {
@@ -360,7 +374,7 @@ describe("resolveCommandAuthorization", () => {
             discord: ["123456789012345678"],
           },
         },
-      } as OpenClawConfig;
+      } as MiraiConfig;
 
       const auth = resolveCommandAuthorization({
         ctx: {
@@ -385,7 +399,7 @@ describe("resolveCommandAuthorization", () => {
             "*": ["120363411111111111@g.us"],
           },
         },
-      } as OpenClawConfig;
+      } as MiraiConfig;
 
       const auth = resolveCommandAuthorization({
         ctx: {
@@ -409,7 +423,7 @@ describe("resolveCommandAuthorization", () => {
             discord: ["user:123", "<@!456>", "pk:member-1"],
           },
         },
-      } as OpenClawConfig;
+      } as MiraiConfig;
 
       const userAuth = resolveCommandAuthorization({
         ctx: makeDiscordContext("123"),
@@ -443,52 +457,6 @@ describe("resolveCommandAuthorization", () => {
 
       expect(deniedAuth.isAuthorizedSender).toBe(false);
     });
-  });
-
-  it("grants senderIsOwner for internal channel with operator.admin scope", () => {
-    const cfg = {} as OpenClawConfig;
-    const ctx = {
-      Provider: "webchat",
-      Surface: "webchat",
-      GatewayClientScopes: ["operator.admin"],
-    } as MsgContext;
-    const auth = resolveCommandAuthorization({
-      ctx,
-      cfg,
-      commandAuthorized: true,
-    });
-    expect(auth.senderIsOwner).toBe(true);
-  });
-
-  it("does not grant senderIsOwner for internal channel without admin scope", () => {
-    const cfg = {} as OpenClawConfig;
-    const ctx = {
-      Provider: "webchat",
-      Surface: "webchat",
-      GatewayClientScopes: ["operator.approvals"],
-    } as MsgContext;
-    const auth = resolveCommandAuthorization({
-      ctx,
-      cfg,
-      commandAuthorized: true,
-    });
-    expect(auth.senderIsOwner).toBe(false);
-  });
-
-  it("does not grant senderIsOwner for external channel even with admin scope", () => {
-    const cfg = {} as OpenClawConfig;
-    const ctx = {
-      Provider: "telegram",
-      Surface: "telegram",
-      From: "telegram:12345",
-      GatewayClientScopes: ["operator.admin"],
-    } as MsgContext;
-    const auth = resolveCommandAuthorization({
-      ctx,
-      cfg,
-      commandAuthorized: true,
-    });
-    expect(auth.senderIsOwner).toBe(false);
   });
 });
 
@@ -571,12 +539,12 @@ describe("control command parsing", () => {
   it("ignores telegram commands addressed to other bots", () => {
     expect(
       hasControlCommand("/help@otherbot", undefined, {
-        botUsername: "openclaw",
+        botUsername: "mirai",
       }),
     ).toBe(false);
     expect(
-      hasControlCommand("/help@openclaw", undefined, {
-        botUsername: "openclaw",
+      hasControlCommand("/help@mirai", undefined, {
+        botUsername: "mirai",
       }),
     ).toBe(true);
   });

@@ -1,16 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  loadAuthProfileStoreForSecretsRuntime: vi.fn(),
   resolvePreferredNodePath: vi.fn(),
   resolveGatewayProgramArguments: vi.fn(),
   resolveSystemNodeInfo: vi.fn(),
   renderSystemNodeWarning: vi.fn(),
   buildServiceEnvironment: vi.fn(),
-}));
-
-vi.mock("../agents/auth-profiles.js", () => ({
-  loadAuthProfileStoreForSecretsRuntime: mocks.loadAuthProfileStoreForSecretsRuntime,
 }));
 
 vi.mock("../daemon/runtime-paths.js", () => ({
@@ -39,11 +34,11 @@ afterEach(() => {
 
 describe("resolveGatewayDevMode", () => {
   it("detects dev mode for src ts entrypoints", () => {
-    expect(resolveGatewayDevMode(["node", "/Users/me/openclaw/src/cli/index.ts"])).toBe(true);
-    expect(resolveGatewayDevMode(["node", "C:\\Users\\me\\openclaw\\src\\cli\\index.ts"])).toBe(
+    expect(resolveGatewayDevMode(["node", "/Users/me/mirai/src/cli/index.ts"])).toBe(true);
+    expect(resolveGatewayDevMode(["node", "C:\\Users\\me\\mirai\\src\\cli\\index.ts"])).toBe(
       true,
     );
-    expect(resolveGatewayDevMode(["node", "/Users/me/openclaw/dist/cli/index.js"])).toBe(false);
+    expect(resolveGatewayDevMode(["node", "/Users/me/mirai/dist/cli/index.js"])).toBe(false);
   });
 });
 
@@ -61,16 +56,12 @@ function mockNodeGatewayPlanFixture(
     version = "22.0.0",
     supported = true,
     warning,
-    serviceEnvironment = { OPENCLAW_PORT: "3000" },
+    serviceEnvironment = { MIRAI_PORT: "3000" },
   } = params;
   mocks.resolvePreferredNodePath.mockResolvedValue("/opt/node");
   mocks.resolveGatewayProgramArguments.mockResolvedValue({
     programArguments: ["node", "gateway"],
     workingDirectory,
-  });
-  mocks.loadAuthProfileStoreForSecretsRuntime.mockReturnValue({
-    version: 1,
-    profiles: {},
   });
   mocks.resolveSystemNodeInfo.mockResolvedValue({
     path: "/opt/node",
@@ -94,32 +85,8 @@ describe("buildGatewayInstallPlan", () => {
 
     expect(plan.programArguments).toEqual(["node", "gateway"]);
     expect(plan.workingDirectory).toBe("/Users/me");
-    expect(plan.environment).toEqual({ OPENCLAW_PORT: "3000" });
+    expect(plan.environment).toEqual({ MIRAI_PORT: "3000" });
     expect(mocks.resolvePreferredNodePath).not.toHaveBeenCalled();
-    expect(mocks.buildServiceEnvironment).toHaveBeenCalledWith(
-      expect.objectContaining({
-        env: {},
-        port: 3000,
-        extraPathDirs: ["/custom"],
-      }),
-    );
-  });
-
-  it("does not prepend '.' when nodePath is a bare executable name", async () => {
-    mockNodeGatewayPlanFixture();
-
-    await buildGatewayInstallPlan({
-      env: {},
-      port: 3000,
-      runtime: "node",
-      nodePath: "node",
-    });
-
-    expect(mocks.buildServiceEnvironment).toHaveBeenCalledWith(
-      expect.objectContaining({
-        extraPathDirs: undefined,
-      }),
-    );
   });
 
   it("emits warnings when renderSystemNodeWarning returns one", async () => {
@@ -146,7 +113,7 @@ describe("buildGatewayInstallPlan", () => {
   it("merges config env vars into the environment", async () => {
     mockNodeGatewayPlanFixture({
       serviceEnvironment: {
-        OPENCLAW_PORT: "3000",
+        MIRAI_PORT: "3000",
         HOME: "/Users/me",
       },
     });
@@ -158,7 +125,7 @@ describe("buildGatewayInstallPlan", () => {
       config: {
         env: {
           vars: {
-            GOOGLE_API_KEY: "test-key", // pragma: allowlist secret
+            GOOGLE_API_KEY: "test-key",
           },
           CUSTOM_VAR: "custom-value",
         },
@@ -169,14 +136,14 @@ describe("buildGatewayInstallPlan", () => {
     expect(plan.environment.GOOGLE_API_KEY).toBe("test-key");
     expect(plan.environment.CUSTOM_VAR).toBe("custom-value");
     // Service environment vars should take precedence
-    expect(plan.environment.OPENCLAW_PORT).toBe("3000");
+    expect(plan.environment.MIRAI_PORT).toBe("3000");
     expect(plan.environment.HOME).toBe("/Users/me");
   });
 
   it("drops dangerous config env vars before service merge", async () => {
     mockNodeGatewayPlanFixture({
       serviceEnvironment: {
-        OPENCLAW_PORT: "3000",
+        MIRAI_PORT: "3000",
       },
     });
 
@@ -244,7 +211,7 @@ describe("buildGatewayInstallPlan", () => {
     mockNodeGatewayPlanFixture({
       serviceEnvironment: {
         HOME: "/Users/service",
-        OPENCLAW_PORT: "3000",
+        MIRAI_PORT: "3000",
       },
     });
 
@@ -256,84 +223,22 @@ describe("buildGatewayInstallPlan", () => {
         env: {
           HOME: "/Users/config",
           vars: {
-            OPENCLAW_PORT: "9999",
+            MIRAI_PORT: "9999",
           },
         },
       },
     });
 
     expect(plan.environment.HOME).toBe("/Users/service");
-    expect(plan.environment.OPENCLAW_PORT).toBe("3000");
-  });
-
-  it("merges env-backed auth-profile refs into the service environment", async () => {
-    mockNodeGatewayPlanFixture({
-      serviceEnvironment: {
-        OPENCLAW_PORT: "3000",
-      },
-    });
-    mocks.loadAuthProfileStoreForSecretsRuntime.mockReturnValue({
-      version: 1,
-      profiles: {
-        "openai:default": {
-          type: "api_key",
-          provider: "openai",
-          keyRef: { source: "env", provider: "default", id: "OPENAI_API_KEY" },
-        },
-        "anthropic:default": {
-          type: "token",
-          provider: "anthropic",
-          tokenRef: { source: "env", provider: "default", id: "ANTHROPIC_TOKEN" },
-        },
-      },
-    });
-
-    const plan = await buildGatewayInstallPlan({
-      env: {
-        OPENAI_API_KEY: "sk-openai-test", // pragma: allowlist secret
-        ANTHROPIC_TOKEN: "ant-test-token",
-      },
-      port: 3000,
-      runtime: "node",
-    });
-
-    expect(plan.environment.OPENAI_API_KEY).toBe("sk-openai-test");
-    expect(plan.environment.ANTHROPIC_TOKEN).toBe("ant-test-token");
-  });
-
-  it("skips unresolved auth-profile env refs", async () => {
-    mockNodeGatewayPlanFixture({
-      serviceEnvironment: {
-        OPENCLAW_PORT: "3000",
-      },
-    });
-    mocks.loadAuthProfileStoreForSecretsRuntime.mockReturnValue({
-      version: 1,
-      profiles: {
-        "openai:default": {
-          type: "api_key",
-          provider: "openai",
-          keyRef: { source: "env", provider: "default", id: "OPENAI_API_KEY" },
-        },
-      },
-    });
-
-    const plan = await buildGatewayInstallPlan({
-      env: {},
-      port: 3000,
-      runtime: "node",
-    });
-
-    expect(plan.environment.OPENAI_API_KEY).toBeUndefined();
+    expect(plan.environment.MIRAI_PORT).toBe("3000");
   });
 });
 
 describe("gatewayInstallErrorHint", () => {
   it("returns platform-specific hints", () => {
-    expect(gatewayInstallErrorHint("win32")).toContain("Startup-folder login item");
-    expect(gatewayInstallErrorHint("win32")).toContain("elevated PowerShell");
+    expect(gatewayInstallErrorHint("win32")).toContain("Run as administrator");
     expect(gatewayInstallErrorHint("linux")).toMatch(
-      /(?:openclaw|openclaw)( --profile isolated)? gateway install/,
+      /(?:mirai|mirai)( --profile isolated)? gateway install/,
     );
   });
 });

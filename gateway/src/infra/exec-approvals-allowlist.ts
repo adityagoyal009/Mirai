@@ -25,7 +25,6 @@ import {
   unwrapKnownShellMultiplexerInvocation,
   unwrapKnownDispatchWrapperInvocation,
 } from "./exec-wrapper-resolution.js";
-import { expandHomePrefix } from "./home-dir.js";
 
 function hasShellLineContinuation(command: string): boolean {
   return /\\(?:\r\n|\n|\r)/.test(command);
@@ -110,29 +109,6 @@ export type SkillBinTrustEntry = {
   name: string;
   resolvedPath: string;
 };
-type ExecAllowlistContext = {
-  allowlist: ExecAllowlistEntry[];
-  safeBins: Set<string>;
-  safeBinProfiles?: Readonly<Record<string, SafeBinProfile>>;
-  cwd?: string;
-  platform?: string | null;
-  trustedSafeBinDirs?: ReadonlySet<string>;
-  skillBins?: readonly SkillBinTrustEntry[];
-  autoAllowSkills?: boolean;
-};
-
-function pickExecAllowlistContext(params: ExecAllowlistContext): ExecAllowlistContext {
-  return {
-    allowlist: params.allowlist,
-    safeBins: params.safeBins,
-    safeBinProfiles: params.safeBinProfiles,
-    cwd: params.cwd,
-    platform: params.platform,
-    trustedSafeBinDirs: params.trustedSafeBinDirs,
-    skillBins: params.skillBins,
-    autoAllowSkills: params.autoAllowSkills,
-  };
-}
 
 function normalizeSkillBinName(value: string | undefined): string | null {
   const trimmed = value?.trim().toLowerCase();
@@ -197,7 +173,16 @@ function isSkillAutoAllowedSegment(params: {
 
 function evaluateSegments(
   segments: ExecCommandSegment[],
-  params: ExecAllowlistContext,
+  params: {
+    allowlist: ExecAllowlistEntry[];
+    safeBins: Set<string>;
+    safeBinProfiles?: Readonly<Record<string, SafeBinProfile>>;
+    cwd?: string;
+    platform?: string | null;
+    trustedSafeBinDirs?: ReadonlySet<string>;
+    skillBins?: readonly SkillBinTrustEntry[];
+    autoAllowSkills?: boolean;
+  },
 ): {
   satisfied: boolean;
   matches: ExecAllowlistEntry[];
@@ -217,30 +202,12 @@ function evaluateSegments(
       segment.resolution?.effectiveArgv && segment.resolution.effectiveArgv.length > 0
         ? segment.resolution.effectiveArgv
         : segment.argv;
-    const allowlistSegment =
-      effectiveArgv === segment.argv ? segment : { ...segment, argv: effectiveArgv };
     const candidatePath = resolveAllowlistCandidatePath(segment.resolution, params.cwd);
     const candidateResolution =
       candidatePath && segment.resolution
         ? { ...segment.resolution, resolvedPath: candidatePath }
         : segment.resolution;
-    const executableMatch = matchAllowlist(params.allowlist, candidateResolution);
-    const inlineCommand = extractShellWrapperInlineCommand(allowlistSegment.argv);
-    const shellScriptCandidatePath =
-      inlineCommand === null
-        ? resolveShellWrapperScriptCandidatePath({
-            segment: allowlistSegment,
-            cwd: params.cwd,
-          })
-        : undefined;
-    const shellScriptMatch = shellScriptCandidatePath
-      ? matchAllowlist(params.allowlist, {
-          rawExecutable: shellScriptCandidatePath,
-          resolvedPath: shellScriptCandidatePath,
-          executableName: path.basename(shellScriptCandidatePath),
-        })
-      : null;
-    const match = executableMatch ?? shellScriptMatch;
+    const match = matchAllowlist(params.allowlist, candidateResolution);
     if (match) {
       matches.push(match);
     }
@@ -278,21 +245,35 @@ function resolveAnalysisSegmentGroups(analysis: ExecCommandAnalysis): ExecComman
   return [analysis.segments];
 }
 
-export function evaluateExecAllowlist(
-  params: {
-    analysis: ExecCommandAnalysis;
-  } & ExecAllowlistContext,
-): ExecAllowlistEvaluation {
+export function evaluateExecAllowlist(params: {
+  analysis: ExecCommandAnalysis;
+  allowlist: ExecAllowlistEntry[];
+  safeBins: Set<string>;
+  safeBinProfiles?: Readonly<Record<string, SafeBinProfile>>;
+  cwd?: string;
+  platform?: string | null;
+  trustedSafeBinDirs?: ReadonlySet<string>;
+  skillBins?: readonly SkillBinTrustEntry[];
+  autoAllowSkills?: boolean;
+}): ExecAllowlistEvaluation {
   const allowlistMatches: ExecAllowlistEntry[] = [];
   const segmentSatisfiedBy: ExecSegmentSatisfiedBy[] = [];
   if (!params.analysis.ok || params.analysis.segments.length === 0) {
     return { allowlistSatisfied: false, allowlistMatches, segmentSatisfiedBy };
   }
 
-  const allowlistContext = pickExecAllowlistContext(params);
   const hasChains = Boolean(params.analysis.chains);
   for (const group of resolveAnalysisSegmentGroups(params.analysis)) {
-    const result = evaluateSegments(group, allowlistContext);
+    const result = evaluateSegments(group, {
+      allowlist: params.allowlist,
+      safeBins: params.safeBins,
+      safeBinProfiles: params.safeBinProfiles,
+      cwd: params.cwd,
+      platform: params.platform,
+      trustedSafeBinDirs: params.trustedSafeBinDirs,
+      skillBins: params.skillBins,
+      autoAllowSkills: params.autoAllowSkills,
+    });
     if (!result.satisfied) {
       if (!hasChains) {
         return {
@@ -346,74 +327,6 @@ function isDispatchWrapperSegment(segment: ExecCommandSegment): boolean {
   return hasSegmentExecutableMatch(segment, isDispatchWrapperExecutable);
 }
 
-const SHELL_WRAPPER_OPTIONS_WITH_VALUE = new Set([
-  "-c",
-  "--command",
-  "-o",
-  "-O",
-  "+O",
-  "--rcfile",
-  "--init-file",
-  "--startup-file",
-]);
-
-function resolveShellWrapperScriptCandidatePath(params: {
-  segment: ExecCommandSegment;
-  cwd?: string;
-}): string | undefined {
-  if (!isShellWrapperSegment(params.segment)) {
-    return undefined;
-  }
-
-  const argv = params.segment.argv;
-  if (!Array.isArray(argv) || argv.length < 2) {
-    return undefined;
-  }
-
-  let idx = 1;
-  while (idx < argv.length) {
-    const token = argv[idx]?.trim() ?? "";
-    if (!token) {
-      idx += 1;
-      continue;
-    }
-    if (token === "--") {
-      idx += 1;
-      break;
-    }
-    if (token === "-c" || token === "--command") {
-      return undefined;
-    }
-    if (/^-[^-]*c[^-]*$/i.test(token)) {
-      return undefined;
-    }
-    if (token === "-s" || /^-[^-]*s[^-]*$/i.test(token)) {
-      return undefined;
-    }
-    if (SHELL_WRAPPER_OPTIONS_WITH_VALUE.has(token)) {
-      idx += 2;
-      continue;
-    }
-    if (token.startsWith("-") || token.startsWith("+")) {
-      idx += 1;
-      continue;
-    }
-    break;
-  }
-
-  const scriptToken = argv[idx]?.trim();
-  if (!scriptToken) {
-    return undefined;
-  }
-  if (path.isAbsolute(scriptToken)) {
-    return scriptToken;
-  }
-
-  const expanded = scriptToken.startsWith("~") ? expandHomePrefix(scriptToken) : scriptToken;
-  const base = params.cwd && params.cwd.trim().length > 0 ? params.cwd : process.cwd();
-  return path.resolve(base, expanded);
-}
-
 function collectAllowAlwaysPatterns(params: {
   segment: ExecCommandSegment;
   cwd?: string;
@@ -426,12 +339,16 @@ function collectAllowAlwaysPatterns(params: {
     return;
   }
 
-  const recurseWithArgv = (argv: string[]): void => {
+  if (isDispatchWrapperSegment(params.segment)) {
+    const dispatchUnwrap = unwrapKnownDispatchWrapperInvocation(params.segment.argv);
+    if (dispatchUnwrap.kind !== "unwrapped" || dispatchUnwrap.argv.length === 0) {
+      return;
+    }
     collectAllowAlwaysPatterns({
       segment: {
-        raw: argv.join(" "),
-        argv,
-        resolution: resolveCommandResolutionFromArgv(argv, params.cwd, params.env),
+        raw: dispatchUnwrap.argv.join(" "),
+        argv: dispatchUnwrap.argv,
+        resolution: resolveCommandResolutionFromArgv(dispatchUnwrap.argv, params.cwd, params.env),
       },
       cwd: params.cwd,
       env: params.env,
@@ -439,14 +356,6 @@ function collectAllowAlwaysPatterns(params: {
       depth: params.depth + 1,
       out: params.out,
     });
-  };
-
-  if (isDispatchWrapperSegment(params.segment)) {
-    const dispatchUnwrap = unwrapKnownDispatchWrapperInvocation(params.segment.argv);
-    if (dispatchUnwrap.kind !== "unwrapped" || dispatchUnwrap.argv.length === 0) {
-      return;
-    }
-    recurseWithArgv(dispatchUnwrap.argv);
     return;
   }
 
@@ -455,7 +364,22 @@ function collectAllowAlwaysPatterns(params: {
     return;
   }
   if (shellMultiplexerUnwrap.kind === "unwrapped") {
-    recurseWithArgv(shellMultiplexerUnwrap.argv);
+    collectAllowAlwaysPatterns({
+      segment: {
+        raw: shellMultiplexerUnwrap.argv.join(" "),
+        argv: shellMultiplexerUnwrap.argv,
+        resolution: resolveCommandResolutionFromArgv(
+          shellMultiplexerUnwrap.argv,
+          params.cwd,
+          params.env,
+        ),
+      },
+      cwd: params.cwd,
+      env: params.env,
+      platform: params.platform,
+      depth: params.depth + 1,
+      out: params.out,
+    });
     return;
   }
 
@@ -469,13 +393,6 @@ function collectAllowAlwaysPatterns(params: {
   }
   const inlineCommand = extractShellWrapperInlineCommand(params.segment.argv);
   if (!inlineCommand) {
-    const scriptPath = resolveShellWrapperScriptCandidatePath({
-      segment: params.segment,
-      cwd: params.cwd,
-    });
-    if (scriptPath) {
-      params.out.add(scriptPath);
-    }
     return;
   }
   const nested = analyzeShellCommand({
@@ -527,13 +444,18 @@ export function resolveAllowAlwaysPatterns(params: {
 /**
  * Evaluates allowlist for shell commands (including &&, ||, ;) and returns analysis metadata.
  */
-export function evaluateShellAllowlist(
-  params: {
-    command: string;
-    env?: NodeJS.ProcessEnv;
-  } & ExecAllowlistContext,
-): ExecAllowlistAnalysis {
-  const allowlistContext = pickExecAllowlistContext(params);
+export function evaluateShellAllowlist(params: {
+  command: string;
+  allowlist: ExecAllowlistEntry[];
+  safeBins: Set<string>;
+  safeBinProfiles?: Readonly<Record<string, SafeBinProfile>>;
+  cwd?: string;
+  env?: NodeJS.ProcessEnv;
+  trustedSafeBinDirs?: ReadonlySet<string>;
+  skillBins?: readonly SkillBinTrustEntry[];
+  autoAllowSkills?: boolean;
+  platform?: string | null;
+}): ExecAllowlistAnalysis {
   const analysisFailure = (): ExecAllowlistAnalysis => ({
     analysisOk: false,
     allowlistSatisfied: false,
@@ -559,7 +481,17 @@ export function evaluateShellAllowlist(
     if (!analysis.ok) {
       return analysisFailure();
     }
-    const evaluation = evaluateExecAllowlist({ analysis, ...allowlistContext });
+    const evaluation = evaluateExecAllowlist({
+      analysis,
+      allowlist: params.allowlist,
+      safeBins: params.safeBins,
+      safeBinProfiles: params.safeBinProfiles,
+      cwd: params.cwd,
+      platform: params.platform,
+      trustedSafeBinDirs: params.trustedSafeBinDirs,
+      skillBins: params.skillBins,
+      autoAllowSkills: params.autoAllowSkills,
+    });
     return {
       analysisOk: true,
       allowlistSatisfied: evaluation.allowlistSatisfied,
@@ -585,7 +517,17 @@ export function evaluateShellAllowlist(
     }
 
     segments.push(...analysis.segments);
-    const evaluation = evaluateExecAllowlist({ analysis, ...allowlistContext });
+    const evaluation = evaluateExecAllowlist({
+      analysis,
+      allowlist: params.allowlist,
+      safeBins: params.safeBins,
+      safeBinProfiles: params.safeBinProfiles,
+      cwd: params.cwd,
+      platform: params.platform,
+      trustedSafeBinDirs: params.trustedSafeBinDirs,
+      skillBins: params.skillBins,
+      autoAllowSkills: params.autoAllowSkills,
+    });
     allowlistMatches.push(...evaluation.allowlistMatches);
     segmentSatisfiedBy.push(...evaluation.segmentSatisfiedBy);
     if (!evaluation.allowlistSatisfied) {

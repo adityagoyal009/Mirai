@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AuthProfileStore } from "../agents/auth-profiles.js";
-import type { OpenClawConfig } from "../config/config.js";
+import type { MiraiConfig } from "../config/config.js";
 import type { PluginWebSearchProviderEntry } from "../plugins/types.js";
 import { getPath, setPathCreateStrict } from "./path-utils.js";
 import { clearSecretsRuntimeSnapshot, prepareSecretsRuntimeSnapshot } from "./runtime.js";
@@ -104,8 +104,8 @@ function toConcretePathSegments(pathPattern: string): string[] {
   return out;
 }
 
-function buildConfigForOpenClawTarget(entry: SecretRegistryEntry, envId: string): OpenClawConfig {
-  const config = {} as OpenClawConfig;
+function buildConfigForMiraiTarget(entry: SecretRegistryEntry, envId: string): MiraiConfig {
+  const config = {} as MiraiConfig;
   const refTargetPath =
     entry.secretShape === "sibling_ref" && entry.refPathPattern // pragma: allowlist secret
       ? entry.refPathPattern
@@ -246,17 +246,17 @@ describe("secrets runtime target coverage", () => {
     resolvePluginWebSearchProvidersMock.mockReset();
   });
 
-  it("handles every openclaw.json registry target when configured as active", async () => {
+  it("handles every mirai.json registry target when configured as active", async () => {
     const entries = listSecretTargetRegistryEntries().filter(
-      (entry) => entry.configFile === "openclaw.json",
+      (entry) => entry.configFile === "mirai.json",
     );
     for (const [index, entry] of entries.entries()) {
-      const envId = `OPENCLAW_SECRET_TARGET_${index}`;
+      const envId = `MIRAI_SECRET_TARGET_${index}`;
       const expectedValue = `resolved-${entry.id}`;
       const snapshot = await prepareSecretsRuntimeSnapshot({
-        config: buildConfigForOpenClawTarget(entry, envId),
+        config: buildConfigForMiraiTarget(entry, envId),
         env: { [envId]: expectedValue },
-        agentDirs: ["/tmp/openclaw-agent-main"],
+        agentDirs: ["/tmp/mirai-agent-main"],
         loadAuthStore: () => ({ version: 1, profiles: {} }),
       });
       const resolved = getPath(snapshot.config, toConcretePathSegments(entry.pathPattern));
@@ -275,12 +275,12 @@ describe("secrets runtime target coverage", () => {
       (entry) => entry.configFile === "auth-profiles.json",
     );
     for (const [index, entry] of entries.entries()) {
-      const envId = `OPENCLAW_AUTH_SECRET_TARGET_${index}`;
+      const envId = `MIRAI_AUTH_SECRET_TARGET_${index}`;
       const expectedValue = `resolved-${entry.id}`;
       const snapshot = await prepareSecretsRuntimeSnapshot({
-        config: {} as OpenClawConfig,
+        config: {} as MiraiConfig,
         env: { [envId]: expectedValue },
-        agentDirs: ["/tmp/openclaw-agent-main"],
+        agentDirs: ["/tmp/mirai-agent-main"],
         loadAuthStore: () => buildAuthStoreForTarget(entry, envId),
       });
       const store = snapshot.authStores[0]?.store;

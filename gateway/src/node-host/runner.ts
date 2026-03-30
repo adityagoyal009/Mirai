@@ -1,17 +1,12 @@
+import fs from "node:fs";
+import path from "node:path";
 import { resolveBrowserConfig } from "../browser/config.js";
-import { loadConfig, type OpenClawConfig } from "../config/config.js";
+import { loadConfig } from "../config/config.js";
 import { GatewayClient } from "../gateway/client.js";
-import { resolveGatewayConnectionAuth } from "../gateway/connection-auth.js";
 import { loadOrCreateDeviceIdentity } from "../infra/device-identity.js";
 import type { SkillBinTrustEntry } from "../infra/exec-approvals.js";
-import { resolveExecutableFromPathEnv } from "../infra/executable-path.js";
 import { getMachineDisplayName } from "../infra/machine-name.js";
-import {
-  NODE_BROWSER_PROXY_COMMAND,
-  NODE_EXEC_APPROVALS_COMMANDS,
-  NODE_SYSTEM_RUN_COMMANDS,
-} from "../infra/node-commands.js";
-import { ensureOpenClawCliOnPath } from "../infra/path-env.js";
+import { ensureMiraiCliOnPath } from "../infra/path-env.js";
 import { GATEWAY_CLIENT_MODES, GATEWAY_CLIENT_NAMES } from "../utils/message-channel.js";
 import { VERSION } from "../version.js";
 import { ensureNodeHostConfig, saveNodeHostConfig, type NodeHostGatewayConfig } from "./config.js";
@@ -35,11 +30,43 @@ type NodeHostRunOptions = {
 
 const DEFAULT_NODE_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
 
+function isExecutableFile(filePath: string): boolean {
+  try {
+    const stat = fs.statSync(filePath);
+    if (!stat.isFile()) {
+      return false;
+    }
+    if (process.platform !== "win32") {
+      fs.accessSync(filePath, fs.constants.X_OK);
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function resolveExecutablePathFromEnv(bin: string, pathEnv: string): string | null {
   if (bin.includes("/") || bin.includes("\\")) {
     return null;
   }
-  return resolveExecutableFromPathEnv(bin, pathEnv) ?? null;
+  const hasExtension = process.platform === "win32" && path.extname(bin).length > 0;
+  const extensions =
+    process.platform === "win32"
+      ? hasExtension
+        ? [""]
+        : (process.env.PATHEXT ?? process.env.PathExt ?? ".EXE;.CMD;.BAT;.COM")
+            .split(";")
+            .map((ext) => ext.toLowerCase())
+      : [""];
+  for (const dir of pathEnv.split(path.delimiter).filter(Boolean)) {
+    for (const ext of extensions) {
+      const candidate = path.join(dir, bin + ext);
+      if (isExecutableFile(candidate)) {
+        return candidate;
+      }
+    }
+  }
+  return null;
 }
 
 function resolveSkillBinTrustEntries(bins: string[], pathEnv: string): SkillBinTrustEntry[] {
@@ -100,45 +127,13 @@ class SkillBinsCache implements SkillBinsProvider {
 }
 
 function ensureNodePathEnv(): string {
-  ensureOpenClawCliOnPath({ pathEnv: process.env.PATH ?? "" });
+  ensureMiraiCliOnPath({ pathEnv: process.env.PATH ?? "" });
   const current = process.env.PATH ?? "";
   if (current.trim()) {
     return current;
   }
   process.env.PATH = DEFAULT_NODE_PATH;
   return DEFAULT_NODE_PATH;
-}
-
-export async function resolveNodeHostGatewayCredentials(params: {
-  config: OpenClawConfig;
-  env?: NodeJS.ProcessEnv;
-}): Promise<{ token?: string; password?: string }> {
-  const mode = params.config.gateway?.mode === "remote" ? "remote" : "local";
-  const configForResolution =
-    mode === "local" ? buildNodeHostLocalAuthConfig(params.config) : params.config;
-  return await resolveGatewayConnectionAuth({
-    config: configForResolution,
-    env: params.env,
-    includeLegacyEnv: false,
-    localTokenPrecedence: "env-first",
-    localPasswordPrecedence: "env-first", // pragma: allowlist secret
-    remoteTokenPrecedence: "env-first",
-    remotePasswordPrecedence: "env-first", // pragma: allowlist secret
-  });
-}
-
-function buildNodeHostLocalAuthConfig(config: OpenClawConfig): OpenClawConfig {
-  if (!config.gateway?.remote?.token && !config.gateway?.remote?.password) {
-    return config;
-  }
-  const nextConfig = structuredClone(config);
-  if (nextConfig.gateway?.remote) {
-    // Local node-host must not inherit gateway.remote.* auth material, which can
-    // suppress GatewayClient device-token fallback and cause local token mismatches.
-    nextConfig.gateway.remote.token = undefined;
-    nextConfig.gateway.remote.password = undefined;
-  }
-  return nextConfig;
 }
 
 export async function runNodeHost(opts: NodeHostRunOptions): Promise<void> {
@@ -164,21 +159,26 @@ export async function runNodeHost(opts: NodeHostRunOptions): Promise<void> {
   const resolvedBrowser = resolveBrowserConfig(cfg.browser, cfg);
   const browserProxyEnabled =
     cfg.nodeHost?.browserProxy?.enabled !== false && resolvedBrowser.enabled;
-  const { token, password } = await resolveNodeHostGatewayCredentials({
-    config: cfg,
-    env: process.env,
-  });
+  const isRemoteMode = cfg.gateway?.mode === "remote";
+  const token =
+    process.env.MIRAI_GATEWAY_TOKEN?.trim() ||
+    (isRemoteMode ? cfg.gateway?.remote?.token : cfg.gateway?.auth?.token);
+  const password =
+    process.env.MIRAI_GATEWAY_PASSWORD?.trim() ||
+    (isRemoteMode ? cfg.gateway?.remote?.password : cfg.gateway?.auth?.password);
 
   const host = gateway.host ?? "127.0.0.1";
   const port = gateway.port ?? 18789;
   const scheme = gateway.tls ? "wss" : "ws";
   const url = `${scheme}://${host}:${port}`;
   const pathEnv = ensureNodePathEnv();
+  // eslint-disable-next-line no-console
+  console.log(`node host PATH: ${pathEnv}`);
 
   const client = new GatewayClient({
     url,
-    token: token || undefined,
-    password: password || undefined,
+    token: token?.trim() || undefined,
+    password: password?.trim() || undefined,
     instanceId: nodeId,
     clientName: GATEWAY_CLIENT_NAMES.NODE_HOST,
     clientDisplayName: displayName,
@@ -189,9 +189,11 @@ export async function runNodeHost(opts: NodeHostRunOptions): Promise<void> {
     scopes: [],
     caps: ["system", ...(browserProxyEnabled ? ["browser"] : [])],
     commands: [
-      ...NODE_SYSTEM_RUN_COMMANDS,
-      ...NODE_EXEC_APPROVALS_COMMANDS,
-      ...(browserProxyEnabled ? [NODE_BROWSER_PROXY_COMMAND] : []),
+      "system.run",
+      "system.which",
+      "system.execApprovals.get",
+      "system.execApprovals.set",
+      ...(browserProxyEnabled ? ["browser.proxy"] : []),
     ],
     pathEnv,
     permissions: undefined,

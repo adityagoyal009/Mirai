@@ -14,6 +14,8 @@ import os
 import sys
 import json
 import asyncio
+import time as _time
+from collections import defaultdict
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse
 import threading
@@ -32,6 +34,24 @@ _cortex_state = {
 }
 _cortex_ref = None  # Will hold reference to MiraiCortex if available
 _main_loop = None   # Reference to the cortex's asyncio event loop
+
+# ── CORS ──────────────────────────────────────────────────────────
+_ALLOWED_ORIGINS = os.environ.get(
+    "MIRAI_ALLOWED_ORIGINS", "http://localhost:5000,http://localhost:3000,http://localhost:8100"
+).split(",")
+
+# ── Rate limiting (per-IP, sliding window) ────────────────────────
+_rate_limits: dict = defaultdict(list)
+_RATE_LIMIT = int(os.environ.get("MIRAI_API_RATE_LIMIT", "30"))  # requests per minute
+_RATE_WINDOW = 60  # seconds
+
+def _check_rate_limit(client_ip: str) -> bool:
+    now = _time.time()
+    _rate_limits[client_ip] = [t for t in _rate_limits[client_ip] if now - t < _RATE_WINDOW]
+    if len(_rate_limits[client_ip]) >= _RATE_LIMIT:
+        return False
+    _rate_limits[client_ip].append(now)
+    return True
 
 
 def update_state(cortex):
@@ -111,12 +131,16 @@ async def _async_browse_batch(urls: list, task: str, max_steps: int = 5) -> dict
 
 def _run_browse(url: str, task: str, max_steps: int = 5) -> dict:
     """Bridge sync API handler → async browser engine."""
+    global _main_loop
     if _main_loop and _main_loop.is_running():
-        # Submit to the cortex's event loop
-        future = asyncio.run_coroutine_threadsafe(
-            _async_browse(url, task, max_steps), _main_loop
-        )
-        return future.result(timeout=120)
+        try:
+            future = asyncio.run_coroutine_threadsafe(
+                _async_browse(url, task, max_steps), _main_loop
+            )
+            return future.result(timeout=120)
+        except RuntimeError:
+            _main_loop = None  # Clear stale reference
+            return {"success": False, "error": "Event loop unavailable, please retry"}
     else:
         # No cortex loop — create a temporary one
         return asyncio.run(_async_browse(url, task, max_steps))
@@ -139,24 +163,42 @@ class CortexAPIHandler(BaseHTTPRequestHandler):
     def _send_json(self, data, status=200):
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
-        self.send_header("Access-Control-Allow-Origin", "*")
+        origin = self.headers.get("Origin", "")
+        if origin in _ALLOWED_ORIGINS:
+            self.send_header("Access-Control-Allow-Origin", origin)
+        else:
+            self.send_header("Access-Control-Allow-Origin", _ALLOWED_ORIGINS[0])
         self.end_headers()
         self.wfile.write(json.dumps(data).encode())
 
     def _read_body(self):
-        length = int(self.headers.get("Content-Length", 0))
-        if length == 0:
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+        except (ValueError, TypeError):
             return {}
-        return json.loads(self.rfile.read(length))
+        if length <= 0:
+            return {}
+        try:
+            raw = self.rfile.read(length)
+            return json.loads(raw)
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return {}
 
     def do_OPTIONS(self):
         self.send_response(200)
-        self.send_header("Access-Control-Allow-Origin", "*")
+        origin = self.headers.get("Origin", "")
+        if origin in _ALLOWED_ORIGINS:
+            self.send_header("Access-Control-Allow-Origin", origin)
+        else:
+            self.send_header("Access-Control-Allow-Origin", _ALLOWED_ORIGINS[0])
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.end_headers()
 
     def do_GET(self):
+        if not _check_rate_limit(self.client_address[0]):
+            self._send_json({"error": "Rate limit exceeded"}, 429)
+            return
         path = urlparse(self.path).path
 
         if path == "/api/status":
@@ -180,6 +222,9 @@ class CortexAPIHandler(BaseHTTPRequestHandler):
             self._send_json({"error": "Not found"}, 404)
 
     def do_POST(self):
+        if not _check_rate_limit(self.client_address[0]):
+            self._send_json({"error": "Rate limit exceeded"}, 429)
+            return
         path = urlparse(self.path).path
         body = self._read_body()
 

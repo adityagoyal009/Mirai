@@ -123,7 +123,21 @@ function EditActionBar({
   );
 }
 
+function useIsMobile(breakpoint = 768) {
+  const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' ? window.innerWidth < breakpoint : false);
+  useEffect(() => {
+    const handler = () => setIsMobile(window.innerWidth < breakpoint);
+    window.addEventListener('resize', handler);
+    return () => window.removeEventListener('resize', handler);
+  }, [breakpoint]);
+  return isMobile;
+}
+
 function App() {
+  const [viewMode, setViewMode] = useState<'warroom' | 'game'>('warroom');
+  const isMobile = useIsMobile();
+  const [showPanel, setShowPanel] = useState(!isMobile);
+
   // Browser runtime (dev or static dist): dispatch mock messages after the
   // useExtensionMessages listener has been registered.
   useEffect(() => {
@@ -243,12 +257,53 @@ function App() {
   }
 
   return (
-    <div style={{ display: 'flex', width: '100%', height: '100%' }}>
+    <div style={{ display: 'flex', width: '100%', height: '100%', flexDirection: 'column' }}>
+    {/* ─── View Toggle Bar ─── */}
+    {isBrowserRuntime && (
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 0,
+        background: '#05050f', borderBottom: '1px solid #1a1a2e',
+        padding: '0 12px', height: 32, flexShrink: 0, zIndex: 200,
+      }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: '#e94560', marginRight: 16, letterSpacing: 1 }}>MIRAI</div>
+        {(['warroom', 'game'] as const).map(mode => (
+          <button
+            key={mode}
+            onClick={() => setViewMode(mode)}
+            style={{
+              padding: '4px 14px', fontSize: 10, fontWeight: 600, cursor: 'pointer',
+              background: viewMode === mode ? '#0f3460' : 'transparent',
+              color: viewMode === mode ? '#fff' : '#555',
+              border: viewMode === mode ? '1px solid #1a3a6e' : '1px solid transparent',
+              borderRadius: 3, marginRight: 4, textTransform: 'uppercase', letterSpacing: 0.5,
+              transition: 'all 0.15s',
+            }}
+          >
+            {mode === 'warroom' ? 'War Room' : 'Game View'}
+          </button>
+        ))}
+      </div>
+    )}
+
+    <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+
+    {/* ─── Game View (iframe to /game/) ─── */}
+    {viewMode === 'game' && isBrowserRuntime ? (
+      <div style={{ flex: 1, height: '100%', position: 'relative' }}>
+        <iframe
+          src="/game/"
+          style={{ width: '100%', height: '100%', border: 'none', background: '#0a0a15' }}
+          title="Mirai Game Dashboard"
+        />
+      </div>
+    ) : (
+    /* ─── War Room View (original canvas) ─── */
     <div
       ref={containerRef}
       style={{
         flex: 1,
         height: '100%', position: 'relative', overflow: 'hidden',
+        marginRight: isBrowserRuntime && !isMobile ? 'min(480px, 40vw)' : 0,
       }}
     >
       <style>{`
@@ -291,9 +346,7 @@ function App() {
       />
 
       <BottomToolbar
-        isEditMode={editor.isEditMode}
         onOpenClaude={editor.handleOpenClaude}
-        onToggleEditMode={editor.handleToggleEditMode}
         isDebugMode={isDebugMode}
         onToggleDebugMode={handleToggleDebugMode}
         alwaysShowOverlay={alwaysShowOverlay}
@@ -458,7 +511,24 @@ function App() {
         </div>
       )}
     </div>
-    {isBrowserRuntime && <SwarmScoreboard />}
+    )}
+    {isBrowserRuntime && viewMode === 'warroom' && <SwarmScoreboard isMobile={isMobile} onClose={isMobile ? () => setShowPanel(false) : undefined} hidden={isMobile && !showPanel} />}
+    {isBrowserRuntime && viewMode === 'warroom' && isMobile && !showPanel && (
+      <button
+        onClick={() => setShowPanel(true)}
+        style={{
+          position: 'fixed', bottom: 20, right: 20, zIndex: 1001,
+          width: 56, height: 56, borderRadius: '50%',
+          background: 'linear-gradient(135deg, #00ff88, #00cc66)',
+          color: '#000', border: 'none', fontSize: 22, fontWeight: 800,
+          cursor: 'pointer', boxShadow: '0 4px 20px rgba(0,255,136,0.4)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}
+      >
+        未
+      </button>
+    )}
+    </div>
     </div>
   );
 }

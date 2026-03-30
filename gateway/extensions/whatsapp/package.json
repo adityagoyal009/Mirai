@@ -1,0 +1,12 @@
+{
+  "name": "@mirai/whatsapp",
+  "version": "2026.3.13",
+  "private": true,
+  "description": "Mirai WhatsApp channel plugin",
+  "type": "module",
+  "mirai": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}

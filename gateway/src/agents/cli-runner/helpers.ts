@@ -4,9 +4,8 @@ import os from "node:os";
 import path from "node:path";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import type { ImageContent } from "@mariozechner/pi-ai";
-import { KeyedAsyncQueue } from "openclaw/plugin-sdk/keyed-async-queue";
 import type { ThinkLevel } from "../../auto-reply/thinking.js";
-import type { OpenClawConfig } from "../../config/config.js";
+import type { MiraiConfig } from "../../config/config.js";
 import type { CliBackendConfig } from "../../config/types.js";
 import { buildTtsSystemPromptHint } from "../../tts/tts.js";
 import { isRecord } from "../../utils.js";
@@ -19,9 +18,20 @@ import { buildSystemPromptParams } from "../system-prompt-params.js";
 import { buildAgentSystemPrompt } from "../system-prompt.js";
 export { buildCliSupervisorScopeKey, resolveCliNoOutputTimeoutMs } from "./reliability.js";
 
-const CLI_RUN_QUEUE = new KeyedAsyncQueue();
+const CLI_RUN_QUEUE = new Map<string, Promise<unknown>>();
 export function enqueueCliRun<T>(key: string, task: () => Promise<T>): Promise<T> {
-  return CLI_RUN_QUEUE.enqueue(key, task);
+  const prior = CLI_RUN_QUEUE.get(key) ?? Promise.resolve();
+  const chained = prior.catch(() => undefined).then(task);
+  // Keep queue continuity even when a run rejects, without emitting unhandled rejections.
+  const tracked = chained
+    .catch(() => undefined)
+    .finally(() => {
+      if (CLI_RUN_QUEUE.get(key) === tracked) {
+        CLI_RUN_QUEUE.delete(key);
+      }
+    });
+  CLI_RUN_QUEUE.set(key, tracked);
+  return chained;
 }
 
 type CliUsage = {
@@ -40,7 +50,7 @@ export type CliOutput = {
 
 export function buildSystemPrompt(params: {
   workspaceDir: string;
-  config?: OpenClawConfig;
+  config?: MiraiConfig;
   defaultThinkLevel?: ThinkLevel;
   extraSystemPrompt?: string;
   ownerNumbers?: string[];
@@ -62,7 +72,7 @@ export function buildSystemPrompt(params: {
     workspaceDir: params.workspaceDir,
     cwd: process.cwd(),
     runtime: {
-      host: "openclaw",
+      host: "mirai",
       os: `${os.type()} ${os.release()}`,
       arch: os.arch(),
       node: process.version,
@@ -83,7 +93,6 @@ export function buildSystemPrompt(params: {
     reasoningTagHint: false,
     heartbeatPrompt: params.heartbeatPrompt,
     docsPath: params.docsPath,
-    acpEnabled: params.config?.acp?.enabled !== false,
     runtimeInfo,
     toolNames: params.tools.map((tool) => tool.name),
     modelAliasLines: buildModelAliasLines(params.config),
@@ -327,7 +336,7 @@ export function appendImagePathsToPrompt(prompt: string, paths: string[]): strin
 export async function writeCliImages(
   images: ImageContent[],
 ): Promise<{ paths: string[]; cleanup: () => Promise<void> }> {
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-cli-images-"));
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "mirai-cli-images-"));
   const paths: string[] = [];
   for (let i = 0; i < images.length; i += 1) {
     const image = images[i];

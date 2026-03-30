@@ -1,6 +1,6 @@
 import { normalizeProviderId } from "../agents/model-selection.js";
-import type { OpenClawConfig } from "../config/config.js";
-import { loadOpenClawPlugins } from "../plugins/loader.js";
+import type { MiraiConfig } from "../config/config.js";
+import { loadMiraiPlugins } from "../plugins/loader.js";
 import { getActivePluginRegistry } from "../plugins/runtime.js";
 import type { ImageGenerationProviderPlugin } from "../plugins/types.js";
 
@@ -12,17 +12,17 @@ function normalizeImageGenerationProviderId(id: string | undefined): string | un
 }
 
 function resolvePluginImageGenerationProviders(
-  cfg?: OpenClawConfig,
+  cfg?: MiraiConfig,
 ): ImageGenerationProviderPlugin[] {
   const active = getActivePluginRegistry();
   const registry =
     (active?.imageGenerationProviders?.length ?? 0) > 0 || !cfg
       ? active
-      : loadOpenClawPlugins({ config: cfg });
+      : loadMiraiPlugins({ config: cfg });
   return registry?.imageGenerationProviders?.map((entry) => entry.provider) ?? [];
 }
 
-function buildProviderMaps(cfg?: OpenClawConfig): {
+function buildProviderMaps(cfg?: MiraiConfig): {
   canonical: Map<string, ImageGenerationProviderPlugin>;
   aliases: Map<string, ImageGenerationProviderPlugin>;
 } {
@@ -54,14 +54,14 @@ function buildProviderMaps(cfg?: OpenClawConfig): {
 }
 
 export function listImageGenerationProviders(
-  cfg?: OpenClawConfig,
+  cfg?: MiraiConfig,
 ): ImageGenerationProviderPlugin[] {
   return [...buildProviderMaps(cfg).canonical.values()];
 }
 
 export function getImageGenerationProvider(
   providerId: string | undefined,
-  cfg?: OpenClawConfig,
+  cfg?: MiraiConfig,
 ): ImageGenerationProviderPlugin | undefined {
   const normalized = normalizeImageGenerationProviderId(providerId);
   if (!normalized) {

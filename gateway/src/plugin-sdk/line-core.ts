@@ -1,4 +1,4 @@
-export type { OpenClawConfig } from "../config/config.js";
+export type { MiraiConfig } from "../config/config.js";
 export type { LineChannelData, LineConfig } from "../line/types.js";
 export {
   createTopLevelChannelDmPolicy,

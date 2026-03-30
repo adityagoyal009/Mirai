@@ -1,15 +1,15 @@
 ---
 name: session-memory
 description: "Save session context to memory when /new or /reset command is issued"
-homepage: https://docs.openclaw.ai/automation/hooks#session-memory
+homepage: https://docs.mirai.ai/automation/hooks#session-memory
 metadata:
   {
-    "openclaw":
+    "mirai":
       {
         "emoji": "💾",
         "events": ["command:new", "command:reset"],
         "requires": { "config": ["workspace.dir"] },
-        "install": [{ "id": "bundled", "kind": "bundled", "label": "Bundled with OpenClaw" }],
+        "install": [{ "id": "bundled", "kind": "bundled", "label": "Bundled with Mirai" }],
       },
   }
 ---
@@ -51,7 +51,7 @@ The LLM generates descriptive slugs based on your conversation:
 
 ## Requirements
 
-- **Config**: `workspace.dir` must be set (automatically configured during setup)
+- **Config**: `workspace.dir` must be set (automatically configured during onboarding)
 
 The hook uses your configured LLM provider to generate slugs, so it works with any provider (Anthropic, OpenAI, etc.).
 
@@ -82,7 +82,7 @@ Example configuration:
 
 The hook automatically:
 
-- Uses your workspace directory (`~/.openclaw/workspace` by default)
+- Uses your workspace directory (`~/.mirai/workspace` by default)
 - Uses your configured LLM for slug generation
 - Falls back to timestamp slugs if LLM is unavailable
 
@@ -91,7 +91,7 @@ The hook automatically:
 To disable this hook:
 
 ```bash
-openclaw hooks disable session-memory
+mirai hooks disable session-memory
 ```
 
 Or remove it from your config:

@@ -1,7 +1,6 @@
-import { parseAgentSessionKey } from "../sessions/session-key-utils.js";
 import { asString, extractTextFromMessage, isCommandMessage } from "./tui-formatters.js";
 import { TuiStreamAssembler } from "./tui-stream-assembler.js";
-import type { AgentEvent, BtwEvent, ChatEvent, TuiStateAccess } from "./tui-types.js";
+import type { AgentEvent, ChatEvent, TuiStateAccess } from "./tui-types.js";
 
 type EventHandlerChatLog = {
   startTool: (toolCallId: string, toolName: string, args: unknown) => void;
@@ -20,14 +19,8 @@ type EventHandlerTui = {
   requestRender: () => void;
 };
 
-type EventHandlerBtwPresenter = {
-  showResult: (params: { question: string; text: string; isError?: boolean }) => void;
-  clear: () => void;
-};
-
 type EventHandlerContext = {
   chatLog: EventHandlerChatLog;
-  btw: EventHandlerBtwPresenter;
   tui: EventHandlerTui;
   state: TuiStateAccess;
   setActivityStatus: (text: string) => void;
@@ -36,15 +29,11 @@ type EventHandlerContext = {
   isLocalRunId?: (runId: string) => boolean;
   forgetLocalRunId?: (runId: string) => void;
   clearLocalRunIds?: () => void;
-  isLocalBtwRunId?: (runId: string) => boolean;
-  forgetLocalBtwRunId?: (runId: string) => void;
-  clearLocalBtwRunIds?: () => void;
 };
 
 export function createEventHandlers(context: EventHandlerContext) {
   const {
     chatLog,
-    btw,
     tui,
     state,
     setActivityStatus,
@@ -53,9 +42,6 @@ export function createEventHandlers(context: EventHandlerContext) {
     isLocalRunId,
     forgetLocalRunId,
     clearLocalRunIds,
-    isLocalBtwRunId,
-    forgetLocalBtwRunId,
-    clearLocalBtwRunIds,
   } = context;
   const finalizedRuns = new Map<string, number>();
   const sessionRuns = new Map<string, number>();
@@ -94,8 +80,6 @@ export function createEventHandlers(context: EventHandlerContext) {
     sessionRuns.clear();
     streamAssembler = new TuiStreamAssembler();
     clearLocalRunIds?.();
-    clearLocalBtwRunIds?.();
-    btw.clear();
   };
 
   const noteSessionRun = (runId: string) => {
@@ -151,44 +135,15 @@ export function createEventHandlers(context: EventHandlerContext) {
     return sessionRuns.has(activeRunId);
   };
 
-  const maybeRefreshHistoryForRun = (
-    runId: string,
-    opts?: { allowLocalWithoutDisplayableFinal?: boolean },
-  ) => {
-    const isLocalRun = isLocalRunId?.(runId) ?? false;
-    if (isLocalRun) {
+  const maybeRefreshHistoryForRun = (runId: string) => {
+    if (isLocalRunId?.(runId)) {
       forgetLocalRunId?.(runId);
-      if (!opts?.allowLocalWithoutDisplayableFinal) {
-        return;
-      }
+      return;
     }
     if (hasConcurrentActiveRun(runId)) {
       return;
     }
     void loadHistory?.();
-  };
-
-  const isSameSessionKey = (left: string | undefined, right: string | undefined): boolean => {
-    const normalizedLeft = (left ?? "").trim().toLowerCase();
-    const normalizedRight = (right ?? "").trim().toLowerCase();
-    if (!normalizedLeft || !normalizedRight) {
-      return false;
-    }
-    if (normalizedLeft === normalizedRight) {
-      return true;
-    }
-    const parsedLeft = parseAgentSessionKey(normalizedLeft);
-    const parsedRight = parseAgentSessionKey(normalizedRight);
-    if (parsedLeft && parsedRight) {
-      return parsedLeft.agentId === parsedRight.agentId && parsedLeft.rest === parsedRight.rest;
-    }
-    if (parsedLeft) {
-      return parsedLeft.rest === normalizedRight;
-    }
-    if (parsedRight) {
-      return normalizedLeft === parsedRight.rest;
-    }
-    return false;
   };
 
   const handleChatEvent = (payload: unknown) => {
@@ -197,7 +152,7 @@ export function createEventHandlers(context: EventHandlerContext) {
     }
     const evt = payload as ChatEvent;
     syncSessionKey();
-    if (!isSameSessionKey(evt.sessionKey, state.currentSessionKey)) {
+    if (evt.sessionKey !== state.currentSessionKey) {
       return;
     }
     if (finalizedRuns.has(evt.runId)) {
@@ -209,7 +164,7 @@ export function createEventHandlers(context: EventHandlerContext) {
       }
     }
     noteSessionRun(evt.runId);
-    if (!state.activeChatRunId && !isLocalBtwRunId?.(evt.runId)) {
+    if (!state.activeChatRunId) {
       state.activeChatRunId = evt.runId;
     }
     if (evt.state === "delta") {
@@ -221,18 +176,9 @@ export function createEventHandlers(context: EventHandlerContext) {
       setActivityStatus("streaming");
     }
     if (evt.state === "final") {
-      const isLocalBtwRun = isLocalBtwRunId?.(evt.runId) ?? false;
       const wasActiveRun = state.activeChatRunId === evt.runId;
-      if (!evt.message && isLocalBtwRun) {
-        forgetLocalBtwRunId?.(evt.runId);
-        noteFinalizedRun(evt.runId);
-        tui.requestRender();
-        return;
-      }
       if (!evt.message) {
-        maybeRefreshHistoryForRun(evt.runId, {
-          allowLocalWithoutDisplayableFinal: true,
-        });
+        maybeRefreshHistoryForRun(evt.runId);
         chatLog.dropAssistant(evt.runId);
         finalizeRun({ runId: evt.runId, wasActiveRun, status: "idle" });
         tui.requestRender();
@@ -256,12 +202,7 @@ export function createEventHandlers(context: EventHandlerContext) {
             : ""
           : "";
 
-      const finalText = streamAssembler.finalize(
-        evt.runId,
-        evt.message,
-        state.showThinking,
-        evt.errorMessage,
-      );
+      const finalText = streamAssembler.finalize(evt.runId, evt.message, state.showThinking);
       const suppressEmptyExternalPlaceholder =
         finalText === "(no output)" && !isLocalRunId?.(evt.runId);
       if (suppressEmptyExternalPlaceholder) {
@@ -276,14 +217,12 @@ export function createEventHandlers(context: EventHandlerContext) {
       });
     }
     if (evt.state === "aborted") {
-      forgetLocalBtwRunId?.(evt.runId);
       const wasActiveRun = state.activeChatRunId === evt.runId;
       chatLog.addSystem("run aborted");
       terminateRun({ runId: evt.runId, wasActiveRun, status: "aborted" });
       maybeRefreshHistoryForRun(evt.runId);
     }
     if (evt.state === "error") {
-      forgetLocalBtwRunId?.(evt.runId);
       const wasActiveRun = state.activeChatRunId === evt.runId;
       chatLog.addSystem(`run error: ${evt.errorMessage ?? "unknown"}`);
       terminateRun({ runId: evt.runId, wasActiveRun, status: "error" });
@@ -359,30 +298,5 @@ export function createEventHandlers(context: EventHandlerContext) {
     }
   };
 
-  const handleBtwEvent = (payload: unknown) => {
-    if (!payload || typeof payload !== "object") {
-      return;
-    }
-    const evt = payload as BtwEvent;
-    syncSessionKey();
-    if (!isSameSessionKey(evt.sessionKey, state.currentSessionKey)) {
-      return;
-    }
-    if (evt.kind !== "btw") {
-      return;
-    }
-    const question = evt.question.trim();
-    const text = evt.text.trim();
-    if (!question || !text) {
-      return;
-    }
-    btw.showResult({
-      question,
-      text,
-      isError: evt.isError,
-    });
-    tui.requestRender();
-  };
-
-  return { handleChatEvent, handleAgentEvent, handleBtwEvent };
+  return { handleChatEvent, handleAgentEvent };
 }

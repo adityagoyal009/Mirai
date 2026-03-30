@@ -1,6 +1,6 @@
 import { formatTerminalLink } from "../utils.js";
 
-export const DOCS_ROOT = "https://github.com/adityagoyal009/Mirai/tree/main/gateway/docs";
+export const DOCS_ROOT = "https://docs.mirai.ai";
 
 export function formatDocsLink(
   path: string,

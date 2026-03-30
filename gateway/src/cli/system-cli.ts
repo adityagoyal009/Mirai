@@ -45,7 +45,7 @@ export function registerSystemCli(program: Command) {
     .addHelpText(
       "after",
       () =>
-        `\n${theme.muted("Docs:")} ${formatDocsLink("/cli/system", "github.com/adityagoyal009/Mirai/tree/main/gateway/docs/cli/system")}\n`,
+        `\n${theme.muted("Docs:")} ${formatDocsLink("/cli/system", "docs.mirai.ai/cli/system")}\n`,
     );
 
   addGatewayClientOptions(

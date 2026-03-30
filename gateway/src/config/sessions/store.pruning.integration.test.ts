@@ -3,17 +3,15 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { clearSessionStoreCacheForTest, loadSessionStore, saveSessionStore } from "./store.js";
 import type { SessionEntry } from "./types.js";
 
-// Keep integration tests deterministic: never read a real openclaw.json.
+// Keep integration tests deterministic: never read a real mirai.json.
 vi.mock("../config.js", () => ({
   loadConfig: vi.fn().mockReturnValue({}),
 }));
-
-import { loadConfig } from "../config.js";
-import { clearSessionStoreCacheForTest, loadSessionStore, saveSessionStore } from "./store.js";
-
-let mockLoadConfig: ReturnType<typeof vi.fn>;
+const { loadConfig } = await import("../config.js");
+const mockLoadConfig = vi.mocked(loadConfig) as ReturnType<typeof vi.fn>;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -39,19 +37,6 @@ function applyEnforcedMaintenanceConfig(mockLoadConfig: ReturnType<typeof vi.fn>
   });
 }
 
-function applyCappedMaintenanceConfig(mockLoadConfig: ReturnType<typeof vi.fn>) {
-  mockLoadConfig.mockReturnValue({
-    session: {
-      maintenance: {
-        mode: "enforce",
-        pruneAfter: "365d",
-        maxEntries: 1,
-        rotateBytes: 10_485_760,
-      },
-    },
-  });
-}
-
 async function createCaseDir(prefix: string): Promise<string> {
   const dir = path.join(fixtureRoot, `${prefix}-${fixtureCount++}`);
   await fs.mkdir(dir, { recursive: true });
@@ -71,7 +56,7 @@ describe("Integration: saveSessionStore with pruning", () => {
   let savedCacheTtl: string | undefined;
 
   beforeAll(async () => {
-    fixtureRoot = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-pruning-integ-"));
+    fixtureRoot = await fs.mkdtemp(path.join(os.tmpdir(), "mirai-pruning-integ-"));
   });
 
   afterAll(async () => {
@@ -79,11 +64,10 @@ describe("Integration: saveSessionStore with pruning", () => {
   });
 
   beforeEach(async () => {
-    mockLoadConfig = vi.mocked(loadConfig) as ReturnType<typeof vi.fn>;
     testDir = await createCaseDir("pruning-integ");
     storePath = path.join(testDir, "sessions.json");
-    savedCacheTtl = process.env.OPENCLAW_SESSION_CACHE_TTL_MS;
-    process.env.OPENCLAW_SESSION_CACHE_TTL_MS = "0";
+    savedCacheTtl = process.env.MIRAI_SESSION_CACHE_TTL_MS;
+    process.env.MIRAI_SESSION_CACHE_TTL_MS = "0";
     clearSessionStoreCacheForTest();
     mockLoadConfig.mockClear();
   });
@@ -92,9 +76,9 @@ describe("Integration: saveSessionStore with pruning", () => {
     vi.restoreAllMocks();
     clearSessionStoreCacheForTest();
     if (savedCacheTtl === undefined) {
-      delete process.env.OPENCLAW_SESSION_CACHE_TTL_MS;
+      delete process.env.MIRAI_SESSION_CACHE_TTL_MS;
     } else {
-      process.env.OPENCLAW_SESSION_CACHE_TTL_MS = savedCacheTtl;
+      process.env.MIRAI_SESSION_CACHE_TTL_MS = savedCacheTtl;
     }
   });
 
@@ -232,7 +216,16 @@ describe("Integration: saveSessionStore with pruning", () => {
   });
 
   it("archives transcript files for entries evicted by maxEntries capping", async () => {
-    applyCappedMaintenanceConfig(mockLoadConfig);
+    mockLoadConfig.mockReturnValue({
+      session: {
+        maintenance: {
+          mode: "enforce",
+          pruneAfter: "365d",
+          maxEntries: 1,
+          rotateBytes: 10_485_760,
+        },
+      },
+    });
 
     const now = Date.now();
     const oldestSessionId = "oldest-session";
@@ -258,10 +251,19 @@ describe("Integration: saveSessionStore with pruning", () => {
   });
 
   it("does not archive external transcript paths when capping entries", async () => {
-    applyCappedMaintenanceConfig(mockLoadConfig);
+    mockLoadConfig.mockReturnValue({
+      session: {
+        maintenance: {
+          mode: "enforce",
+          pruneAfter: "365d",
+          maxEntries: 1,
+          rotateBytes: 10_485_760,
+        },
+      },
+    });
 
     const now = Date.now();
-    const externalDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-external-cap-"));
+    const externalDir = await fs.mkdtemp(path.join(os.tmpdir(), "mirai-external-cap-"));
     const externalTranscript = path.join(externalDir, "outside.jsonl");
     await fs.writeFile(externalTranscript, "external", "utf-8");
     const store: Record<string, SessionEntry> = {
@@ -365,7 +367,7 @@ describe("Integration: saveSessionStore with pruning", () => {
     });
 
     const now = Date.now();
-    const externalDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-external-session-"));
+    const externalDir = await fs.mkdtemp(path.join(os.tmpdir(), "mirai-external-session-"));
     const externalTranscript = path.join(externalDir, "outside.jsonl");
     await fs.writeFile(externalTranscript, "z".repeat(400), "utf-8");
 

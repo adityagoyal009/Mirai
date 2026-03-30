@@ -1,9 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { createFixtureSuite } from "../test-utils/fixture-suite.js";
-import { createTempHomeEnv, type TempHomeEnv } from "../test-utils/temp-home.js";
-import { setTempStateDir } from "./skills-install.download-test-utils.js";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { withTempWorkspace } from "./skills-install.download-test-utils.js";
 import { installSkill } from "./skills-install.js";
 import {
   runCommandWithTimeoutMock,
@@ -27,7 +25,7 @@ async function writeInstallableSkill(workspaceDir: string, name: string): Promis
     `---
 name: ${name}
 description: test skill
-metadata: {"openclaw":{"install":[{"id":"deps","kind":"node","package":"example-package"}]}}
+metadata: {"mirai":{"install":[{"id":"deps","kind":"node","package":"example-package"}]}}
 ---
 
 # ${name}
@@ -36,27 +34,6 @@ metadata: {"openclaw":{"install":[{"id":"deps","kind":"node","package":"example-
   );
   await fs.writeFile(path.join(skillDir, "runner.js"), "export {};\n", "utf-8");
   return skillDir;
-}
-
-const workspaceSuite = createFixtureSuite("openclaw-skills-install-");
-let tempHome: TempHomeEnv;
-
-beforeAll(async () => {
-  tempHome = await createTempHomeEnv("openclaw-skills-install-home-");
-  await workspaceSuite.setup();
-});
-
-afterAll(async () => {
-  await workspaceSuite.cleanup();
-  await tempHome.restore();
-});
-
-async function withWorkspaceCase(
-  run: (params: { workspaceDir: string; stateDir: string }) => Promise<void>,
-): Promise<void> {
-  const workspaceDir = await workspaceSuite.createCaseDir("case");
-  const stateDir = setTempStateDir(workspaceDir);
-  await run({ workspaceDir, stateDir });
 }
 
 describe("installSkill code safety scanning", () => {
@@ -73,7 +50,7 @@ describe("installSkill code safety scanning", () => {
   });
 
   it("adds detailed warnings for critical findings and continues install", async () => {
-    await withWorkspaceCase(async ({ workspaceDir }) => {
+    await withTempWorkspace(async ({ workspaceDir }) => {
       const skillDir = await writeInstallableSkill(workspaceDir, "danger-skill");
       scanDirectoryWithSummaryMock.mockResolvedValue({
         scannedFiles: 1,
@@ -107,7 +84,7 @@ describe("installSkill code safety scanning", () => {
   });
 
   it("warns and continues when skill scan fails", async () => {
-    await withWorkspaceCase(async ({ workspaceDir }) => {
+    await withTempWorkspace(async ({ workspaceDir }) => {
       await writeInstallableSkill(workspaceDir, "scanfail-skill");
       scanDirectoryWithSummaryMock.mockRejectedValue(new Error("scanner exploded"));
 

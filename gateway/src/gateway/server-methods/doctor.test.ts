@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { OpenClawConfig } from "../../config/config.js";
+import type { MiraiConfig } from "../../config/config.js";
 
-const loadConfig = vi.hoisted(() => vi.fn(() => ({}) as OpenClawConfig));
+const loadConfig = vi.hoisted(() => vi.fn(() => ({}) as MiraiConfig));
 const resolveDefaultAgentId = vi.hoisted(() => vi.fn(() => "main"));
 const getMemorySearchManager = vi.hoisted(() => vi.fn());
 

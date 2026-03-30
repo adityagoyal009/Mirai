@@ -1,8 +1,6 @@
-import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { OpenClawConfig } from "../config/config.js";
+import type { MiraiConfig } from "../config/config.js";
 import {
   hasConfiguredModelFallbacks,
   resolveAgentConfig,
@@ -15,8 +13,6 @@ import {
   resolveAgentModelPrimary,
   resolveRunModelFallbacksOverride,
   resolveAgentWorkspaceDir,
-  resolveAgentIdByWorkspacePath,
-  resolveAgentIdsByWorkspacePath,
 } from "./agent-scope.js";
 
 afterEach(() => {
@@ -25,15 +21,15 @@ afterEach(() => {
 
 describe("resolveAgentConfig", () => {
   it("should return undefined when no agents config exists", () => {
-    const cfg: OpenClawConfig = {};
+    const cfg: MiraiConfig = {};
     const result = resolveAgentConfig(cfg, "main");
     expect(result).toBeUndefined();
   });
 
   it("should return undefined when agent id does not exist", () => {
-    const cfg: OpenClawConfig = {
+    const cfg: MiraiConfig = {
       agents: {
-        list: [{ id: "main", workspace: "~/openclaw" }],
+        list: [{ id: "main", workspace: "~/mirai" }],
       },
     };
     const result = resolveAgentConfig(cfg, "nonexistent");
@@ -41,14 +37,14 @@ describe("resolveAgentConfig", () => {
   });
 
   it("should return basic agent config", () => {
-    const cfg: OpenClawConfig = {
+    const cfg: MiraiConfig = {
       agents: {
         list: [
           {
             id: "main",
             name: "Main Agent",
-            workspace: "~/openclaw",
-            agentDir: "~/.openclaw/agents/main",
+            workspace: "~/mirai",
+            agentDir: "~/.mirai/agents/main",
             model: "anthropic/claude-opus-4",
           },
         ],
@@ -57,8 +53,8 @@ describe("resolveAgentConfig", () => {
     const result = resolveAgentConfig(cfg, "main");
     expect(result).toEqual({
       name: "Main Agent",
-      workspace: "~/openclaw",
-      agentDir: "~/.openclaw/agents/main",
+      workspace: "~/mirai",
+      agentDir: "~/.mirai/agents/main",
       model: "anthropic/claude-opus-4",
       identity: undefined,
       groupChat: undefined,
@@ -76,13 +72,13 @@ describe("resolveAgentConfig", () => {
         },
         list: [{ id: "main" }],
       },
-    } as unknown as OpenClawConfig;
+    } as unknown as MiraiConfig;
     expect(resolveAgentExplicitModelPrimary(cfgWithStringDefault, "main")).toBeUndefined();
     expect(resolveAgentEffectiveModelPrimary(cfgWithStringDefault, "main")).toBe(
       "anthropic/claude-sonnet-4",
     );
 
-    const cfgWithObjectDefault: OpenClawConfig = {
+    const cfgWithObjectDefault: MiraiConfig = {
       agents: {
         defaults: {
           model: {
@@ -96,7 +92,7 @@ describe("resolveAgentConfig", () => {
     expect(resolveAgentExplicitModelPrimary(cfgWithObjectDefault, "main")).toBeUndefined();
     expect(resolveAgentEffectiveModelPrimary(cfgWithObjectDefault, "main")).toBe("openai/gpt-5.2");
 
-    const cfgNoDefaults: OpenClawConfig = {
+    const cfgNoDefaults: MiraiConfig = {
       agents: {
         list: [{ id: "main" }],
       },
@@ -106,7 +102,7 @@ describe("resolveAgentConfig", () => {
   });
 
   it("supports per-agent model primary+fallbacks", () => {
-    const cfg: OpenClawConfig = {
+    const cfg: MiraiConfig = {
       agents: {
         defaults: {
           model: {
@@ -132,7 +128,7 @@ describe("resolveAgentConfig", () => {
     expect(resolveAgentModelFallbacksOverride(cfg, "linus")).toEqual(["openai/gpt-5.2"]);
 
     // If fallbacks isn't present, we don't override the global fallbacks.
-    const cfgNoOverride: OpenClawConfig = {
+    const cfgNoOverride: MiraiConfig = {
       agents: {
         list: [
           {
@@ -147,7 +143,7 @@ describe("resolveAgentConfig", () => {
     expect(resolveAgentModelFallbacksOverride(cfgNoOverride, "linus")).toBe(undefined);
 
     // Explicit empty list disables global fallbacks for that agent.
-    const cfgDisable: OpenClawConfig = {
+    const cfgDisable: MiraiConfig = {
       agents: {
         list: [
           {
@@ -184,7 +180,7 @@ describe("resolveAgentConfig", () => {
       }),
     ).toEqual([]);
 
-    const cfgInheritDefaults: OpenClawConfig = {
+    const cfgInheritDefaults: MiraiConfig = {
       agents: {
         defaults: {
           model: {
@@ -235,7 +231,7 @@ describe("resolveAgentConfig", () => {
   });
 
   it("resolves run fallback overrides via shared helper", () => {
-    const cfg: OpenClawConfig = {
+    const cfg: MiraiConfig = {
       agents: {
         defaults: {
           model: {
@@ -270,7 +266,7 @@ describe("resolveAgentConfig", () => {
   });
 
   it("computes whether any model fallbacks are configured via shared helper", () => {
-    const cfgDefaultsOnly: OpenClawConfig = {
+    const cfgDefaultsOnly: MiraiConfig = {
       agents: {
         defaults: {
           model: {
@@ -287,7 +283,7 @@ describe("resolveAgentConfig", () => {
       }),
     ).toBe(true);
 
-    const cfgAgentOverrideOnly: OpenClawConfig = {
+    const cfgAgentOverrideOnly: MiraiConfig = {
       agents: {
         defaults: {
           model: {
@@ -321,12 +317,12 @@ describe("resolveAgentConfig", () => {
   });
 
   it("should return agent-specific sandbox config", () => {
-    const cfg: OpenClawConfig = {
+    const cfg: MiraiConfig = {
       agents: {
         list: [
           {
             id: "work",
-            workspace: "~/openclaw-work",
+            workspace: "~/mirai-work",
             sandbox: {
               mode: "all",
               scope: "agent",
@@ -349,12 +345,12 @@ describe("resolveAgentConfig", () => {
   });
 
   it("should return agent-specific tools config", () => {
-    const cfg: OpenClawConfig = {
+    const cfg: MiraiConfig = {
       agents: {
         list: [
           {
             id: "restricted",
-            workspace: "~/openclaw-restricted",
+            workspace: "~/mirai-restricted",
             tools: {
               allow: ["read"],
               deny: ["exec", "write", "edit"],
@@ -379,12 +375,12 @@ describe("resolveAgentConfig", () => {
   });
 
   it("should return both sandbox and tools config", () => {
-    const cfg: OpenClawConfig = {
+    const cfg: MiraiConfig = {
       agents: {
         list: [
           {
             id: "family",
-            workspace: "~/openclaw-family",
+            workspace: "~/mirai-family",
             sandbox: {
               mode: "all",
               scope: "agent",
@@ -403,121 +399,32 @@ describe("resolveAgentConfig", () => {
   });
 
   it("should normalize agent id", () => {
-    const cfg: OpenClawConfig = {
+    const cfg: MiraiConfig = {
       agents: {
-        list: [{ id: "main", workspace: "~/openclaw" }],
+        list: [{ id: "main", workspace: "~/mirai" }],
       },
     };
     // Should normalize to "main" (default)
     const result = resolveAgentConfig(cfg, "");
     expect(result).toBeDefined();
-    expect(result?.workspace).toBe("~/openclaw");
+    expect(result?.workspace).toBe("~/mirai");
   });
 
-  it("uses OPENCLAW_HOME for default agent workspace", () => {
-    const home = path.join(path.sep, "srv", "openclaw-home");
-    vi.stubEnv("OPENCLAW_HOME", home);
+  it("uses MIRAI_HOME for default agent workspace", () => {
+    const home = path.join(path.sep, "srv", "mirai-home");
+    vi.stubEnv("MIRAI_HOME", home);
 
-    const workspace = resolveAgentWorkspaceDir({} as OpenClawConfig, "main");
-    expect(workspace).toBe(path.join(path.resolve(home), ".openclaw", "workspace"));
+    const workspace = resolveAgentWorkspaceDir({} as MiraiConfig, "main");
+    expect(workspace).toBe(path.join(path.resolve(home), ".mirai", "workspace"));
   });
 
-  it("uses OPENCLAW_HOME for default agentDir", () => {
-    const home = path.join(path.sep, "srv", "openclaw-home");
-    vi.stubEnv("OPENCLAW_HOME", home);
-    // Clear state dir so it falls back to OPENCLAW_HOME
-    vi.stubEnv("OPENCLAW_STATE_DIR", "");
+  it("uses MIRAI_HOME for default agentDir", () => {
+    const home = path.join(path.sep, "srv", "mirai-home");
+    vi.stubEnv("MIRAI_HOME", home);
+    // Clear state dir so it falls back to MIRAI_HOME
+    vi.stubEnv("MIRAI_STATE_DIR", "");
 
-    const agentDir = resolveAgentDir({} as OpenClawConfig, "main");
-    expect(agentDir).toBe(path.join(path.resolve(home), ".openclaw", "agents", "main", "agent"));
-  });
-});
-
-describe("resolveAgentIdByWorkspacePath", () => {
-  it("returns the most specific workspace match for a directory", () => {
-    const workspaceRoot = `/tmp/openclaw-agent-scope-${Date.now()}-root`;
-    const opsWorkspace = `${workspaceRoot}/projects/ops`;
-    const cfg: OpenClawConfig = {
-      agents: {
-        list: [
-          { id: "main", workspace: workspaceRoot },
-          { id: "ops", workspace: opsWorkspace },
-        ],
-      },
-    };
-
-    expect(resolveAgentIdByWorkspacePath(cfg, `${opsWorkspace}/src`)).toBe("ops");
-  });
-
-  it("returns undefined when directory has no matching workspace", () => {
-    const workspaceRoot = `/tmp/openclaw-agent-scope-${Date.now()}-root`;
-    const cfg: OpenClawConfig = {
-      agents: {
-        list: [
-          { id: "main", workspace: workspaceRoot },
-          { id: "ops", workspace: `${workspaceRoot}-ops` },
-        ],
-      },
-    };
-
-    expect(
-      resolveAgentIdByWorkspacePath(cfg, `/tmp/openclaw-agent-scope-${Date.now()}-unrelated`),
-    ).toBeUndefined();
-  });
-
-  it("matches workspace paths through symlink aliases", () => {
-    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-agent-scope-"));
-    const realWorkspaceRoot = path.join(tempRoot, "real-root");
-    const realOpsWorkspace = path.join(realWorkspaceRoot, "projects", "ops");
-    const aliasWorkspaceRoot = path.join(tempRoot, "alias-root");
-    try {
-      fs.mkdirSync(path.join(realOpsWorkspace, "src"), { recursive: true });
-      fs.symlinkSync(
-        realWorkspaceRoot,
-        aliasWorkspaceRoot,
-        process.platform === "win32" ? "junction" : "dir",
-      );
-
-      const cfg: OpenClawConfig = {
-        agents: {
-          list: [
-            { id: "main", workspace: realWorkspaceRoot },
-            { id: "ops", workspace: realOpsWorkspace },
-          ],
-        },
-      };
-
-      expect(
-        resolveAgentIdByWorkspacePath(cfg, path.join(aliasWorkspaceRoot, "projects", "ops")),
-      ).toBe("ops");
-      expect(
-        resolveAgentIdByWorkspacePath(cfg, path.join(aliasWorkspaceRoot, "projects", "ops", "src")),
-      ).toBe("ops");
-    } finally {
-      fs.rmSync(tempRoot, { recursive: true, force: true });
-    }
-  });
-});
-
-describe("resolveAgentIdsByWorkspacePath", () => {
-  it("returns matching workspaces ordered by specificity", () => {
-    const workspaceRoot = `/tmp/openclaw-agent-scope-${Date.now()}-root`;
-    const opsWorkspace = `${workspaceRoot}/projects/ops`;
-    const opsDevWorkspace = `${opsWorkspace}/dev`;
-    const cfg: OpenClawConfig = {
-      agents: {
-        list: [
-          { id: "main", workspace: workspaceRoot },
-          { id: "ops", workspace: opsWorkspace },
-          { id: "ops-dev", workspace: opsDevWorkspace },
-        ],
-      },
-    };
-
-    expect(resolveAgentIdsByWorkspacePath(cfg, `${opsDevWorkspace}/pkg`)).toEqual([
-      "ops-dev",
-      "ops",
-      "main",
-    ]);
+    const agentDir = resolveAgentDir({} as MiraiConfig, "main");
+    expect(agentDir).toBe(path.join(path.resolve(home), ".mirai", "agents", "main", "agent"));
   });
 });

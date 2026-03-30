@@ -20,7 +20,7 @@ export function registerTuiCli(program: Command) {
     .option("--history-limit <n>", "History entries to load", "200")
     .addHelpText(
       "after",
-      () => `\n${theme.muted("Docs:")} ${formatDocsLink("/cli/tui", "github.com/adityagoyal009/Mirai/tree/main/gateway/docs/cli/tui")}\n`,
+      () => `\n${theme.muted("Docs:")} ${formatDocsLink("/cli/tui", "docs.mirai.ai/cli/tui")}\n`,
     )
     .action(async (opts) => {
       try {

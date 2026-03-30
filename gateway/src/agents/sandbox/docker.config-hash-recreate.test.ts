@@ -3,7 +3,6 @@ import { Readable } from "node:stream";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { computeSandboxConfigHash } from "./config-hash.js";
 import { ensureSandboxContainer } from "./docker.js";
-import { collectDockerFlagValues } from "./test-args.js";
 import type { SandboxConfig } from "./types.js";
 
 type SpawnCall = {
@@ -55,7 +54,7 @@ vi.mock("node:child_process", async (importOriginal) => {
       } else if (
         args[0] === "inspect" &&
         args[1] === "-f" &&
-        args[2]?.includes('index .Config.Labels "openclaw.configHash"')
+        args[2]?.includes('index .Config.Labels "mirai.configHash"')
       ) {
         stdout = `${spawnState.labelHash}\n`;
       } else if (
@@ -84,19 +83,14 @@ vi.mock("node:child_process", async (importOriginal) => {
   };
 });
 
-function createSandboxConfig(
-  dns: string[],
-  binds?: string[],
-  workspaceAccess: "rw" | "ro" | "none" = "rw",
-): SandboxConfig {
+function createSandboxConfig(dns: string[], binds?: string[]): SandboxConfig {
   return {
     mode: "all",
-    backend: "docker",
     scope: "shared",
-    workspaceAccess,
-    workspaceRoot: "~/.openclaw/sandboxes",
+    workspaceAccess: "rw",
+    workspaceRoot: "~/.mirai/sandboxes",
     docker: {
-      image: "openclaw-sandbox:test",
+      image: "mirai-sandbox:test",
       containerPrefix: "oc-test-",
       workdir: "/workspace",
       readOnlyRoot: true,
@@ -109,17 +103,11 @@ function createSandboxConfig(
       binds: binds ?? ["/tmp/workspace:/workspace:rw"],
       dangerouslyAllowReservedContainerTargets: true,
     },
-    ssh: {
-      command: "ssh",
-      workspaceRoot: "/tmp/openclaw-sandboxes",
-      strictHostKeyChecking: true,
-      updateHostKeys: true,
-    },
     browser: {
       enabled: false,
-      image: "openclaw-browser:test",
+      image: "mirai-browser:test",
       containerPrefix: "oc-browser-",
-      network: "openclaw-sandbox-browser",
+      network: "mirai-sandbox-browser",
       cdpPort: 9222,
       vncPort: 5900,
       noVncPort: 6080,
@@ -194,7 +182,7 @@ describe("ensureSandboxContainer config-hash recreation", () => {
     ).toBe(true);
     const createCall = dockerCalls.find((call) => call.args[0] === "create");
     expect(createCall).toBeDefined();
-    expect(createCall?.args).toContain(`openclaw.configHash=${newHash}`);
+    expect(createCall?.args).toContain(`mirai.configHash=${newHash}`);
     expect(registryMocks.updateRegistry).toHaveBeenCalledWith(
       expect.objectContaining({
         containerName: "oc-test-shared",
@@ -243,44 +231,18 @@ describe("ensureSandboxContainer config-hash recreation", () => {
       (call) => call.command === "docker" && call.args[0] === "create",
     );
     expect(createCall).toBeDefined();
-    expect(createCall?.args).toContain(`openclaw.configHash=${expectedHash}`);
+    expect(createCall?.args).toContain(`mirai.configHash=${expectedHash}`);
 
-    const bindArgs = collectDockerFlagValues(createCall?.args ?? [], "-v");
+    const bindArgs: string[] = [];
+    const args = createCall?.args ?? [];
+    for (let i = 0; i < args.length; i += 1) {
+      if (args[i] === "-v" && typeof args[i + 1] === "string") {
+        bindArgs.push(args[i + 1]);
+      }
+    }
     const workspaceMountIdx = bindArgs.indexOf("/tmp/workspace:/workspace");
     const customMountIdx = bindArgs.indexOf("/tmp/workspace-shared/USER.md:/workspace/USER.md:ro");
     expect(workspaceMountIdx).toBeGreaterThanOrEqual(0);
     expect(customMountIdx).toBeGreaterThan(workspaceMountIdx);
   });
-
-  it.each([
-    { workspaceAccess: "rw" as const, expectedMainMount: "/tmp/workspace:/workspace" },
-    { workspaceAccess: "ro" as const, expectedMainMount: "/tmp/workspace:/workspace:ro" },
-    { workspaceAccess: "none" as const, expectedMainMount: "/tmp/workspace:/workspace:ro" },
-  ])(
-    "uses expected main mount permissions when workspaceAccess=$workspaceAccess",
-    async ({ workspaceAccess, expectedMainMount }) => {
-      const workspaceDir = "/tmp/workspace";
-      const cfg = createSandboxConfig([], undefined, workspaceAccess);
-
-      spawnState.inspectRunning = false;
-      spawnState.labelHash = "";
-      registryMocks.readRegistry.mockResolvedValue({ entries: [] });
-      registryMocks.updateRegistry.mockResolvedValue(undefined);
-
-      await ensureSandboxContainer({
-        sessionKey: "agent:main:session-1",
-        workspaceDir,
-        agentWorkspaceDir: workspaceDir,
-        cfg,
-      });
-
-      const createCall = spawnState.calls.find(
-        (call) => call.command === "docker" && call.args[0] === "create",
-      );
-      expect(createCall).toBeDefined();
-
-      const bindArgs = collectDockerFlagValues(createCall?.args ?? [], "-v");
-      expect(bindArgs).toContain(expectedMainMount);
-    },
-  );
 });

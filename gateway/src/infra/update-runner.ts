@@ -8,9 +8,7 @@ import {
 } from "./control-ui-assets.js";
 import { detectPackageManager as detectPackageManagerImpl } from "./detect-package-manager.js";
 import { readPackageName, readPackageVersion } from "./package-json.js";
-import { normalizePackageTagInput } from "./package-tag.js";
 import { trimLogTail } from "./restart-sentinel.js";
-import { resolveStableNodePath } from "./stable-node-path.js";
 import {
   channelToNpmTag,
   DEFAULT_PACKAGE_CHANNEL,
@@ -22,11 +20,8 @@ import {
 import { compareSemverStrings } from "./update-check.js";
 import {
   cleanupGlobalRenameDirs,
-  createGlobalInstallEnv,
   detectGlobalInstallManagerForRoot,
   globalInstallArgs,
-  globalInstallFallbackArgs,
-  resolveGlobalInstallSpec,
 } from "./update-global.js";
 
 export type UpdateStepResult = {
@@ -87,7 +82,7 @@ const DEFAULT_TIMEOUT_MS = 20 * 60_000;
 const MAX_LOG_CHARS = 8000;
 const PREFLIGHT_MAX_COMMITS = 10;
 const START_DIRS = ["cwd", "argv1", "process"];
-const DEFAULT_PACKAGE_NAME = "openclaw";
+const DEFAULT_PACKAGE_NAME = "mirai";
 const CORE_PACKAGE_NAMES = new Set([DEFAULT_PACKAGE_NAME]);
 
 function normalizeDir(value?: string | null) {
@@ -203,10 +198,7 @@ async function resolveGitRoot(
   for (const dir of candidates) {
     const res = await runCommand(["git", "-C", dir, "rev-parse", "--show-toplevel"], {
       timeoutMs,
-    }).catch(() => null);
-    if (!res) {
-      continue;
-    }
+    });
     if (res.code === 0) {
       const root = res.stdout.trim();
       if (root) {
@@ -319,7 +311,17 @@ function managerInstallArgs(manager: "pnpm" | "bun" | "npm") {
 }
 
 function normalizeTag(tag?: string) {
-  return normalizePackageTagInput(tag, ["openclaw", DEFAULT_PACKAGE_NAME]) ?? "latest";
+  const trimmed = tag?.trim();
+  if (!trimmed) {
+    return "latest";
+  }
+  if (trimmed.startsWith("mirai@")) {
+    return trimmed.slice("mirai@".length);
+  }
+  if (trimmed.startsWith(`${DEFAULT_PACKAGE_NAME}@`)) {
+    return trimmed.slice(`${DEFAULT_PACKAGE_NAME}@`.length);
+  }
+  return trimmed;
 }
 
 export async function runGatewayUpdate(opts: UpdateRunnerOptions = {}): Promise<UpdateRunResult> {
@@ -371,7 +373,7 @@ export async function runGatewayUpdate(opts: UpdateRunnerOptions = {}): Promise<
       status: "error",
       mode: "unknown",
       root: gitRoot,
-      reason: "not-openclaw-root",
+      reason: "not-mirai-root",
       steps: [],
       durationMs: Date.now() - startedAt,
     };
@@ -534,7 +536,7 @@ export async function runGatewayUpdate(opts: UpdateRunnerOptions = {}): Promise<
       }
 
       const manager = await detectPackageManager(gitRoot);
-      const preflightRoot = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-update-preflight-"));
+      const preflightRoot = await fs.mkdtemp(path.join(os.tmpdir(), "mirai-update-preflight-"));
       const worktreeDir = path.join(preflightRoot, "worktree");
       const worktreeStep = await runStep(
         step(
@@ -772,10 +774,9 @@ export async function runGatewayUpdate(opts: UpdateRunnerOptions = {}): Promise<
 
     // Use --fix so that doctor auto-strips unknown config keys introduced by
     // schema changes between versions, preventing a startup validation crash.
-    const doctorNodePath = await resolveStableNodePath(process.execPath);
-    const doctorArgv = [doctorNodePath, doctorEntry, "doctor", "--non-interactive", "--fix"];
+    const doctorArgv = [process.execPath, doctorEntry, "doctor", "--non-interactive", "--fix"];
     const doctorStep = await runStep(
-      step("mirai doctor", doctorArgv, gitRoot, { OPENCLAW_UPDATE_IN_PROGRESS: "1" }),
+      step("mirai doctor", doctorArgv, gitRoot, { MIRAI_UPDATE_IN_PROGRESS: "1" }),
     );
     steps.push(doctorStep);
 
@@ -873,52 +874,24 @@ export async function runGatewayUpdate(opts: UpdateRunnerOptions = {}): Promise<
     });
     const channel = opts.channel ?? DEFAULT_PACKAGE_CHANNEL;
     const tag = normalizeTag(opts.tag ?? channelToNpmTag(channel));
-    const steps: UpdateStepResult[] = [];
-    const globalInstallEnv = await createGlobalInstallEnv();
-    const spec = resolveGlobalInstallSpec({
-      packageName,
-      tag,
-      env: globalInstallEnv,
-    });
+    const spec = `${packageName}@${tag}`;
     const updateStep = await runStep({
       runCommand,
       name: "global update",
       argv: globalInstallArgs(globalManager, spec),
       cwd: pkgRoot,
       timeoutMs,
-      env: globalInstallEnv,
       progress,
       stepIndex: 0,
       totalSteps: 1,
     });
-    steps.push(updateStep);
-
-    let finalStep = updateStep;
-    if (updateStep.exitCode !== 0) {
-      const fallbackArgv = globalInstallFallbackArgs(globalManager, spec);
-      if (fallbackArgv) {
-        const fallbackStep = await runStep({
-          runCommand,
-          name: "global update (omit optional)",
-          argv: fallbackArgv,
-          cwd: pkgRoot,
-          timeoutMs,
-          env: globalInstallEnv,
-          progress,
-          stepIndex: 0,
-          totalSteps: 1,
-        });
-        steps.push(fallbackStep);
-        finalStep = fallbackStep;
-      }
-    }
-
+    const steps = [updateStep];
     const afterVersion = await readPackageVersion(pkgRoot);
     return {
-      status: finalStep.exitCode === 0 ? "ok" : "error",
+      status: updateStep.exitCode === 0 ? "ok" : "error",
       mode: globalManager,
       root: pkgRoot,
-      reason: finalStep.exitCode === 0 ? undefined : finalStep.name,
+      reason: updateStep.exitCode === 0 ? undefined : updateStep.name,
       before: { version: beforeVersion },
       after: { version: afterVersion },
       steps,

@@ -2,19 +2,20 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { note } from "../terminal/note.js";
 import { withEnvAsync } from "../test-utils/env.js";
 import { runDoctorConfigWithInput } from "./doctor-config-flow.test-utils.js";
 
+const { noteSpy } = vi.hoisted(() => ({
+  noteSpy: vi.fn(),
+}));
+
 vi.mock("../terminal/note.js", () => ({
-  note: vi.fn(),
+  note: noteSpy,
 }));
 
 import { loadAndMaybeMigrateDoctorConfig } from "./doctor-config-flow.js";
 
 describe("doctor config flow safe bins", () => {
-  const noteSpy = vi.mocked(note);
-
   beforeEach(() => {
     noteSpy.mockClear();
   });
@@ -85,7 +86,7 @@ describe("doctor config flow safe bins", () => {
       "Doctor warnings",
     );
     expect(noteSpy).toHaveBeenCalledWith(
-      expect.stringContaining("openclaw doctor --fix"),
+      expect.stringContaining("mirai doctor --fix"),
       "Doctor warnings",
     );
   });
@@ -94,7 +95,7 @@ describe("doctor config flow safe bins", () => {
     if (process.platform === "win32") {
       return;
     }
-    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-doctor-safe-bins-"));
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mirai-doctor-safe-bins-"));
     const binPath = path.join(dir, "mydoctorbin");
     try {
       await fs.writeFile(binPath, "#!/bin/sh\necho ok\n", "utf-8");

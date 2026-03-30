@@ -1,12 +1,12 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
-import type { OpenClawConfig } from "../../../config/config.js";
+import type { MiraiConfig } from "../../../config/config.js";
 
-export function resolveConfiguredAcpBackendId(cfg: OpenClawConfig): string {
+export function resolveConfiguredAcpBackendId(cfg: MiraiConfig): string {
   return cfg.acp?.backend?.trim() || "acpx";
 }
 
-export function resolveAcpInstallCommandHint(cfg: OpenClawConfig): string {
+export function resolveAcpInstallCommandHint(cfg: MiraiConfig): string {
   const configured = cfg.acp?.runtime?.installCommand?.trim();
   if (configured) {
     return configured;

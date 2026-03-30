@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { BROWSER_BRIDGES } from "./browser-bridges.js";
 import { ensureSandboxBrowser } from "./browser.js";
 import { resetNoVncObserverTokensForTests } from "./novnc-auth.js";
-import { collectDockerFlagValues, findDockerArgsCall } from "./test-args.js";
 import type { SandboxConfig } from "./types.js";
 
 const dockerMocks = vi.hoisted(() => ({
@@ -48,13 +47,12 @@ vi.mock("../../browser/bridge-server.js", () => ({
 function buildConfig(enableNoVnc: boolean): SandboxConfig {
   return {
     mode: "all",
-    backend: "docker",
     scope: "session",
     workspaceAccess: "none",
-    workspaceRoot: "/tmp/openclaw-sandboxes",
+    workspaceRoot: "/tmp/mirai-sandboxes",
     docker: {
-      image: "openclaw-sandbox:bookworm-slim",
-      containerPrefix: "openclaw-sbx-",
+      image: "mirai-sandbox:bookworm-slim",
+      containerPrefix: "mirai-sbx-",
       workdir: "/workspace",
       readOnlyRoot: true,
       tmpfs: ["/tmp", "/var/tmp", "/run"],
@@ -62,17 +60,11 @@ function buildConfig(enableNoVnc: boolean): SandboxConfig {
       capDrop: ["ALL"],
       env: { LANG: "C.UTF-8" },
     },
-    ssh: {
-      command: "ssh",
-      workspaceRoot: "/tmp/openclaw-sandboxes",
-      strictHostKeyChecking: true,
-      updateHostKeys: true,
-    },
     browser: {
       enabled: true,
-      image: "openclaw-sandbox-browser:bookworm-slim",
-      containerPrefix: "openclaw-sbx-browser-",
-      network: "openclaw-sandbox-browser",
+      image: "mirai-sandbox-browser:bookworm-slim",
+      containerPrefix: "mirai-sbx-browser-",
+      network: "mirai-sandbox-browser",
       cdpPort: 9222,
       vncPort: 5900,
       noVncPort: 6080,
@@ -91,6 +83,16 @@ function buildConfig(enableNoVnc: boolean): SandboxConfig {
       maxAgeDays: 7,
     },
   };
+}
+
+function envEntriesFromDockerArgs(args: string[]): string[] {
+  const values: string[] = [];
+  for (let i = 0; i < args.length; i += 1) {
+    if (args[i] === "-e" && typeof args[i + 1] === "string") {
+      values.push(args[i + 1]);
+    }
+  }
+  return values;
 }
 
 describe("ensureSandboxBrowser create args", () => {
@@ -149,16 +151,17 @@ describe("ensureSandboxBrowser create args", () => {
       cfg: buildConfig(true),
     });
 
-    const createArgs = findDockerArgsCall(dockerMocks.execDocker.mock.calls, "create");
+    const createArgs = dockerMocks.execDocker.mock.calls.find(
+      (call: unknown[]) => Array.isArray(call[0]) && call[0][0] === "create",
+    )?.[0] as string[] | undefined;
 
     expect(createArgs).toBeDefined();
     expect(createArgs).toContain("127.0.0.1::6080");
-    const envEntries = collectDockerFlagValues(createArgs ?? [], "-e");
-    expect(envEntries).toContain("OPENCLAW_BROWSER_NO_SANDBOX=1");
+    const envEntries = envEntriesFromDockerArgs(createArgs ?? []);
     const passwordEntry = envEntries.find((entry) =>
-      entry.startsWith("OPENCLAW_BROWSER_NOVNC_PASSWORD="),
+      entry.startsWith("MIRAI_BROWSER_NOVNC_PASSWORD="),
     );
-    expect(passwordEntry).toMatch(/^OPENCLAW_BROWSER_NOVNC_PASSWORD=[A-Za-z0-9]{8}$/);
+    expect(passwordEntry).toMatch(/^MIRAI_BROWSER_NOVNC_PASSWORD=[a-f0-9]{8}$/);
     expect(result?.noVncUrl).toMatch(/^http:\/\/127\.0\.0\.1:19000\/sandbox\/novnc\?token=/);
     expect(result?.noVncUrl).not.toContain("password=");
   });
@@ -171,46 +174,13 @@ describe("ensureSandboxBrowser create args", () => {
       cfg: buildConfig(false),
     });
 
-    const createArgs = findDockerArgsCall(dockerMocks.execDocker.mock.calls, "create");
-    const envEntries = collectDockerFlagValues(createArgs ?? [], "-e");
-    expect(envEntries.some((entry) => entry.startsWith("OPENCLAW_BROWSER_NOVNC_PASSWORD="))).toBe(
+    const createArgs = dockerMocks.execDocker.mock.calls.find(
+      (call: unknown[]) => Array.isArray(call[0]) && call[0][0] === "create",
+    )?.[0] as string[] | undefined;
+    const envEntries = envEntriesFromDockerArgs(createArgs ?? []);
+    expect(envEntries.some((entry) => entry.startsWith("MIRAI_BROWSER_NOVNC_PASSWORD="))).toBe(
       false,
     );
     expect(result?.noVncUrl).toBeUndefined();
-  });
-
-  it("mounts the main workspace read-only when workspaceAccess is none", async () => {
-    const cfg = buildConfig(false);
-    cfg.workspaceAccess = "none";
-
-    await ensureSandboxBrowser({
-      scopeKey: "session:test",
-      workspaceDir: "/tmp/workspace",
-      agentWorkspaceDir: "/tmp/workspace",
-      cfg,
-    });
-
-    const createArgs = findDockerArgsCall(dockerMocks.execDocker.mock.calls, "create");
-
-    expect(createArgs).toBeDefined();
-    expect(createArgs).toContain("/tmp/workspace:/workspace:ro");
-  });
-
-  it("keeps the main workspace writable when workspaceAccess is rw", async () => {
-    const cfg = buildConfig(false);
-    cfg.workspaceAccess = "rw";
-
-    await ensureSandboxBrowser({
-      scopeKey: "session:test",
-      workspaceDir: "/tmp/workspace",
-      agentWorkspaceDir: "/tmp/workspace",
-      cfg,
-    });
-
-    const createArgs = findDockerArgsCall(dockerMocks.execDocker.mock.calls, "create");
-
-    expect(createArgs).toBeDefined();
-    expect(createArgs).toContain("/tmp/workspace:/workspace");
-    expect(createArgs).not.toContain("/tmp/workspace:/workspace:ro");
   });
 });

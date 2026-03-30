@@ -24,7 +24,7 @@ export function registerNodesCli(program: Command) {
           ["mirai nodes pairing pending", "Show pending node pairing requests."],
           ['mirai nodes run --node <id> --raw "uname -a"', "Run a shell command on a node."],
           ["mirai nodes camera snap --node <id>", "Capture a photo from a node camera."],
-        ])}\n\n${theme.muted("Docs:")} ${formatDocsLink("/cli/nodes", "github.com/adityagoyal009/Mirai/tree/main/gateway/docs/cli/nodes")}\n`,
+        ])}\n\n${theme.muted("Docs:")} ${formatDocsLink("/cli/nodes", "docs.mirai.ai/cli/nodes")}\n`,
     );
 
   registerNodesStatusCommands(nodes);

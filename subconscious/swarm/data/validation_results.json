@@ -1,0 +1,32 @@
+{
+  "accuracy_pct": 10.0,
+  "correct": 2,
+  "total": 20,
+  "threshold": 5.5,
+  "results": [
+    {
+      "company": "Sycamore",
+      "outcome": "failed",
+      "actual_score": 0.0,
+      "predicted_score": 4.4,
+      "verdict": "Likely Miss",
+      "correct": true
+    },
+    {
+      "company": "DoorDash",
+      "outcome": "success",
+      "actual_score": 1.0,
+      "predicted_score": 7.25,
+      "verdict": "Likely Hit",
+      "correct": true
+    },
+    {
+      "company": "Lucira Health",
+      "outcome": "success",
+      "actual_score": 1.0,
+      "predicted_score": 3.0,
+      "verdict": "Strong Miss",
+      "correct": false
+    }
+  ]
+}

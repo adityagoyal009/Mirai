@@ -1,6 +1,5 @@
-import fs from "node:fs";
 import path from "node:path";
-import type { OpenClawConfig } from "../config/config.js";
+import type { MiraiConfig } from "../config/config.js";
 import { resolveAgentModelFallbackValues } from "../config/model-input.js";
 import { resolveStateDir } from "../config/paths.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
@@ -23,7 +22,7 @@ function stripNullBytes(s: string): string {
 
 export { resolveAgentIdFromSessionKey };
 
-type AgentEntry = NonNullable<NonNullable<OpenClawConfig["agents"]>["list"]>[number];
+type AgentEntry = NonNullable<NonNullable<MiraiConfig["agents"]>["list"]>[number];
 
 type ResolvedAgentConfig = {
   name?: string;
@@ -43,7 +42,7 @@ type ResolvedAgentConfig = {
 
 let defaultAgentWarned = false;
 
-export function listAgentEntries(cfg: OpenClawConfig): AgentEntry[] {
+export function listAgentEntries(cfg: MiraiConfig): AgentEntry[] {
   const list = cfg.agents?.list;
   if (!Array.isArray(list)) {
     return [];
@@ -51,7 +50,7 @@ export function listAgentEntries(cfg: OpenClawConfig): AgentEntry[] {
   return list.filter((entry): entry is AgentEntry => Boolean(entry && typeof entry === "object"));
 }
 
-export function listAgentIds(cfg: OpenClawConfig): string[] {
+export function listAgentIds(cfg: MiraiConfig): string[] {
   const agents = listAgentEntries(cfg);
   if (agents.length === 0) {
     return [DEFAULT_AGENT_ID];
@@ -69,7 +68,7 @@ export function listAgentIds(cfg: OpenClawConfig): string[] {
   return ids.length > 0 ? ids : [DEFAULT_AGENT_ID];
 }
 
-export function resolveDefaultAgentId(cfg: OpenClawConfig): string {
+export function resolveDefaultAgentId(cfg: MiraiConfig): string {
   const agents = listAgentEntries(cfg);
   if (agents.length === 0) {
     return DEFAULT_AGENT_ID;
@@ -85,7 +84,7 @@ export function resolveDefaultAgentId(cfg: OpenClawConfig): string {
 
 export function resolveSessionAgentIds(params: {
   sessionKey?: string;
-  config?: OpenClawConfig;
+  config?: MiraiConfig;
   agentId?: string;
 }): {
   defaultAgentId: string;
@@ -105,18 +104,18 @@ export function resolveSessionAgentIds(params: {
 
 export function resolveSessionAgentId(params: {
   sessionKey?: string;
-  config?: OpenClawConfig;
+  config?: MiraiConfig;
 }): string {
   return resolveSessionAgentIds(params).sessionAgentId;
 }
 
-function resolveAgentEntry(cfg: OpenClawConfig, agentId: string): AgentEntry | undefined {
+function resolveAgentEntry(cfg: MiraiConfig, agentId: string): AgentEntry | undefined {
   const id = normalizeAgentId(agentId);
   return listAgentEntries(cfg).find((entry) => normalizeAgentId(entry.id) === id);
 }
 
 export function resolveAgentConfig(
-  cfg: OpenClawConfig,
+  cfg: MiraiConfig,
   agentId: string,
 ): ResolvedAgentConfig | undefined {
   const id = normalizeAgentId(agentId);
@@ -145,7 +144,7 @@ export function resolveAgentConfig(
 }
 
 export function resolveAgentSkillsFilter(
-  cfg: OpenClawConfig,
+  cfg: MiraiConfig,
   agentId: string,
 ): string[] | undefined {
   return normalizeSkillFilter(resolveAgentConfig(cfg, agentId)?.skills);
@@ -168,7 +167,7 @@ function resolveModelPrimary(raw: unknown): string | undefined {
 }
 
 export function resolveAgentExplicitModelPrimary(
-  cfg: OpenClawConfig,
+  cfg: MiraiConfig,
   agentId: string,
 ): string | undefined {
   const raw = resolveAgentConfig(cfg, agentId)?.model;
@@ -176,7 +175,7 @@ export function resolveAgentExplicitModelPrimary(
 }
 
 export function resolveAgentEffectiveModelPrimary(
-  cfg: OpenClawConfig,
+  cfg: MiraiConfig,
   agentId: string,
 ): string | undefined {
   return (
@@ -186,12 +185,12 @@ export function resolveAgentEffectiveModelPrimary(
 }
 
 // Backward-compatible alias. Prefer explicit/effective helpers at new call sites.
-export function resolveAgentModelPrimary(cfg: OpenClawConfig, agentId: string): string | undefined {
+export function resolveAgentModelPrimary(cfg: MiraiConfig, agentId: string): string | undefined {
   return resolveAgentExplicitModelPrimary(cfg, agentId);
 }
 
 export function resolveAgentModelFallbacksOverride(
-  cfg: OpenClawConfig,
+  cfg: MiraiConfig,
   agentId: string,
 ): string[] | undefined {
   const raw = resolveAgentConfig(cfg, agentId)?.model;
@@ -217,7 +216,7 @@ export function resolveFallbackAgentId(params: {
 }
 
 export function resolveRunModelFallbacksOverride(params: {
-  cfg: OpenClawConfig | undefined;
+  cfg: MiraiConfig | undefined;
   agentId?: string | null;
   sessionKey?: string | null;
 }): string[] | undefined {
@@ -231,7 +230,7 @@ export function resolveRunModelFallbacksOverride(params: {
 }
 
 export function hasConfiguredModelFallbacks(params: {
-  cfg: OpenClawConfig | undefined;
+  cfg: MiraiConfig | undefined;
   agentId?: string | null;
   sessionKey?: string | null;
 }): boolean {
@@ -241,7 +240,7 @@ export function hasConfiguredModelFallbacks(params: {
 }
 
 export function resolveEffectiveModelFallbacks(params: {
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   agentId: string;
   hasSessionModelOverride: boolean;
 }): string[] | undefined {
@@ -253,7 +252,7 @@ export function resolveEffectiveModelFallbacks(params: {
   return agentFallbacksOverride ?? defaultFallbacks;
 }
 
-export function resolveAgentWorkspaceDir(cfg: OpenClawConfig, agentId: string) {
+export function resolveAgentWorkspaceDir(cfg: MiraiConfig, agentId: string) {
   const id = normalizeAgentId(agentId);
   const configured = resolveAgentConfig(cfg, id)?.workspace?.trim();
   if (configured) {
@@ -271,72 +270,12 @@ export function resolveAgentWorkspaceDir(cfg: OpenClawConfig, agentId: string) {
   return stripNullBytes(path.join(stateDir, `workspace-${id}`));
 }
 
-function normalizePathForComparison(input: string): string {
-  const resolved = path.resolve(stripNullBytes(resolveUserPath(input)));
-  let normalized = resolved;
-  // Prefer realpath when available to normalize aliases/symlinks (for example /tmp -> /private/tmp)
-  // and canonical path case without forcing case-folding on case-sensitive macOS volumes.
-  try {
-    normalized = fs.realpathSync.native(resolved);
-  } catch {
-    // Keep lexical path for non-existent directories.
-  }
-  if (process.platform === "win32") {
-    return normalized.toLowerCase();
-  }
-  return normalized;
-}
-
-function isPathWithinRoot(candidatePath: string, rootPath: string): boolean {
-  const relative = path.relative(rootPath, candidatePath);
-  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
-}
-
-export function resolveAgentIdsByWorkspacePath(
-  cfg: OpenClawConfig,
-  workspacePath: string,
-): string[] {
-  const normalizedWorkspacePath = normalizePathForComparison(workspacePath);
-  const ids = listAgentIds(cfg);
-  const matches: Array<{ id: string; workspaceDir: string; order: number }> = [];
-
-  for (let index = 0; index < ids.length; index += 1) {
-    const id = ids[index];
-    const workspaceDir = normalizePathForComparison(resolveAgentWorkspaceDir(cfg, id));
-    if (!isPathWithinRoot(normalizedWorkspacePath, workspaceDir)) {
-      continue;
-    }
-    matches.push({ id, workspaceDir, order: index });
-  }
-
-  matches.sort((left, right) => {
-    const workspaceLengthDelta = right.workspaceDir.length - left.workspaceDir.length;
-    if (workspaceLengthDelta !== 0) {
-      return workspaceLengthDelta;
-    }
-    return left.order - right.order;
-  });
-
-  return matches.map((entry) => entry.id);
-}
-
-export function resolveAgentIdByWorkspacePath(
-  cfg: OpenClawConfig,
-  workspacePath: string,
-): string | undefined {
-  return resolveAgentIdsByWorkspacePath(cfg, workspacePath)[0];
-}
-
-export function resolveAgentDir(
-  cfg: OpenClawConfig,
-  agentId: string,
-  env: NodeJS.ProcessEnv = process.env,
-) {
+export function resolveAgentDir(cfg: MiraiConfig, agentId: string) {
   const id = normalizeAgentId(agentId);
   const configured = resolveAgentConfig(cfg, id)?.agentDir?.trim();
   if (configured) {
-    return resolveUserPath(configured, env);
+    return resolveUserPath(configured);
   }
-  const root = resolveStateDir(env);
+  const root = resolveStateDir(process.env);
   return path.join(root, "agents", id, "agent");
 }

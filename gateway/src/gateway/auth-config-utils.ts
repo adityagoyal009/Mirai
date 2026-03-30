@@ -1,8 +1,8 @@
-import type { GatewayAuthConfig, OpenClawConfig } from "../config/config.js";
+import type { GatewayAuthConfig, MiraiConfig } from "../config/config.js";
 import { resolveSecretInputRef } from "../config/types.secrets.js";
 import { resolveRequiredConfiguredSecretRefInputString } from "./resolve-configured-secret-input-string.js";
 
-export function withGatewayAuthPassword(cfg: OpenClawConfig, password: string): OpenClawConfig {
+export function withGatewayAuthPassword(cfg: MiraiConfig, password: string): MiraiConfig {
   return {
     ...cfg,
     gateway: {
@@ -33,12 +33,12 @@ function shouldResolveGatewayPasswordSecretRef(params: {
 }
 
 export async function resolveGatewayPasswordSecretRef(params: {
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   env: NodeJS.ProcessEnv;
   mode?: GatewayAuthConfig["mode"];
   hasPasswordCandidate: boolean;
   hasTokenCandidate: boolean;
-}): Promise<OpenClawConfig> {
+}): Promise<MiraiConfig> {
   const authPassword = params.cfg.gateway?.auth?.password;
   const { ref } = resolveSecretInputRef({
     value: authPassword,

@@ -1,22 +1,6 @@
 import { Type } from "@sinclair/typebox";
-import { InputProvenanceSchema, NonEmptyString, SessionLabelString } from "./primitives.js";
-
-export const AgentInternalEventSchema = Type.Object(
-  {
-    type: Type.Literal("task_completion"),
-    source: Type.String({ enum: ["subagent", "cron"] }),
-    childSessionKey: Type.String(),
-    childSessionId: Type.Optional(Type.String()),
-    announceType: Type.String(),
-    taskLabel: Type.String(),
-    status: Type.String({ enum: ["ok", "timeout", "error", "unknown"] }),
-    statusLabel: Type.String(),
-    result: Type.String(),
-    statsLine: Type.Optional(Type.String()),
-    replyInstruction: Type.String(),
-  },
-  { additionalProperties: false },
-);
+import { INPUT_PROVENANCE_KIND_VALUES } from "../../../sessions/input-provenance.js";
+import { NonEmptyString, SessionLabelString } from "./primitives.js";
 
 export const AgentEventSchema = Type.Object(
   {
@@ -75,8 +59,6 @@ export const AgentParamsSchema = Type.Object(
   {
     message: NonEmptyString,
     agentId: Type.Optional(NonEmptyString),
-    provider: Type.Optional(Type.String()),
-    model: Type.Optional(Type.String()),
     to: Type.Optional(Type.String()),
     replyTo: Type.Optional(Type.String()),
     sessionId: Type.Optional(Type.String()),
@@ -96,10 +78,20 @@ export const AgentParamsSchema = Type.Object(
     bestEffortDeliver: Type.Optional(Type.Boolean()),
     lane: Type.Optional(Type.String()),
     extraSystemPrompt: Type.Optional(Type.String()),
-    internalEvents: Type.Optional(Type.Array(AgentInternalEventSchema)),
-    inputProvenance: Type.Optional(InputProvenanceSchema),
+    inputProvenance: Type.Optional(
+      Type.Object(
+        {
+          kind: Type.String({ enum: [...INPUT_PROVENANCE_KIND_VALUES] }),
+          sourceSessionKey: Type.Optional(Type.String()),
+          sourceChannel: Type.Optional(Type.String()),
+          sourceTool: Type.Optional(Type.String()),
+        },
+        { additionalProperties: false },
+      ),
+    ),
     idempotencyKey: NonEmptyString,
     label: Type.Optional(SessionLabelString),
+    spawnedBy: Type.Optional(Type.String()),
   },
   { additionalProperties: false },
 );

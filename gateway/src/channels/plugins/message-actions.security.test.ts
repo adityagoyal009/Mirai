@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { jsonResult } from "../../agents/tools/common.js";
-import type { OpenClawConfig } from "../../config/config.js";
+import type { MiraiConfig } from "../../config/config.js";
 import { setActivePluginRegistry } from "../../plugins/runtime.js";
 import {
   createChannelTestPluginBase,
   createTestRegistry,
 } from "../../test-utils/channel-plugins.js";
-import { dispatchChannelMessageAction } from "./message-action-dispatch.js";
+import { dispatchChannelMessageAction } from "./message-actions.js";
 import type { ChannelPlugin } from "./types.js";
 
 const handleAction = vi.fn(async () => jsonResult({ ok: true }));
@@ -23,10 +23,8 @@ const discordPlugin: ChannelPlugin = {
     },
   }),
   actions: {
-    describeMessageTool: () => ({ actions: ["kick"] }),
+    listActions: () => ["kick"],
     supportsAction: ({ action }) => action === "kick",
-    requiresTrustedRequesterSender: ({ action, toolContext }) =>
-      Boolean(action === "kick" && toolContext),
     handleAction,
   },
 };
@@ -48,7 +46,7 @@ describe("dispatchChannelMessageAction trusted sender guard", () => {
       dispatchChannelMessageAction({
         channel: "discord",
         action: "kick",
-        cfg: {} as OpenClawConfig,
+        cfg: {} as MiraiConfig,
         params: { guildId: "g1", userId: "u1" },
         toolContext: { currentChannelProvider: "discord" },
       }),
@@ -60,7 +58,7 @@ describe("dispatchChannelMessageAction trusted sender guard", () => {
     await dispatchChannelMessageAction({
       channel: "discord",
       action: "kick",
-      cfg: {} as OpenClawConfig,
+      cfg: {} as MiraiConfig,
       params: { guildId: "g1", userId: "u1" },
       requesterSenderId: "trusted-user",
       toolContext: { currentChannelProvider: "discord" },
@@ -73,7 +71,7 @@ describe("dispatchChannelMessageAction trusted sender guard", () => {
     await dispatchChannelMessageAction({
       channel: "discord",
       action: "kick",
-      cfg: {} as OpenClawConfig,
+      cfg: {} as MiraiConfig,
       params: { guildId: "g1", userId: "u1" },
     });
 

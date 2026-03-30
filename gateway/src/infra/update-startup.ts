@@ -6,8 +6,7 @@ import type { loadConfig } from "../config/config.js";
 import { resolveStateDir } from "../config/paths.js";
 import { runCommandWithTimeout } from "../process/exec.js";
 import { VERSION } from "../version.js";
-import { writeJsonAtomic } from "./json-files.js";
-import { resolveOpenClawPackageRoot } from "./openclaw-root.js";
+import { resolveMiraiPackageRoot } from "./mirai-root.js";
 import { normalizeUpdateChannel, DEFAULT_PACKAGE_CHANNEL } from "./update-channels.js";
 import { compareSemverStrings, resolveNpmChannelTag, checkUpdateStatus } from "./update-check.js";
 
@@ -125,7 +124,8 @@ async function readState(statePath: string): Promise<UpdateCheckState> {
 }
 
 async function writeState(statePath: string, state: UpdateCheckState): Promise<void> {
-  await writeJsonAtomic(statePath, state);
+  await fs.mkdir(path.dirname(statePath), { recursive: true });
+  await fs.writeFile(statePath, JSON.stringify(state, null, 2), "utf-8");
 }
 
 function sameUpdateAvailable(a: UpdateAvailable | null, b: UpdateAvailable | null): boolean {
@@ -265,14 +265,14 @@ async function runAutoUpdateCommand(params: {
     }
   }
   if (argv.length === 0) {
-    argv.push("openclaw", ...baseArgs);
+    argv.push("mirai", ...baseArgs);
   }
 
   try {
     const res = await runCommandWithTimeout(argv, {
       timeoutMs: params.timeoutMs,
       env: {
-        OPENCLAW_AUTO_UPDATE: "1",
+        MIRAI_AUTO_UPDATE: "1",
       },
     });
     return {
@@ -344,7 +344,7 @@ export async function runGatewayUpdateCheck(params: {
     }
   }
 
-  const root = await resolveOpenClawPackageRoot({
+  const root = await resolveMiraiPackageRoot({
     moduleUrl: import.meta.url,
     argv1: process.argv[1],
     cwd: process.cwd(),

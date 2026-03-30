@@ -2,13 +2,13 @@
 // Keep this list additive and scoped to symbols used under extensions/signal.
 
 export type { ChannelMessageActionAdapter } from "../channels/plugins/types.js";
-export type { OpenClawConfig } from "../config/config.js";
+export type { MiraiConfig } from "../config/config.js";
 export type { SignalAccountConfig } from "../config/types.js";
 export type { ResolvedSignalAccount } from "../../extensions/signal/api.js";
 export type {
   ChannelMessageActionContext,
   ChannelPlugin,
-  OpenClawPluginApi,
+  MiraiPluginApi,
   PluginRuntime,
 } from "./channel-plugin-common.js";
 export {

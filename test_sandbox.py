@@ -163,16 +163,10 @@ def test_crew_import():
     except ImportError:
         return "WARN: crewai not installed (optional)"
 
-def test_web_researcher_import():
-    from subconscious.swarm.services.web_researcher import WebResearcher
-    wr = WebResearcher()
-    assert wr.cortex_url == "http://localhost:8100"
-
 test("BI engine classes + dimension weights sum to 1.0", test_bi_engine_import)
 test("SearXNG SearchEngine class loads", test_search_engine_import)
 test("OpenBB MarketDataService import", test_market_data_import)
 test("CrewAI CrewOrchestrator import", test_crew_import)
-test("WebResearcher class loads", test_web_researcher_import)
 
 
 # ══════════════════════════════════════════════════════════════════

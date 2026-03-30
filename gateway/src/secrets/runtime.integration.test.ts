@@ -6,7 +6,7 @@ import { ensureAuthProfileStore, type AuthProfileStore } from "../agents/auth-pr
 import {
   clearConfigCache,
   loadConfig,
-  type OpenClawConfig,
+  type MiraiConfig,
   writeConfigFile,
 } from "../config/config.js";
 import { withTempHome } from "../config/home-env.test-harness.js";
@@ -21,8 +21,8 @@ import {
 const OPENAI_ENV_KEY_REF = { source: "env", provider: "default", id: "OPENAI_API_KEY" } as const;
 const allowInsecureTempSecretFile = process.platform === "win32";
 
-function asConfig(value: unknown): OpenClawConfig {
-  return value as OpenClawConfig;
+function asConfig(value: unknown): MiraiConfig {
+  return value as MiraiConfig;
 }
 
 function loadAuthStoreWithProfiles(profiles: AuthProfileStore["profiles"]): AuthProfileStore {
@@ -52,7 +52,7 @@ describe("secrets runtime snapshot integration", () => {
         },
       }),
       env: { OPENAI_API_KEY: "sk-runtime" },
-      agentDirs: ["/tmp/openclaw-agent-main"],
+      agentDirs: ["/tmp/mirai-agent-main"],
       loadAuthStore: () =>
         loadAuthStoreWithProfiles({
           "openai:default": {
@@ -67,7 +67,7 @@ describe("secrets runtime snapshot integration", () => {
 
     expect(loadConfig().models?.providers?.openai?.apiKey).toBe("sk-runtime");
     expect(
-      ensureAuthProfileStore("/tmp/openclaw-agent-main").profiles["openai:default"],
+      ensureAuthProfileStore("/tmp/mirai-agent-main").profiles["openai:default"],
     ).toMatchObject({
       type: "api_key",
       key: "sk-runtime",
@@ -78,8 +78,8 @@ describe("secrets runtime snapshot integration", () => {
     if (os.platform() === "win32") {
       return;
     }
-    await withTempHome("openclaw-secrets-runtime-write-", async (home) => {
-      const configDir = path.join(home, ".openclaw");
+    await withTempHome("mirai-secrets-runtime-write-", async (home) => {
+      const configDir = path.join(home, ".mirai");
       const secretFile = path.join(configDir, "secrets.json");
       const agentDir = path.join(configDir, "agents", "main", "agent");
       const authStorePath = path.join(agentDir, "auth-profiles.json");
@@ -160,8 +160,8 @@ describe("secrets runtime snapshot integration", () => {
     if (os.platform() === "win32") {
       return;
     }
-    await withTempHome("openclaw-secrets-runtime-refresh-fail-", async (home) => {
-      const configDir = path.join(home, ".openclaw");
+    await withTempHome("mirai-secrets-runtime-refresh-fail-", async (home) => {
+      const configDir = path.join(home, ".mirai");
       const secretFile = path.join(configDir, "secrets.json");
       const agentDir = path.join(configDir, "agents", "main", "agent");
       const authStorePath = path.join(agentDir, "auth-profiles.json");
@@ -260,7 +260,7 @@ describe("secrets runtime snapshot integration", () => {
   });
 
   it("keeps last-known-good web runtime snapshot when reload introduces unresolved active web refs", async () => {
-    await withTempHome("openclaw-secrets-runtime-web-reload-lkg-", async (home) => {
+    await withTempHome("mirai-secrets-runtime-web-reload-lkg-", async (home) => {
       const prepared = await prepareSecretsRuntimeSnapshot({
         config: asConfig({
           tools: {
@@ -277,7 +277,7 @@ describe("secrets runtime snapshot integration", () => {
         env: {
           WEB_SEARCH_GEMINI_API_KEY: "web-search-gemini-runtime-key",
         },
-        agentDirs: ["/tmp/openclaw-agent-main"],
+        agentDirs: ["/tmp/mirai-agent-main"],
         loadAuthStore: () => ({ version: 1, profiles: {} }),
       });
 
@@ -331,8 +331,8 @@ describe("secrets runtime snapshot integration", () => {
       expect(getActiveRuntimeWebToolsMetadata()?.search.selectedProvider).toBe("gemini");
 
       const persistedConfig = JSON.parse(
-        await fs.readFile(path.join(home, ".openclaw", "openclaw.json"), "utf8"),
-      ) as OpenClawConfig;
+        await fs.readFile(path.join(home, ".mirai", "mirai.json"), "utf8"),
+      ) as MiraiConfig;
       const persistedGoogleWebSearchConfig = persistedConfig.plugins?.entries?.google?.config as
         | { webSearch?: { apiKey?: unknown } }
         | undefined;
@@ -345,9 +345,9 @@ describe("secrets runtime snapshot integration", () => {
   }, 180_000);
 
   it("recomputes config-derived agent dirs when refreshing active secrets runtime snapshots", async () => {
-    await withTempHome("openclaw-secrets-runtime-agent-dirs-", async (home) => {
-      const mainAgentDir = path.join(home, ".openclaw", "agents", "main", "agent");
-      const opsAgentDir = path.join(home, ".openclaw", "agents", "ops", "agent");
+    await withTempHome("mirai-secrets-runtime-agent-dirs-", async (home) => {
+      const mainAgentDir = path.join(home, ".mirai", "agents", "main", "agent");
+      const opsAgentDir = path.join(home, ".mirai", "agents", "ops", "agent");
       await fs.mkdir(mainAgentDir, { recursive: true });
       await fs.mkdir(opsAgentDir, { recursive: true });
       await fs.writeFile(

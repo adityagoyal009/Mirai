@@ -1,14 +1,13 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { withTempHome as withTempHomeBase } from "../../test/helpers/temp-home.js";
-import type { OpenClawConfig } from "./config.js";
 
 export async function withTempHome<T>(fn: (home: string) => Promise<T>): Promise<T> {
-  return withTempHomeBase(fn, { prefix: "openclaw-config-" });
+  return withTempHomeBase(fn, { prefix: "mirai-config-" });
 }
 
-export async function writeOpenClawConfig(home: string, config: unknown): Promise<string> {
-  const configPath = path.join(home, ".openclaw", "openclaw.json");
+export async function writeMiraiConfig(home: string, config: unknown): Promise<string> {
+  const configPath = path.join(home, ".mirai", "mirai.json");
   await fs.mkdir(path.dirname(configPath), { recursive: true });
   await fs.writeFile(configPath, JSON.stringify(config, null, 2), "utf-8");
   return configPath;
@@ -19,7 +18,7 @@ export async function withTempHomeConfig<T>(
   fn: (params: { home: string; configPath: string }) => Promise<T>,
 ): Promise<T> {
   return withTempHome(async (home) => {
-    const configPath = await writeOpenClawConfig(home, config);
+    const configPath = await writeMiraiConfig(home, config);
     return fn({ home, configPath });
   });
 }
@@ -54,9 +53,7 @@ export async function withEnvOverride<T>(
 }
 
 export function buildWebSearchProviderConfig(params: {
-  provider: NonNullable<
-    NonNullable<NonNullable<NonNullable<OpenClawConfig["tools"]>["web"]>["search"]>["provider"]
-  >;
+  provider: string;
   enabled?: boolean;
   providerConfig?: Record<string, unknown>;
 }): Record<string, unknown> {
@@ -64,32 +61,14 @@ export function buildWebSearchProviderConfig(params: {
   if (params.enabled !== undefined) {
     search.enabled = params.enabled;
   }
-  const pluginId =
-    params.provider === "gemini"
-      ? "google"
-      : params.provider === "grok"
-        ? "xai"
-        : params.provider === "kimi"
-          ? "moonshot"
-          : params.provider;
+  if (params.providerConfig) {
+    search[params.provider] = params.providerConfig;
+  }
   return {
     tools: {
       web: {
         search,
       },
     },
-    ...(params.providerConfig
-      ? {
-          plugins: {
-            entries: {
-              [pluginId]: {
-                config: {
-                  webSearch: params.providerConfig,
-                },
-              },
-            },
-          },
-        }
-      : {}),
   };
 }

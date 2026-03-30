@@ -1,7 +1,5 @@
-import fsPromises from "node:fs/promises";
-import nodePath from "node:path";
 import { formatCliCommand } from "../cli/command-format.js";
-import type { OpenClawConfig } from "../config/config.js";
+import type { MiraiConfig } from "../config/config.js";
 import { readConfigFileSnapshot, resolveGatewayPort, writeConfigFile } from "../config/config.js";
 import { logConfigUpdated } from "../config/logging.js";
 import { ensureControlUiAssetsBuilt } from "../infra/control-ui-assets.js";
@@ -11,7 +9,6 @@ import { note } from "../terminal/note.js";
 import { resolveUserPath } from "../utils.js";
 import { createClackPrompter } from "../wizard/clack-prompter.js";
 import { WizardCancelledError } from "../wizard/prompts.js";
-import { resolveSetupSecretInputString } from "../wizard/setup.secret-input.js";
 import { removeChannelConfigWizard } from "./configure.channels.js";
 import { maybeInstallDaemon } from "./configure.daemon.js";
 import { promptAuthConfig } from "./configure.gateway-auth.js";
@@ -48,25 +45,8 @@ import { setupSkills } from "./onboard-skills.js";
 
 type ConfigureSectionChoice = WizardSection | "__continue";
 
-async function resolveGatewaySecretInputForWizard(params: {
-  cfg: OpenClawConfig;
-  value: unknown;
-  path: string;
-}): Promise<string | undefined> {
-  try {
-    return await resolveSetupSecretInputString({
-      config: params.cfg,
-      value: params.value,
-      path: params.path,
-      env: process.env,
-    });
-  } catch {
-    return undefined;
-  }
-}
-
 async function runGatewayHealthCheck(params: {
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   runtime: RuntimeEnv;
   port: number;
 }): Promise<void> {
@@ -78,22 +58,8 @@ async function runGatewayHealthCheck(params: {
   });
   const remoteUrl = params.cfg.gateway?.remote?.url?.trim();
   const wsUrl = params.cfg.gateway?.mode === "remote" && remoteUrl ? remoteUrl : localLinks.wsUrl;
-  const configuredToken = await resolveGatewaySecretInputForWizard({
-    cfg: params.cfg,
-    value: params.cfg.gateway?.auth?.token,
-    path: "gateway.auth.token",
-  });
-  const configuredPassword = await resolveGatewaySecretInputForWizard({
-    cfg: params.cfg,
-    value: params.cfg.gateway?.auth?.password,
-    path: "gateway.auth.password",
-  });
-  const token =
-    process.env.OPENCLAW_GATEWAY_TOKEN ?? process.env.CLAWDBOT_GATEWAY_TOKEN ?? configuredToken;
-  const password =
-    process.env.OPENCLAW_GATEWAY_PASSWORD ??
-    process.env.CLAWDBOT_GATEWAY_PASSWORD ??
-    configuredPassword;
+  const token = params.cfg.gateway?.auth?.token ?? process.env.MIRAI_GATEWAY_TOKEN;
+  const password = params.cfg.gateway?.auth?.password ?? process.env.MIRAI_GATEWAY_PASSWORD;
 
   await waitForGatewayReachable({
     url: wsUrl,
@@ -109,8 +75,8 @@ async function runGatewayHealthCheck(params: {
     note(
       [
         "Docs:",
-        "https://github.com/adityagoyal009/Mirai/tree/main/gateway/docs/gateway/health",
-        "https://github.com/adityagoyal009/Mirai/tree/main/gateway/docs/gateway/troubleshooting",
+        "https://docs.mirai.ai/gateway/health",
+        "https://docs.mirai.ai/gateway/troubleshooting",
       ].join("\n"),
       "Health check help",
     );
@@ -151,7 +117,7 @@ async function promptChannelMode(runtime: RuntimeEnv): Promise<ChannelsWizardMod
         {
           value: "remove",
           label: "Remove channel config",
-          hint: "Delete channel tokens/settings from openclaw.json",
+          hint: "Delete channel tokens/settings from mirai.json",
         },
       ],
       initialValue: "configure",
@@ -161,136 +127,57 @@ async function promptChannelMode(runtime: RuntimeEnv): Promise<ChannelsWizardMod
 }
 
 async function promptWebToolsConfig(
-  nextConfig: OpenClawConfig,
+  nextConfig: MiraiConfig,
   runtime: RuntimeEnv,
-): Promise<OpenClawConfig> {
+): Promise<MiraiConfig> {
   const existingSearch = nextConfig.tools?.web?.search;
   const existingFetch = nextConfig.tools?.web?.fetch;
-  const {
-    resolveSearchProviderOptions,
-    resolveExistingKey,
-    hasExistingKey,
-    applySearchKey,
-    applySearchProviderSelection,
-    hasKeyInEnv,
-  } = await import("./onboard-search.js");
-  const searchProviderOptions = resolveSearchProviderOptions(nextConfig);
-  const defaultProvider = searchProviderOptions[0]?.id;
-
-  const hasKeyForProvider = (provider: string): boolean => {
-    const entry = searchProviderOptions.find((e) => e.id === provider);
-    if (!entry) {
-      return false;
-    }
-    return hasExistingKey(nextConfig, provider) || hasKeyInEnv(entry);
-  };
-
-  const existingProvider = (() => {
-    const stored = existingSearch?.provider;
-    if (stored && searchProviderOptions.some((e) => e.id === stored)) {
-      return stored;
-    }
-    return searchProviderOptions.find((e) => hasKeyForProvider(e.id))?.id ?? defaultProvider;
-  })();
+  const hasSearchKey = Boolean(existingSearch?.apiKey);
 
   note(
     [
       "Web search lets your agent look things up online using the `web_search` tool.",
-      "Choose a provider and paste your API key.",
-      "Docs: https://github.com/adityagoyal009/Mirai/tree/main/gateway/docs/tools/web",
+      "It requires a Brave Search API key (you can store it in the config or set BRAVE_API_KEY in the Gateway environment).",
+      "Docs: https://docs.mirai.ai/tools/web",
     ].join("\n"),
     "Web search",
   );
 
   const enableSearch = guardCancel(
     await confirm({
-      message: "Enable web_search?",
-      initialValue:
-        existingSearch?.enabled ?? searchProviderOptions.some((e) => hasKeyForProvider(e.id)),
+      message: "Enable web_search (Brave Search)?",
+      initialValue: existingSearch?.enabled ?? hasSearchKey,
     }),
     runtime,
   );
 
-  let nextSearch: Record<string, unknown> = {
+  let nextSearch = {
     ...existingSearch,
     enabled: enableSearch,
   };
-  let workingConfig = nextConfig;
 
   if (enableSearch) {
-    if (searchProviderOptions.length === 0) {
+    const keyInput = guardCancel(
+      await text({
+        message: hasSearchKey
+          ? "Brave Search API key (leave blank to keep current or use BRAVE_API_KEY)"
+          : "Brave Search API key (paste it here; leave blank to use BRAVE_API_KEY)",
+        placeholder: hasSearchKey ? "Leave blank to keep current" : "BSA...",
+      }),
+      runtime,
+    );
+    const key = String(keyInput ?? "").trim();
+    if (key) {
+      nextSearch = { ...nextSearch, apiKey: key };
+    } else if (!hasSearchKey) {
       note(
         [
-          "No web search providers are currently available under this plugin policy.",
-          "Enable plugins or remove deny rules, then rerun configure.",
-          "Docs: https://github.com/adityagoyal009/Mirai/tree/main/gateway/docs/tools/web",
+          "No key stored yet, so web_search will stay unavailable.",
+          "Store a key here or set BRAVE_API_KEY in the Gateway environment.",
+          "Docs: https://docs.mirai.ai/tools/web",
         ].join("\n"),
         "Web search",
       );
-      nextSearch = {
-        ...existingSearch,
-        enabled: false,
-      };
-    } else {
-      const providerOptions = searchProviderOptions.map((entry) => {
-        const configured = hasKeyForProvider(entry.id);
-        return {
-          value: entry.id,
-          label: entry.label,
-          hint: configured ? `${entry.hint} · configured` : entry.hint,
-        };
-      });
-
-      const providerChoice = guardCancel(
-        await select({
-          message: "Choose web search provider",
-          options: providerOptions,
-          initialValue: existingProvider,
-        }),
-        runtime,
-      );
-
-      nextSearch = { ...nextSearch, provider: providerChoice };
-
-      const entry = searchProviderOptions.find((e) => e.id === providerChoice)!;
-      const existingKey = resolveExistingKey(nextConfig, providerChoice);
-      const keyConfigured = hasExistingKey(nextConfig, providerChoice);
-      const envAvailable = entry.envVars.some((k) => Boolean(process.env[k]?.trim()));
-      const envVarNames = entry.envVars.join(" / ");
-
-      const keyInput = guardCancel(
-        await text({
-          message: keyConfigured
-            ? envAvailable
-              ? `${entry.label} API key (leave blank to keep current or use ${envVarNames})`
-              : `${entry.label} API key (leave blank to keep current)`
-            : envAvailable
-              ? `${entry.label} API key (paste it here; leave blank to use ${envVarNames})`
-              : `${entry.label} API key`,
-          placeholder: keyConfigured ? "Leave blank to keep current" : entry.placeholder,
-        }),
-        runtime,
-      );
-      const key = String(keyInput ?? "").trim();
-
-      if (key || existingKey) {
-        workingConfig = applySearchKey(workingConfig, providerChoice, (key || existingKey)!);
-        nextSearch = { ...workingConfig.tools?.web?.search };
-      } else if (keyConfigured || envAvailable) {
-        workingConfig = applySearchProviderSelection(workingConfig, providerChoice);
-        nextSearch = { ...workingConfig.tools?.web?.search };
-      } else {
-        nextSearch = { ...nextSearch, provider: providerChoice };
-        note(
-          [
-            "No key stored yet — web_search won't work until a key is available.",
-            `Store a key here or set ${envVarNames} in the Gateway environment.`,
-            `Get your API key at: ${entry.signupUrl}`,
-            "Docs: https://github.com/adityagoyal009/Mirai/tree/main/gateway/docs/tools/web",
-          ].join("\n"),
-          "Web search",
-        );
-      }
     }
   }
 
@@ -308,11 +195,11 @@ async function promptWebToolsConfig(
   };
 
   return {
-    ...workingConfig,
+    ...nextConfig,
     tools: {
-      ...workingConfig.tools,
+      ...nextConfig.tools,
       web: {
-        ...workingConfig.tools?.web,
+        ...nextConfig.tools?.web,
         search: nextSearch,
         fetch: nextFetch,
       },
@@ -330,7 +217,7 @@ export async function runConfigureWizard(
     const prompter = createClackPrompter();
 
     const snapshot = await readConfigFileSnapshot();
-    const baseConfig: OpenClawConfig = snapshot.valid ? snapshot.config : {};
+    const baseConfig: MiraiConfig = snapshot.valid ? snapshot.config : {};
 
     if (snapshot.exists) {
       const title = snapshot.valid ? "Existing config detected" : "Invalid config";
@@ -340,7 +227,7 @@ export async function runConfigureWizard(
           [
             ...snapshot.issues.map((iss) => `- ${iss.path}: ${iss.message}`),
             "",
-            "Docs: https://github.com/adityagoyal009/Mirai/tree/main/gateway/docs/gateway/configuration",
+            "Docs: https://docs.mirai.ai/gateway/configuration",
           ].join("\n"),
           "Config issues",
         );
@@ -355,37 +242,16 @@ export async function runConfigureWizard(
     }
 
     const localUrl = "ws://127.0.0.1:18789";
-    const baseLocalProbeToken = await resolveGatewaySecretInputForWizard({
-      cfg: baseConfig,
-      value: baseConfig.gateway?.auth?.token,
-      path: "gateway.auth.token",
-    });
-    const baseLocalProbePassword = await resolveGatewaySecretInputForWizard({
-      cfg: baseConfig,
-      value: baseConfig.gateway?.auth?.password,
-      path: "gateway.auth.password",
-    });
     const localProbe = await probeGatewayReachable({
       url: localUrl,
-      token:
-        process.env.OPENCLAW_GATEWAY_TOKEN ??
-        process.env.CLAWDBOT_GATEWAY_TOKEN ??
-        baseLocalProbeToken,
-      password:
-        process.env.OPENCLAW_GATEWAY_PASSWORD ??
-        process.env.CLAWDBOT_GATEWAY_PASSWORD ??
-        baseLocalProbePassword,
+      token: baseConfig.gateway?.auth?.token ?? process.env.MIRAI_GATEWAY_TOKEN,
+      password: baseConfig.gateway?.auth?.password ?? process.env.MIRAI_GATEWAY_PASSWORD,
     });
     const remoteUrl = baseConfig.gateway?.remote?.url?.trim() ?? "";
-    const baseRemoteProbeToken = await resolveGatewaySecretInputForWizard({
-      cfg: baseConfig,
-      value: baseConfig.gateway?.remote?.token,
-      path: "gateway.remote.token",
-    });
     const remoteProbe = remoteUrl
       ? await probeGatewayReachable({
           url: remoteUrl,
-          token: baseRemoteProbeToken,
+          token: baseConfig.gateway?.remote?.token,
         })
       : null;
 
@@ -443,6 +309,10 @@ export async function runConfigureWizard(
       baseConfig.agents?.defaults?.workspace ??
       DEFAULT_WORKSPACE;
     let gatewayPort = resolveGatewayPort(baseConfig);
+    let gatewayToken: string | undefined =
+      nextConfig.gateway?.auth?.token ??
+      baseConfig.gateway?.auth?.token ??
+      process.env.MIRAI_GATEWAY_TOKEN;
 
     const persistConfig = async () => {
       nextConfig = applyWizardMetadata(nextConfig, {
@@ -462,32 +332,6 @@ export async function runConfigureWizard(
         runtime,
       );
       workspaceDir = resolveUserPath(String(workspaceInput ?? "").trim() || DEFAULT_WORKSPACE);
-      if (!snapshot.exists) {
-        const indicators = ["MEMORY.md", "memory", ".git"].map((name) =>
-          nodePath.join(workspaceDir, name),
-        );
-        const hasExistingContent = (
-          await Promise.all(
-            indicators.map(async (candidate) => {
-              try {
-                await fsPromises.access(candidate);
-                return true;
-              } catch {
-                return false;
-              }
-            }),
-          )
-        ).some(Boolean);
-        if (hasExistingContent) {
-          note(
-            [
-              `Existing workspace detected at ${workspaceDir}`,
-              "Existing files are preserved. Missing templates may be created, never overwritten.",
-            ].join("\n"),
-            "Existing workspace",
-          );
-        }
-      }
       nextConfig = {
         ...nextConfig,
         agents: {
@@ -551,6 +395,7 @@ export async function runConfigureWizard(
         const gateway = await promptGatewayConfig(nextConfig, runtime);
         nextConfig = gateway.config;
         gatewayPort = gateway.port;
+        gatewayToken = gateway.token;
       }
 
       if (selected.includes("channels")) {
@@ -569,7 +414,7 @@ export async function runConfigureWizard(
           await promptDaemonPort();
         }
 
-        await maybeInstallDaemon({ runtime, port: gatewayPort });
+        await maybeInstallDaemon({ runtime, port: gatewayPort, gatewayToken });
       }
 
       if (selected.includes("health")) {
@@ -605,6 +450,7 @@ export async function runConfigureWizard(
           const gateway = await promptGatewayConfig(nextConfig, runtime);
           nextConfig = gateway.config;
           gatewayPort = gateway.port;
+          gatewayToken = gateway.token;
           didConfigureGateway = true;
           await persistConfig();
         }
@@ -627,6 +473,7 @@ export async function runConfigureWizard(
           await maybeInstallDaemon({
             runtime,
             port: gatewayPort,
+            gatewayToken,
           });
         }
 
@@ -659,30 +506,9 @@ export async function runConfigureWizard(
       basePath: nextConfig.gateway?.controlUi?.basePath,
     });
     // Try both new and old passwords since gateway may still have old config.
-    const newPassword =
-      process.env.OPENCLAW_GATEWAY_PASSWORD ??
-      process.env.CLAWDBOT_GATEWAY_PASSWORD ??
-      (await resolveGatewaySecretInputForWizard({
-        cfg: nextConfig,
-        value: nextConfig.gateway?.auth?.password,
-        path: "gateway.auth.password",
-      }));
-    const oldPassword =
-      process.env.OPENCLAW_GATEWAY_PASSWORD ??
-      process.env.CLAWDBOT_GATEWAY_PASSWORD ??
-      (await resolveGatewaySecretInputForWizard({
-        cfg: baseConfig,
-        value: baseConfig.gateway?.auth?.password,
-        path: "gateway.auth.password",
-      }));
-    const token =
-      process.env.OPENCLAW_GATEWAY_TOKEN ??
-      process.env.CLAWDBOT_GATEWAY_TOKEN ??
-      (await resolveGatewaySecretInputForWizard({
-        cfg: nextConfig,
-        value: nextConfig.gateway?.auth?.token,
-        path: "gateway.auth.token",
-      }));
+    const newPassword = nextConfig.gateway?.auth?.password ?? process.env.MIRAI_GATEWAY_PASSWORD;
+    const oldPassword = baseConfig.gateway?.auth?.password ?? process.env.MIRAI_GATEWAY_PASSWORD;
+    const token = nextConfig.gateway?.auth?.token ?? process.env.MIRAI_GATEWAY_TOKEN;
 
     let gatewayProbe = await probeGatewayReachable({
       url: links.wsUrl,
@@ -706,7 +532,7 @@ export async function runConfigureWizard(
         `Web UI: ${links.httpUrl}`,
         `Gateway WS: ${links.wsUrl}`,
         gatewayStatusLine,
-        "Docs: https://github.com/adityagoyal009/Mirai/tree/main/gateway/docs/web/control-ui",
+        "Docs: https://docs.mirai.ai/web/control-ui",
       ].join("\n"),
       "Control UI",
     );

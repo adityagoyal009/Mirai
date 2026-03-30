@@ -4,15 +4,15 @@ import type {
 } from "../channels/plugins/types.core.js";
 import type { ChannelPlugin } from "../channels/plugins/types.plugin.js";
 import { getChatChannelMeta } from "../channels/registry.js";
-import type { OpenClawConfig } from "../config/config.js";
+import type { MiraiConfig } from "../config/config.js";
 import { buildOutboundBaseSessionKey } from "../infra/outbound/base-session-key.js";
 import { emptyPluginConfigSchema } from "../plugins/config-schema.js";
 import type { PluginRuntime } from "../plugins/runtime/types.js";
 import type {
-  OpenClawPluginApi,
-  OpenClawPluginCommandDefinition,
-  OpenClawPluginConfigSchema,
-  OpenClawPluginDefinition,
+  MiraiPluginApi,
+  MiraiPluginCommandDefinition,
+  MiraiPluginConfigSchema,
+  MiraiPluginDefinition,
   PluginCommandContext,
   PluginInteractiveTelegramHandlerContext,
 } from "../plugins/types.js";
@@ -20,7 +20,7 @@ import type {
 export type {
   AnyAgentTool,
   MediaUnderstandingProviderPlugin,
-  OpenClawPluginConfigSchema,
+  MiraiPluginConfigSchema,
   ProviderDiscoveryContext,
   ProviderCatalogContext,
   ProviderCatalogResult,
@@ -44,22 +44,22 @@ export type {
   SpeechProviderPlugin,
   ProviderThinkingPolicyContext,
   ProviderWrapStreamFnContext,
-  OpenClawPluginService,
-  OpenClawPluginServiceContext,
+  MiraiPluginService,
+  MiraiPluginServiceContext,
   ProviderAuthContext,
   ProviderAuthDoctorHintContext,
   ProviderAuthMethodNonInteractiveContext,
   ProviderAuthMethod,
   ProviderAuthResult,
-  OpenClawPluginToolContext,
-  OpenClawPluginToolFactory,
-  OpenClawPluginCommandDefinition,
-  OpenClawPluginDefinition,
+  MiraiPluginToolContext,
+  MiraiPluginToolFactory,
+  MiraiPluginCommandDefinition,
+  MiraiPluginDefinition,
   PluginCommandContext,
   PluginLogger,
   PluginInteractiveTelegramHandlerContext,
 } from "../plugins/types.js";
-export type { OpenClawConfig } from "../config/config.js";
+export type { MiraiConfig } from "../config/config.js";
 export { isSecretRef } from "../config/types.secrets.js";
 export type { GatewayRequestHandlerOptions } from "../gateway/server-methods/types.js";
 export type {
@@ -73,7 +73,7 @@ export type {
 } from "../infra/provider-usage.types.js";
 export type { ChannelMessageActionContext } from "../channels/plugins/types.js";
 export type { ChannelPlugin } from "../channels/plugins/types.plugin.js";
-export type { OpenClawPluginApi } from "../plugins/types.js";
+export type { MiraiPluginApi } from "../plugins/types.js";
 export type { PluginRuntime } from "../plugins/runtime/types.js";
 
 export { emptyPluginConfigSchema } from "../plugins/config-schema.js";
@@ -144,7 +144,7 @@ export function stripTargetKindPrefix(raw: string): string {
 }
 
 export function buildChannelOutboundSessionRoute(params: {
-  cfg: OpenClawConfig;
+  cfg: MiraiConfig;
   agentId: string;
   channel: string;
   accountId?: string | null;
@@ -179,25 +179,25 @@ type DefineChannelPluginEntryOptions<TPlugin extends ChannelPlugin = ChannelPlug
   plugin: TPlugin;
   configSchema?: DefinePluginEntryOptions["configSchema"];
   setRuntime?: (runtime: PluginRuntime) => void;
-  registerFull?: (api: OpenClawPluginApi) => void;
+  registerFull?: (api: MiraiPluginApi) => void;
 };
 
 type DefinePluginEntryOptions = {
   id: string;
   name: string;
   description: string;
-  kind?: OpenClawPluginDefinition["kind"];
-  configSchema?: OpenClawPluginConfigSchema | (() => OpenClawPluginConfigSchema);
-  register: (api: OpenClawPluginApi) => void;
+  kind?: MiraiPluginDefinition["kind"];
+  configSchema?: MiraiPluginConfigSchema | (() => MiraiPluginConfigSchema);
+  register: (api: MiraiPluginApi) => void;
 };
 
 type DefinedPluginEntry = {
   id: string;
   name: string;
   description: string;
-  configSchema: OpenClawPluginConfigSchema;
-  register: NonNullable<OpenClawPluginDefinition["register"]>;
-} & Pick<OpenClawPluginDefinition, "kind">;
+  configSchema: MiraiPluginConfigSchema;
+  register: NonNullable<MiraiPluginDefinition["register"]>;
+} & Pick<MiraiPluginDefinition, "kind">;
 
 type CreateChannelPluginBaseOptions<TResolvedAccount> = {
   id: ChannelPlugin<TResolvedAccount>["id"];
@@ -237,7 +237,7 @@ type CreatedChannelPluginBase<TResolvedAccount> = Pick<
 
 function resolvePluginConfigSchema(
   configSchema: DefinePluginEntryOptions["configSchema"] = emptyPluginConfigSchema,
-): OpenClawPluginConfigSchema {
+): MiraiPluginConfigSchema {
   return typeof configSchema === "function" ? configSchema() : configSchema;
 }
 
@@ -275,7 +275,7 @@ export function defineChannelPluginEntry<TPlugin extends ChannelPlugin>({
     name,
     description,
     configSchema,
-    register(api: OpenClawPluginApi) {
+    register(api: MiraiPluginApi) {
       setRuntime?.(api.runtime);
       api.registerChannel({ plugin });
       if (api.registrationMode !== "full") {

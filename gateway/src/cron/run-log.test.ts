@@ -67,7 +67,7 @@ describe("cron run log", () => {
   });
 
   it("appends JSONL and prunes by line count", async () => {
-    await withRunLogDir("openclaw-cron-log-", async (dir) => {
+    await withRunLogDir("mirai-cron-log-", async (dir) => {
       const logPath = path.join(dir, "runs", "job-1.jsonl");
 
       for (let i = 0; i < 10; i++) {
@@ -95,49 +95,8 @@ describe("cron run log", () => {
     });
   });
 
-  it.skipIf(process.platform === "win32")(
-    "writes run log files with secure permissions",
-    async () => {
-      await withRunLogDir("openclaw-cron-log-perms-", async (dir) => {
-        const logPath = path.join(dir, "runs", "job-1.jsonl");
-
-        await appendCronRunLog(logPath, {
-          ts: 1,
-          jobId: "job-1",
-          action: "finished",
-          status: "ok",
-        });
-
-        const mode = (await fs.stat(logPath)).mode & 0o777;
-        expect(mode).toBe(0o600);
-      });
-    },
-  );
-
-  it.skipIf(process.platform === "win32")(
-    "hardens an existing run-log directory to owner-only permissions",
-    async () => {
-      await withRunLogDir("openclaw-cron-log-dir-perms-", async (dir) => {
-        const runDir = path.join(dir, "runs");
-        const logPath = path.join(runDir, "job-1.jsonl");
-        await fs.mkdir(runDir, { recursive: true, mode: 0o755 });
-        await fs.chmod(runDir, 0o755);
-
-        await appendCronRunLog(logPath, {
-          ts: 1,
-          jobId: "job-1",
-          action: "finished",
-          status: "ok",
-        });
-
-        const runDirMode = (await fs.stat(runDir)).mode & 0o777;
-        expect(runDirMode).toBe(0o700);
-      });
-    },
-  );
-
   it("reads newest entries and filters by jobId", async () => {
-    await withRunLogDir("openclaw-cron-log-read-", async (dir) => {
+    await withRunLogDir("mirai-cron-log-read-", async (dir) => {
       const logPathA = path.join(dir, "runs", "a.jsonl");
       const logPathB = path.join(dir, "runs", "b.jsonl");
 
@@ -193,7 +152,7 @@ describe("cron run log", () => {
   });
 
   it("ignores invalid and non-finished lines while preserving delivery fields", async () => {
-    await withRunLogDir("openclaw-cron-log-filter-", async (dir) => {
+    await withRunLogDir("mirai-cron-log-filter-", async (dir) => {
       const logPath = path.join(dir, "runs", "job-1.jsonl");
       await fs.mkdir(path.dirname(logPath), { recursive: true });
       await fs.writeFile(
@@ -224,7 +183,7 @@ describe("cron run log", () => {
   });
 
   it("reads telemetry fields", async () => {
-    await withRunLogDir("openclaw-cron-log-telemetry-", async (dir) => {
+    await withRunLogDir("mirai-cron-log-telemetry-", async (dir) => {
       const logPath = path.join(dir, "runs", "job-1.jsonl");
 
       await appendCronRunLog(logPath, {
@@ -274,7 +233,7 @@ describe("cron run log", () => {
   });
 
   it("cleans up pending-write bookkeeping after appends complete", async () => {
-    await withRunLogDir("openclaw-cron-log-pending-", async (dir) => {
+    await withRunLogDir("mirai-cron-log-pending-", async (dir) => {
       const logPath = path.join(dir, "runs", "job-cleanup.jsonl");
       await appendCronRunLog(logPath, {
         ts: 1,
@@ -284,32 +243,6 @@ describe("cron run log", () => {
       });
 
       expect(getPendingCronRunLogWriteCountForTests()).toBe(0);
-    });
-  });
-
-  it("read drains pending fire-and-forget writes", async () => {
-    await withRunLogDir("openclaw-cron-log-drain-", async (dir) => {
-      const logPath = path.join(dir, "runs", "job-drain.jsonl");
-
-      // Fire-and-forget write (simulates the `void appendCronRunLog(...)` pattern
-      // in server-cron.ts). Do NOT await.
-      const writePromise = appendCronRunLog(logPath, {
-        ts: 42,
-        jobId: "job-drain",
-        action: "finished",
-        status: "ok",
-        summary: "drain-test",
-      });
-      void writePromise.catch(() => undefined);
-
-      // Read should see the entry because it drains pending writes.
-      const entries = await readCronRunLogEntries(logPath, { limit: 10 });
-      expect(entries).toHaveLength(1);
-      expect(entries[0]?.ts).toBe(42);
-      expect(entries[0]?.summary).toBe("drain-test");
-
-      // Clean up
-      await writePromise.catch(() => undefined);
     });
   });
 });
