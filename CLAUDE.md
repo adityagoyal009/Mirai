@@ -12,15 +12,17 @@ Key rules:
 - Dashboard (pixel art war room) has its own separate design system — do not apply report design rules to it
 
 ## Pipeline Architecture
-- Research: OpenClaw primary (port 18789), Gemini grounded search fallback, BI built-in fallback
+- Research: OpenClaw primary (port 18789), Gemini grounded search fallback, no degraded BI web-less fallback in the live pipeline
 - Council: 11 models across 8 families. Karpathy 3-stage pattern (individual → peer review → chairman)
 - Chairman: Opus primary, Qwen3.5 397B (NVIDIA) fallback
 - Swarm: 50 agents across 6 NVIDIA NIM models, 8 concurrent workers (40 RPM safe)
-- OASIS: 4-round market simulation, auto-enabled, uses swarm agents as panelists
+- Swarm personas: stage-aware + target-market-aware, with wildcard caps for B2B / industrial runs
+- OASIS: 4-round market simulation, auto-enabled, uses swarm agents as panelists, and tracks trajectory from the pre-simulation baseline
 - All data flows WITHOUT truncation — full research context to council and swarm
 - Hallucination guard runs on every swarm agent reasoning
 - Bias controls: neutral GEO_BEHAVIORAL, no MBTI scoring directives, DELIBERATION_WEIGHT=1.0, industry weights capped 1.5x, stage vocabulary normalized, verdict override removed (advisory note only)
-- Report: HTML via `generate_html_report()`. Opens in new tab. No Playwright/Chromium dependency.
+- Final verdict: shared REST/WebSocket numeric blend of council + swarm + OASIS
+- Report: HTML via `generate_html_report()`. Opens in new tab. No Playwright/Chromium dependency. Fact-check data may come from top-level, prediction, or swarm payloads.
 - Async API: `/api/bi/analyze` returns job_id, poll `/api/bi/job/{id}` every 15s, internal-auth protected
 
 ## Website Form
@@ -52,3 +54,5 @@ Key rules:
 - Frontend sends structured fields directly (bypasses LLM extraction for form data)
 - Pipeline bias fixes: no geographic stereotypes, no personality-based scoring, equal deliberation weight, no verdict hard-overrides, capped industry dimension weights, softened data quality penalty
 - REST API matches dashboard pipeline 1:1 (structured passthrough, blind scoring, OpenClaw/Gemini research, council deep, swarm 50, OASIS, HTML report)
+- Council fact-checking should operate on council reasoning text, not raw research JSON
+- `avg_scores["overall"]` is part of the swarm contract and is used by final verdict blending

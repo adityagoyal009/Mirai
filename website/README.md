@@ -42,3 +42,6 @@ Open [http://localhost:3000](http://localhost:3000).
 - On restart, resumable `queued` and `reviewing` submissions are rebuilt from the database into the queue automatically.
 - Founder-facing APIs return safe `status_message` values instead of raw internal admin notes.
 - Founder queue responses expose only the current user's queue positions.
+- Website analyses persist the final blended verdict and score (`composite_score` / `overall_score`), not just the raw council score.
+- Shared report HTML is generated after OASIS and final-verdict enrichment so the saved report reflects the final state.
+- Fact-check data can be surfaced from top-level, prediction-level, or swarm-level payloads during report rendering.

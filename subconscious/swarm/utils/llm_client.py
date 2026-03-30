@@ -138,6 +138,16 @@ def _is_nemotron_model(model: str) -> bool:
     return lowered.startswith("nvidia/") and "nemotron" in lowered
 
 
+def _is_gpt_oss_model(model: str) -> bool:
+    lowered = (model or "").lower()
+    return lowered in {
+        "openai/gpt-oss-120b",
+        "openai/gpt-oss-20b",
+        "gpt-oss-120b",
+        "gpt-oss-20b",
+    }
+
+
 def _call_gateway(
     model: str,
     messages: List[Dict[str, str]],
@@ -884,14 +894,41 @@ def _strip_markdown_fences(text: str) -> str:
 
 
 def _extract_json_from_text(text: str) -> str:
-    """Find the first JSON object or array in text."""
+    """Find the first balanced JSON object or array in text."""
     text = _strip_markdown_fences(text)
     first_brace = text.find('{')
     first_bracket = text.find('[')
     starts = [i for i in [first_brace, first_bracket] if i >= 0]
-    if starts:
-        return text[min(starts):]
-    return text
+    if not starts:
+        return text
+
+    start = min(starts)
+    opener = text[start]
+    closer = '}' if opener == '{' else ']'
+    depth = 0
+    in_string = False
+    escape = False
+
+    for idx in range(start, len(text)):
+        ch = text[idx]
+        if in_string:
+            if escape:
+                escape = False
+            elif ch == '\\':
+                escape = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+            continue
+        if ch == opener:
+            depth += 1
+        elif ch == closer:
+            depth -= 1
+            if depth == 0:
+                return text[start:idx + 1]
+    return text[start:]
 
 
 def _repair_truncated_json(text: str) -> Optional[Dict]:
@@ -989,6 +1026,7 @@ class LLMClient:
 
         t0 = time.perf_counter()
         is_nemotron = _is_nemotron_model(self.model)
+        is_gpt_oss = _is_gpt_oss_model(self.model)
         attempts: List[Dict[str, Any]]
         if is_nemotron:
             # NVIDIA's Nemotron family supports chat template kwargs to disable
@@ -1023,7 +1061,13 @@ class LLMClient:
                 {
                     "temperature": temperature,
                     "max_tokens": max_tokens,
-                    "response_format": None,
+                    "response_format": {"type": "json_object"} if is_gpt_oss else None,
+                    "extra_body": None,
+                },
+                {
+                    "temperature": min(temperature, 0.2),
+                    "max_tokens": max_tokens,
+                    "response_format": {"type": "json_object"} if is_gpt_oss else None,
                     "extra_body": None,
                 }
             ]

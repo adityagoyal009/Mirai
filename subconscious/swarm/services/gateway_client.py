@@ -35,6 +35,79 @@ def _extract_json_payload(raw: str) -> str:
     return raw[min(starts):] if starts else raw
 
 
+def _extract_balanced_json(raw: str) -> str:
+    payload = _extract_json_payload(raw)
+    if not payload or payload[0] not in "[{":
+        return payload
+
+    opener = payload[0]
+    closer = "}" if opener == "{" else "]"
+    depth = 0
+    in_string = False
+    escape = False
+
+    for idx, ch in enumerate(payload):
+        if in_string:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+            continue
+        if ch == opener:
+            depth += 1
+        elif ch == closer:
+            depth -= 1
+            if depth == 0:
+                return payload[:idx + 1]
+    return payload
+
+
+def _normalize_query(query: str) -> str:
+    query = re.sub(r"\s+", " ", (query or "")).strip()
+    return query[:180]
+
+
+def _fallback_query(query: str) -> Optional[str]:
+    shortened = re.sub(r'["\']', "", query or "")
+    shortened = re.sub(r"\s+", " ", shortened).strip()
+    words = shortened.split()
+    if len(words) <= 10 and len(shortened) <= 120:
+        return None
+    return " ".join(words[:10])[:120]
+
+
+def _coerce_results(results: object, query: str, count: int) -> List[Dict]:
+    if isinstance(results, dict):
+        for key in ("results", "items", "data"):
+            if isinstance(results.get(key), list):
+                results = results[key]
+                break
+        else:
+            results = []
+
+    cleaned: List[Dict] = []
+    if isinstance(results, list):
+        for item in results:
+            if not isinstance(item, dict) or not item.get("url"):
+                continue
+            cleaned.append(
+                {
+                    "title": item.get("title", "") or query,
+                    "url": item.get("url", ""),
+                    "description": item.get("description", item.get("snippet", "")),
+                    "siteName": item.get("siteName", ""),
+                }
+            )
+            if len(cleaned) >= count:
+                break
+    return cleaned
+
+
 def web_search(query: str, count: int = 10, freshness: str = "") -> List[Dict]:
     """
     Search the web via OpenClaw's native tools.
@@ -43,6 +116,7 @@ def web_search(query: str, count: int = 10, freshness: str = "") -> List[Dict]:
     Falls back to an empty list on error.
     """
     count = max(1, min(int(count or 10), 10))
+    query = _normalize_query(query)
     freshness = (freshness or "").strip()
     cache_key = (query.strip(), count, freshness)
     if cache_key in _SEARCH_CACHE:
@@ -61,40 +135,41 @@ def web_search(query: str, count: int = 10, freshness: str = "") -> List[Dict]:
         "- No prose before or after the JSON"
     )
 
-    try:
-        raw = _openclaw_text(prompt, max_tokens=2500, timeout=90)
-        payload = _extract_json_payload(raw)
-        results = _json.loads(payload)
-        cleaned: List[Dict] = []
-        if isinstance(results, list):
-            for item in results:
-                if not isinstance(item, dict) or not item.get("url"):
-                    continue
-                cleaned.append(
-                    {
-                        "title": item.get("title", ""),
-                        "url": item.get("url", ""),
-                        "description": item.get("description", item.get("snippet", "")),
-                        "siteName": item.get("siteName", ""),
-                    }
+    attempts = [(query, 90)]
+    fallback_query = _fallback_query(query)
+    if fallback_query and fallback_query != query:
+        attempts.append((fallback_query, 60))
+
+    last_error: Optional[str] = None
+    for attempt_query, timeout in attempts:
+        attempt_prompt = prompt.replace(f"Query: {query}", f"Query: {attempt_query}")
+        try:
+            raw = _openclaw_text(attempt_prompt, max_tokens=2500, timeout=timeout)
+            payload = _extract_balanced_json(raw)
+            results = _json.loads(payload)
+            cleaned = _coerce_results(results, attempt_query, count)
+            if cleaned:
+                logger.info(f"[GatewayClient] web_search '{query[:50]}' -> {len(cleaned)} results")
+                _SEARCH_CACHE[cache_key] = cleaned
+                return [dict(item) for item in cleaned]
+        except _json.JSONDecodeError:
+            urls = re.findall(r'https?://[^\s\)>\]"]+', raw if "raw" in locals() else "")
+            if urls:
+                extracted = [{"title": attempt_query, "url": u, "description": ""} for u in urls[:count]]
+                logger.info(
+                    f"[GatewayClient] web_search '{query[:50]}' -> {len(extracted)} URLs extracted from prose"
                 )
-        logger.info(f"[GatewayClient] web_search '{query[:50]}' -> {len(cleaned)} results")
-        _SEARCH_CACHE[cache_key] = cleaned
-        return [dict(item) for item in cleaned]
-    except _json.JSONDecodeError:
-        urls = re.findall(r'https?://[^\s\)>\]"]+', raw if "raw" in locals() else "")
-        if urls:
-            extracted = [{"title": query, "url": u, "description": ""} for u in urls[:count]]
-            logger.info(
-                f"[GatewayClient] web_search '{query[:50]}' -> {len(extracted)} URLs extracted from prose"
-            )
-            _SEARCH_CACHE[cache_key] = extracted
-            return [dict(item) for item in extracted]
-        logger.warning(f"[GatewayClient] web_search JSON parse failed for '{query[:50]}'")
-        return []
-    except Exception as e:
-        logger.warning(f"[GatewayClient] web_search failed: {e}")
-        return []
+                _SEARCH_CACHE[cache_key] = extracted
+                return [dict(item) for item in extracted]
+            last_error = f"JSON parse failed for '{attempt_query[:50]}'"
+        except Exception as e:
+            last_error = str(e)
+
+    if last_error and "JSON parse failed" in last_error:
+        logger.warning(f"[GatewayClient] {last_error}")
+    elif last_error:
+        logger.warning(f"[GatewayClient] web_search failed: {last_error}")
+    return []
 
 
 def web_fetch(url: str, max_chars: int = 50000) -> Optional[Dict]:

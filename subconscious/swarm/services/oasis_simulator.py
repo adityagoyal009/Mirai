@@ -70,7 +70,6 @@ class OasisSimulator:
 
         timeline = []
         previous_events = []
-        previous_sentiment = 50  # Start neutral
         previous_panel_summary = ""  # Fed into next round's agent prompts
 
         # Track each agent's running sentiment score (1-10 scale).
@@ -82,6 +81,15 @@ class OasisSimulator:
                 agent_scores[a['id']] = float(a['swarm_score'])
             else:
                 agent_scores[a['id']] = 5.0
+
+        if agent_scores:
+            baseline_avg_score = sum(agent_scores.values()) / len(agent_scores)
+            baseline_sentiment = round((baseline_avg_score - 1) / 9 * 100)
+            baseline_sentiment = max(0, min(100, baseline_sentiment))
+        else:
+            baseline_sentiment = 50
+
+        previous_sentiment = baseline_sentiment
 
         for round_num in range(1, SIMULATION_ROUNDS + 1):
             month = round_num
@@ -146,8 +154,8 @@ class OasisSimulator:
             if on_round_complete:
                 on_round_complete(round_result)
 
-        # Compute trajectory
-        start = timeline[0]['sentiment_pct'] if timeline else 50
+        # Compute trajectory relative to the pre-simulation baseline, not just month 1.
+        start = baseline_sentiment
         end = timeline[-1]['sentiment_pct'] if timeline else 50
         trajectory = "improving" if end > start + 10 else "declining" if end < start - 10 else "stable"
 
@@ -164,6 +172,7 @@ class OasisSimulator:
             "timeline": timeline,
             "trajectory": trajectory,
             "start_sentiment": start,
+            "month_1_sentiment": timeline[0]['sentiment_pct'] if timeline else start,
             "final_sentiment": end,
             "uncertainty_band": uncertainty_band,
             "total_rounds": len(timeline),

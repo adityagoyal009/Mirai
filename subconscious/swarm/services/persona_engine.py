@@ -113,6 +113,7 @@ ZONE_ROLES = {
     "wildcard": [
         "High School Student (interested in the field)",
         "Retired Executive (from this industry)",
+        "Retired Plant Manager",
         "Small-Town Mayor (dealing with this problem)",
         "NGO Worker (in the field)",
         "Artist/Designer (UX perspective)",
@@ -120,6 +121,7 @@ ZONE_ROLES = {
         "Journalist From Developing Country",
         "Parent Evaluating For Family",
         "Tech-Savvy Retiree (early adopter)",
+        "Industrial Distributor (channel view)",
         "Urban Planner (infrastructure focus)",
         "Science Teacher (STEM education)",
         "Community Organizer (environmental justice)",
@@ -191,6 +193,7 @@ ROLE_MIN_EXPERIENCE = {
     "Sovereign Wealth Fund Manager": 4, "Endowment Fund Manager": 4,
     "LP Evaluating Fund Allocation": 4,
     "Retired Executive (from this industry)": 5,
+    "Retired Plant Manager": 5,
     # Mid-senior roles need senior+ (index 3+)
     "Series-B VC": 3, "Growth Equity VC": 3, "Late-Stage VC": 3,
     "CFO (venture-backed)": 3, "COO (operations-heavy)": 3,
@@ -757,9 +760,9 @@ CONTEXT_ROLE_HINTS = {
         "contrarian": ["Competitor Product Manager", "Risk Analyst (operational)",
                         "Competitor CEO (incumbent)", "Platform Risk Analyst",
                         "Patent Attorney (IP litigation)"],
-        "wildcard": ["Retired Executive (from this industry)",
-                      "Tech-Savvy Retiree (early adopter)",
-                      "Local News Reporter (community impact)"],
+        "wildcard": ["Retired Plant Manager",
+                      "Retired Executive (from this industry)",
+                      "Industrial Distributor (channel view)"],
     },
     "enterprise_b2b": {
         "keywords": ["enterprise", "f500", "fortune 500", "procurement", "cio", "it director",
@@ -1155,7 +1158,10 @@ class PersonaEngine:
             return random.choice(GEOGRAPHIC_LENS)
         region = cls._match_geo_region(target_market)
         region_geos = GEO_REGIONS.get(region, []) if region else []
-        if region_geos and random.random() < GEO_ZONE_WEIGHT.get(zone, 0.35):
+        weight = GEO_ZONE_WEIGHT.get(zone, 0.35)
+        if zone == "wildcard" and region_geos:
+            weight = max(weight, 0.7)
+        if region_geos and random.random() < weight:
             return random.choice(region_geos)
         return random.choice(GEOGRAPHIC_LENS)
 
@@ -1164,15 +1170,19 @@ class PersonaEngine:
                                        product: str = "", target_market: str = "") -> Dict[str, int]:
         tuned = dict(distribution)
         context_keys = set(cls._matching_context_keys(industry, product, target_market))
-        if tuned.get("wildcard", 0) > 2 and context_keys.intersection({
+        b2b_context = context_keys.intersection({
             "industrial_manufacturing", "enterprise_b2b", "smb_b2b", "public_sector"
-        }):
-            shift = min(2, tuned["wildcard"] - 2)
-            tuned["wildcard"] -= shift
-            if shift >= 1:
-                tuned["customer"] = tuned.get("customer", 0) + 1
-            if shift >= 2:
-                tuned["operator"] = tuned.get("operator", 0) + 1
+        })
+        if tuned.get("wildcard", 0) > 2 and b2b_context:
+            total_agents = sum(tuned.values())
+            wildcard_cap = 2 if total_agents <= 25 else 3 if total_agents <= 50 else 4
+            shift = max(0, tuned["wildcard"] - wildcard_cap)
+            if shift:
+                tuned["wildcard"] -= shift
+                receivers = ["customer", "operator", "contrarian", "analyst"]
+                for idx in range(shift):
+                    zone = receivers[idx % len(receivers)]
+                    tuned[zone] = tuned.get(zone, 0) + 1
         return tuned
 
     def _count_lines(self, filepath: str = _PERSONAS_FILE) -> int:
@@ -1739,6 +1749,10 @@ class PersonaEngine:
 
         all_personas: List[Persona] = []
         _used = set(exclude_roles) if exclude_roles else set()
+        context_keys = set(self._matching_context_keys(industry, product, target_market))
+        strict_wildcards = bool(context_keys.intersection({
+            "industrial_manufacturing", "enterprise_b2b", "smb_b2b", "public_sector"
+        }))
 
         for zone, zone_count in distribution.items():
             if zone == "wildcard":
@@ -1746,7 +1760,10 @@ class PersonaEngine:
                     zone="wildcard", industry=industry, product=product,
                     target_market=target_market, stage=stage,
                 )
-                generated_wild_count = min(zone_count, max(1, zone_count // 2)) if wildcard_priority else 0
+                if wildcard_priority and strict_wildcards:
+                    generated_wild_count = zone_count
+                else:
+                    generated_wild_count = min(zone_count, max(1, zone_count // 2)) if wildcard_priority else 0
                 if generated_wild_count:
                     generated_wild = self._generate_personas(
                         generated_wild_count, zone="wildcard", startup_industry=industry,

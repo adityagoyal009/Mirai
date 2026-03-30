@@ -734,7 +734,12 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
     cited_facts = cited_facts if isinstance(cited_facts, list) else []
     sample_agents = swarm.get('sample_agents', []) or []
     sample_agents = sample_agents if isinstance(sample_agents, list) else []
-    fact_check = analysis.get('fact_check', prediction.get('fact_check', analysis.get('fact_verification', {})))
+    fact_check = (
+        analysis.get('fact_check')
+        or prediction.get('fact_check')
+        or swarm.get('fact_check')
+        or analysis.get('fact_verification', {})
+    )
     fact_check = fact_check if isinstance(fact_check, dict) else {}
     _pos_raw = swarm.get('positive_pct', swarm.get('positivePct', None))
     pos_pct = float(_pos_raw) if _pos_raw is not None else 50.0
@@ -934,7 +939,7 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
 </div>
 
 <div class="metrics">
-  <div class="metric"><div class="value">{confidence:.0%}</div><div class="label">Council Confidence</div></div>
+  <div class="metric"><div class="value">{confidence:.0%}</div><div class="label">Final Confidence</div></div>
   <div class="metric"><div class="value">{data_quality:.0%}</div><div class="label">Data Quality</div></div>
   <div class="metric"><div class="value">{evaluator_count}</div><div class="label">Evaluators</div></div>
   <div class="metric"><div class="value">{total_agents}</div><div class="label">Swarm Agents</div></div>

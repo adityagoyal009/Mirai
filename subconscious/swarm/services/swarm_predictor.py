@@ -799,13 +799,15 @@ class SwarmPredictor:
             result = llm.chat_json(messages=messages, temperature=0.9, max_tokens=4096)
             agents = []
             for i, ad in enumerate(result.get('agents', [])):
-                scores = {d: max(1, min(10, float(ad.get(d, 5)))) for d in SCORE_DIMENSIONS}
+                scores = {d: max(0, min(10, float(ad.get(d, 5)))) for d in SCORE_DIMENSIONS}
+                overall_score = max(0, min(10, float(ad.get('overall', 5))))
+                scores['overall'] = overall_score
                 zone = ad.get('zone', batch_persona_zones.get(i, 'wildcard'))
                 agent = SwarmAgent(
                     agent_id=start_id + i,
                     persona=ad.get('persona', f'Batch agent {start_id + i}'),
                     scores=scores,
-                    overall=scores['overall'],
+                    overall=overall_score,
                     reasoning=ad.get('reasoning', ''),
                     model_used=model_cfg['label'],
                     zone=zone,
@@ -858,6 +860,7 @@ class SwarmPredictor:
         # Median stays unweighted (median doesn't naturally support weights)
         median_overall = overall_scores[total // 2]
         mean_overall = sum(a.overall * a.weight for a in agents) / total_weight
+        avg_scores['overall'] = round(mean_overall, 2)
         std_overall = round((sum(a.weight * (a.overall - mean_overall) ** 2 for a in agents) / total_weight) ** 0.5, 2)
 
         # Score distribution buckets (weighted counts)

@@ -1,5 +1,38 @@
 # Mirai Changelog
 
+## [0.11.2] — 2026-03-30
+
+### Changed — Live Research, Persona Fit, Verdict Math, Report Fidelity
+
+**Live Research And Search**
+- Runtime research is now OpenClaw-first with Gemini only as fallback. The old BI web-less fallback is no longer used in the live website / websocket pipeline.
+- OpenClaw-backed `web_search()` now uses balanced JSON extraction, wrapped-payload handling, normalized queries, and a shorter fallback retry query.
+- Post-research competitor enrichment no longer blocks report rendering with fresh live lookups. Reports prefer `research.competitor_details`.
+
+**Council And Final Verdict**
+- REST and WebSocket now share the same final-verdict logic.
+- Final verdict blending is numeric: council score + swarm score + OASIS adjustment, instead of collapsing everything to coarse ordinal buckets first.
+- Council fact-checking now verifies actual council reasoning text rather than trying to extract claims from the raw research JSON blob.
+- `GPT-OSS 120B` JSON-mode handling was hardened for council peer review.
+
+**Persona And Swarm Logic**
+- Persona selection now uses `company`, `industry`, `product`, `target_market`, and `stage` on the main runtime path.
+- Pre-seed companies no longer receive late-stage finance personas such as growth equity, venture debt, or PE roles.
+- Industrial / B2B runs now cap wildcard seats more aggressively and bias them toward relevant wildcard roles like `Retired Plant Manager` and `Industrial Distributor (channel view)`.
+- Swarm aggregation now includes `avg_scores["overall"]`, so downstream verdict blending can use the intended overall swarm signal.
+- The dormant batch swarm path now stores `overall` correctly if higher agent counts are re-enabled.
+
+**OASIS**
+- OASIS headline sourcing now uses structured extraction context (`company`, `industry`, `product`, `target_market`, `business_model`) instead of only a narrow company/industry query.
+- OASIS now measures trajectory from the pre-simulation baseline sentiment, not just month 1, and also returns `month_1_sentiment` separately.
+- Round labels now match the configured 4-round / 4-month simulation.
+
+**Reports And Website Output**
+- HTML reports are generated after OASIS and final verdict enrichment, so the saved shared report includes the final state.
+- Report rendering now picks up fact-check data from top-level, prediction-level, or swarm-level payloads.
+- The report confidence label now says `Final Confidence`, not `Council Confidence`.
+- Website persistence now reads the final score from `composite_score` / `overall_score` correctly.
+
 ## [0.11.1] — 2026-03-30
 
 ### Changed — Queue Recovery, Internal API Hardening, Founder-Safe Status

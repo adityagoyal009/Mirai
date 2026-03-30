@@ -992,6 +992,8 @@ async def bi_analyze(request: Request):
         }
         if swarm_result:
             result["swarm"] = swarm_result.to_dict()
+            if getattr(swarm_result, "fact_check", None):
+                result["fact_check"] = swarm_result.fact_check
 
         # Phase 4: OASIS Market Simulation
         if simulate_market:

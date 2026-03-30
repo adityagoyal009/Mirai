@@ -1309,8 +1309,20 @@ class BusinessIntelEngine:
         fact_check_result = None
         try:
             from .fact_checker import check_facts
-            research_claims = [str(research_context)]
-            fact_check_result = check_facts(research_claims, exec_summary)
+            council_reasonings = [
+                reasoning for _, reasoning, _ in model_results.values()
+                if isinstance(reasoning, str) and reasoning.strip()
+            ]
+            if combined_overall_reasoning:
+                council_reasonings.append(combined_overall_reasoning)
+            if council_reasonings:
+                fact_check_result = check_facts(council_reasonings, research_context)
+            else:
+                fact_check_result = {
+                    "claims": [],
+                    "trust_score": None,
+                    "warning": "Council fact-check skipped because no model reasoning was available.",
+                }
             if fact_check_result:
                 contradicted = fact_check_result.get('contradicted', 0)
                 if contradicted > 0:

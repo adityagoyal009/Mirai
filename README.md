@@ -1,9 +1,21 @@
 # Mirai (未来) + Sensei (先生)
 **AI Due Diligence Reports + AI Mentor Sessions — VCLabs.org**
 
+## Current State
+
+These notes reflect the current live pipeline as of 2026-03-30.
+
+- **Live research**: OpenClaw is the primary fresh-facts engine. Gemini is fallback only. The old BI degraded research path is not used in the live website flow.
+- **Council**: 11-model council with peer review and chairman reconciliation. Council fact-checking now verifies council reasoning text, not the raw research JSON blob.
+- **Persona swarm**: 50-agent stage-aware, target-market-aware swarm. Persona selection now uses `industry + product + target_market + stage`, and pre-seed runs no longer receive late-stage finance personas.
+- **Wildcard control**: B2B / industrial startups now get fewer, more relevant wildcard seats instead of noisy generic personas.
+- **Final verdict**: REST and WebSocket share the same final-verdict math. Final score is numeric council + swarm + OASIS adjustment, not a simple conservative override.
+- **OASIS**: 4-round / 4-month simulation using structured company context and real live-search events. Trajectory is measured from the pre-simulation baseline, not only from month 1.
+- **Reports**: HTML report is generated after OASIS and final verdict enrichment. Fact-check data now surfaces correctly from swarm / prediction / top-level payloads. The report label is `Final Confidence`.
+
 ## What Mirai Does
 
-Give Mirai a startup's details → it researches the market with OpenClaw web search (Gemini grounded search as fallback), scores across 10 dimensions using a 10-model council with Karpathy-style peer review and chairman reconciliation, simulates crowd reaction with 50-100 persona agents across 6 war room zones using 6 free LLM models (Groq + SambaNova + Mistral), runs a 6-month OASIS market trajectory simulation, and generates a PitchBook-quality HTML report with inline SVG charts.
+Give Mirai a startup's details → it researches the market with OpenClaw live web search (Gemini fallback only if needed), scores across 10 dimensions using an 11-model council with peer review and chairman reconciliation, simulates crowd reaction with a 50-agent persona swarm across 6 zones, runs a 4-round OASIS market trajectory simulation, and generates a PitchBook-quality HTML report with inline SVG charts.
 
 ## Key Features
 
