@@ -1996,7 +1996,7 @@
         <a href="#audience">Audience</a>
         <a href="#how-it-works">System</a>
         <a href="#report">Report</a>
-        <a href="#brief-lab">Request</a>
+        <a href="#intake">Intake</a>
         <a href="#faq">FAQ</a>
       </div>
       <div class="nav-actions">
@@ -2006,7 +2006,7 @@
         <a class="button button-primary button-compact" href="/dashboard" id="navDashboardLink" hidden>Dashboard</a>
         <a class="button button-ghost button-compact" href="/admin" id="navAdminLink" hidden>Admin</a>
         <a class="button button-secondary button-compact" href="/api/auth/signout" id="navLogoutLink" hidden>Sign Out</a>
-        <a class="button button-primary button-compact" href="/signin?callbackUrl=%2Fdashboard" id="navAuthButton">Sign In</a>
+        <a class="button button-primary button-compact" href="/signin?callbackUrl=%2Fsubmit" id="navAuthButton">Sign In</a>
       </div>
     </nav>
 
@@ -2019,14 +2019,14 @@
           persona swarm reaction, and six-month scenario simulation. The point is not to sound smart. The point is to surface conviction, disagreement, and what could break the company.
         </p>
         <div class="hero-actions">
-          <a class="button button-primary" href="/signin?callbackUrl=%2Fdashboard" id="heroPrimaryAction">Sign In With Google</a>
-          <a class="button button-ghost" href="/submit" id="heroSubmitAction" hidden>Submit a Company</a>
+          <a class="button button-primary" href="/signin?callbackUrl=%2Fsubmit" id="heroPrimaryAction">Sign In With Google</a>
+          <a class="button button-ghost" href="/submit" id="heroSubmitAction" hidden>Open Intake</a>
           <a class="button button-ghost" href="#report" id="heroDeliverableLink">See The Deliverable</a>
         </div>
         <div class="hero-note">Built for founders, angels, accelerator teams, and anyone who needs sharper first-pass diligence. Submission is gated by Google sign-in and reports are delivered within 24 hours.</div>
         <div class="hero-session" id="heroSessionBanner">
           <strong id="heroSessionState">Checking access…</strong>
-          <span id="heroSessionMeta">Authenticated users can submit a company brief and track its queue status on this page.</span>
+          <span id="heroSessionMeta">Authenticated users can open /submit and track submission status from this page.</span>
         </div>
         <div class="hero-traits">
           <div class="hero-trait">
@@ -2535,7 +2535,7 @@
     </div>
   </section>
 
-  <section class="section section-dark" id="brief-lab">
+  <section class="section section-dark" id="intake">
     <div class="container">
       <div class="section-head reveal">
         <div>
@@ -2560,7 +2560,7 @@
           <ul class="lab-checklist">
             <li>Start at `/submit` after signing in with Google.</li>
             <li>Mirai now asks for buyer reality, GTM, proof, founder fit, and risk instead of generic application fields.</li>
-            <li>You can still check recent request status from this page.</li>
+            <li>You can still check recent submission status from this page.</li>
           </ul>
         </div>
 
@@ -2582,7 +2582,7 @@
             <li>Execution: founder fit, moat, known competitors, and what could break.</li>
           </ul>
           <div class="form-actions" style="margin-top: 22px;">
-            <a class="button button-primary" href="/submit" id="portalPrimaryAction">Open Mirai Intake</a>
+            <a class="button button-primary" href="/submit" id="portalPrimaryAction">Open Intake</a>
             <a class="button button-secondary" href="/dashboard" id="portalDashboardAction" hidden>Go to Dashboard</a>
             <a class="button button-secondary" href="/signin?callbackUrl=%2Fsubmit" id="signinInlineButton">Sign In With Google</a>
             <a class="button button-secondary" href="/api/auth/signout" id="logoutInlineButton" hidden>Sign Out</a>
@@ -2596,7 +2596,7 @@
         <div class="preview-head">
           <div>
             <span>Status</span>
-            <h3>Recent requests and queue visibility</h3>
+            <h3>Recent submissions and queue visibility</h3>
           </div>
           <div class="form-actions" style="margin-top: 0;">
             <a class="button button-secondary button-compact" href="/submit">Open /submit</a>
@@ -2605,7 +2605,7 @@
         </div>
         <div class="preview-meta">
           <div class="meta-pill" id="previewSessionState">Checking session...</div>
-          <div class="meta-pill" id="previewSavedState">No request submitted yet.</div>
+          <div class="meta-pill" id="previewSavedState">No submission yet.</div>
         </div>
         <pre class="preview-code">Mirai&apos;s live intake now captures:
 
@@ -2616,15 +2616,15 @@
 - founder fit and moat
 - competition, risk, and the exact question Mirai should pressure-test
 
-Use /submit for the real intake. Use this panel to see whether your latest request is queued, reviewing, or delivered.</pre>
+Use /submit for the real intake. Use this panel to see whether your latest submission is queued, reviewing, or delivered.</pre>
 
         <div class="request-history">
           <div class="request-history-head">
-            <h3>My recent requests</h3>
+            <h3>My recent submissions</h3>
             <span class="meta-pill">Delivery target: within 24 hours</span>
           </div>
           <div class="request-list" id="requestList">
-            <div class="request-empty">Sign in with Google to submit a request and track its status here.</div>
+            <div class="request-empty">Sign in with Google to submit a company and track its status here.</div>
           </div>
         </div>
       </div>
@@ -2683,7 +2683,7 @@ Use /submit for the real intake. Use this panel to see whether your latest reque
           If the company is worth discussing, it is worth framing well. Sign in, submit the startup once, and let Mirai send back a tighter decision memo instead of another vague AI summary.
         </p>
         <div class="cta-actions">
-          <a class="button button-primary" href="/signin?callbackUrl=%2F" id="ctaPrimaryAction">Request A Report</a>
+          <a class="button button-primary" href="/signin?callbackUrl=%2Fsubmit" id="ctaPrimaryAction">Start Intake</a>
           <a class="button button-secondary" href="/admin" id="ctaAdminLink" hidden>Admin Board</a>
 
         </div>
@@ -2702,8 +2702,8 @@ Use /submit for the real intake. Use this panel to see whether your latest reque
       <div class="footer-links">
         <a href="#top">Back to top</a>
         <a href="#how-it-works">System</a>
-        <a href="#brief-lab">Request Portal</a>
-        <a href="/signin?callbackUrl=%2F" id="footerAuthLink">Sign In</a>
+        <a href="#intake">Intake</a>
+        <a href="/signin?callbackUrl=%2Fsubmit" id="footerAuthLink">Sign In</a>
         <a href="/admin" id="footerAdminLink" hidden>Admin</a>
 
       </div>
@@ -2874,14 +2874,14 @@ Use /submit for the real intake. Use this panel to see whether your latest reque
 
   function renderRequests(submissions) {
     if (!sessionState.authenticated) {
-      requestList.innerHTML = '<div class="request-empty">Sign in and use /submit to create a request. Recent status will appear here.</div>';
-      previewSavedState.textContent = "No request submitted yet.";
+      requestList.innerHTML = '<div class="request-empty">Sign in and use /submit to create a submission. Recent status will appear here.</div>';
+      previewSavedState.textContent = "No submission yet.";
       return;
     }
 
     if (!submissions.length) {
-      requestList.innerHTML = '<div class="request-empty">No requests yet. Open /submit and your latest request status will appear here.</div>';
-      previewSavedState.textContent = "Signed in. No request submitted yet.";
+      requestList.innerHTML = '<div class="request-empty">No submissions yet. Open /submit and your latest status will appear here.</div>';
+      previewSavedState.textContent = "Signed in. No submission yet.";
       return;
     }
 
@@ -2905,7 +2905,7 @@ Use /submit for the real intake. Use this panel to see whether your latest reque
     }).join("");
 
     const latest = submissions[0];
-    previewSavedState.textContent = `Latest request: ${statusLabel(latest.status)} on ${formatDate(latest.created_at)}`;
+    previewSavedState.textContent = `Latest submission: ${statusLabel(latest.status)} on ${formatDate(latest.created_at)}`;
   }
 
   function updateAuthUi() {
@@ -2946,11 +2946,11 @@ Use /submit for the real intake. Use this panel to see whether your latest reque
 
     if (portalPrimaryAction) {
       portalPrimaryAction.href = authenticated ? "/submit" : signInHref;
-      portalPrimaryAction.textContent = authenticated ? "Open Mirai Intake" : "Sign In To Start";
+      portalPrimaryAction.textContent = authenticated ? "Open Intake" : "Sign In To Start";
     }
 
     ctaPrimaryAction.href = authenticated ? "/submit" : signInHref;
-    ctaPrimaryAction.textContent = authenticated ? "Submit A Company" : "Request A Report";
+    ctaPrimaryAction.textContent = authenticated ? "Open Intake" : "Start Intake";
 
     footerAuthLink.href = authenticated ? "/submit" : signInHref;
     footerAuthLink.textContent = authenticated ? "Submit" : "Sign In";
