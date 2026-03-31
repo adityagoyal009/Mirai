@@ -321,25 +321,28 @@ class AgenticResearcher:
 
     def research(self, company: str, industry: str, product: str = "",
                  target_market: str = "", website_url: str = "",
-                 known_competitors: str = "", on_progress=None) -> AgenticFindings:
+                 known_competitors: str = "", extra_context: str = "",
+                 on_progress=None) -> AgenticFindings:
         """
         Single deep research session with built-in verification.
         1 CLI call with web search (max_turns=30) + optional structuring via gateway.
         """
         start_time = time.time()
 
-        extra_context = ""
+        extra_context_parts = []
         if website_url:
-            extra_context += f"Company website: {website_url}\n"
+            extra_context_parts.append(f"Company website: {website_url}")
         if known_competitors:
-            extra_context += f"Known competitors: {known_competitors}\n"
+            extra_context_parts.append(f"Known competitors: {known_competitors}")
+        if extra_context:
+            extra_context_parts.append(extra_context)
 
         prompt = RESEARCH_PROMPT.format(
             company=company,
             industry=industry,
             product=product or "Not specified",
             target_market=target_market or "Not specified",
-            extra_context=extra_context,
+            extra_context="\n".join(extra_context_parts),
         )
 
         if on_progress:

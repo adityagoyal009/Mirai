@@ -2539,11 +2539,11 @@
     <div class="container">
       <div class="section-head reveal">
         <div>
-          <div class="section-label">Request Portal</div>
-          <h2 class="section-title">Submit the startup once. Receive the <em>decision memo</em> within 24 hours.</h2>
+          <div class="section-label">Live Intake</div>
+          <h2 class="section-title">Start on <em>/submit</em>. Keep the homepage focused.</h2>
           <p class="section-copy">
-            This public flow is concierge by design. Founders and investors sign in with Google, submit a clean startup brief,
-            and receive a research-backed Mirai report after review. Your private dashboard remains separate from this surface.
+            The homepage now points into Mirai&apos;s real intake instead of duplicating a second form.
+            Sign in with Google, open the dedicated `/submit` flow, and let the structured evaluation pipeline handle the rest.
           </p>
         </div>
       </div>
@@ -2551,170 +2551,55 @@
       <div class="lab-layout">
         <div class="lab-intro reveal">
           <p>
-            The fastest way to get bad diligence is to hand over a vague paragraph. This intake forces the important pieces into the open:
-            who the product is for, how the company makes money, what proof already exists, and where the thesis is still fragile.
+            The fastest way to get weak diligence is to hand over a vague paragraph. Mirai&apos;s intake is now centered on the facts that actually change the rating:
+            who feels the pain, who pays, why they move now, what proof exists, and where execution can still break.
           </p>
           <p>
-            It is useful for founders preparing a sharper external read, and for investors who want a repeatable structure before deeper work starts.
+            This keeps the homepage clean and sends every serious submission through the same rating-oriented workflow.
           </p>
           <ul class="lab-checklist">
-            <li>Sign in with Google before the request can be submitted.</li>
-            <li>Send one clean company summary, plus a deck or data room link if you have it.</li>
-            <li>Track the request status here while the report is being prepared.</li>
+            <li>Start at `/submit` after signing in with Google.</li>
+            <li>Mirai now asks for buyer reality, GTM, proof, founder fit, and risk instead of generic application fields.</li>
+            <li>You can still check recent request status from this page.</li>
           </ul>
         </div>
 
         <div class="lab-card reveal" data-tilt>
-          <form id="briefForm">
-            <div class="form-grid">
-              <div class="field">
-                <label for="companyName">Company Name *</label>
-                <input id="companyName" name="companyName" type="text" placeholder="Acme Robotics" required>
-              </div>
-              <div class="field">
-                <label for="websiteUrl">Website URL</label>
-                <input id="websiteUrl" name="websiteUrl" type="url" placeholder="https://example.com">
-              </div>
-              <div class="field">
-                <label for="industry">Industry *</label>
-                <select id="industry" name="industry" required>
-                  <option value="">Select industry...</option>
-                  <option value="AI Infrastructure">AI Infrastructure</option>
-                  <option value="Enterprise SaaS">Enterprise SaaS</option>
-                  <option value="FinTech">FinTech</option>
-                  <option value="HealthTech">HealthTech</option>
-                  <option value="Climate / CleanTech">Climate / CleanTech</option>
-                  <option value="BioTech">BioTech</option>
-                  <option value="Cybersecurity">Cybersecurity</option>
-                  <option value="Manufacturing">Manufacturing</option>
-                  <option value="Other">Other</option>
-                </select>
-              </div>
-              <div class="field">
-                <label for="stage">Stage *</label>
-                <select id="stage" name="stage" required>
-                  <option value="">Select stage...</option>
-                  <option value="Pre-seed">Pre-seed</option>
-                  <option value="Seed">Seed</option>
-                  <option value="Series A">Series A</option>
-                  <option value="Series B+">Series B+</option>
-                  <option value="Bootstrapped">Bootstrapped</option>
-                </select>
-              </div>
-              <div class="field">
-                <label for="location">Location / HQ</label>
-                <input id="location" name="location" type="text" placeholder="San Francisco, CA">
-              </div>
-              <div class="field">
-                <label for="yearFounded">Year Founded</label>
-                <input id="yearFounded" name="yearFounded" type="text" placeholder="2024">
-              </div>
-              <div class="field field-full">
-                <label for="oneLiner">Product / Service *</label>
-                <textarea id="oneLiner" name="oneLiner" placeholder="Describe the product, what it does, key differentiators, and how it works." required></textarea>
-              </div>
-              <div class="field field-full">
-                <label for="customers">Target Market *</label>
-                <textarea id="customers" name="customers" placeholder="Who buys this, why now, and what problem is painful enough to matter?" required></textarea>
-              </div>
-              <div class="field">
-                <label for="businessModel">Business Model *</label>
-                <select id="businessModel" name="businessModel" required>
-                  <option value="">Select model...</option>
-                  <option value="SaaS Subscription">SaaS Subscription</option>
-                  <option value="Marketplace">Marketplace</option>
-                  <option value="Usage-Based">Usage-Based</option>
-                  <option value="Enterprise License">Enterprise License</option>
-                  <option value="Freemium">Freemium</option>
-                  <option value="Hardware + Software">Hardware + Software</option>
-                  <option value="Services">Services</option>
-                  <option value="Other">Other</option>
-                </select>
-              </div>
-              <div class="field">
-                <label for="revenue">Revenue / ARR</label>
-                <select id="revenue" name="revenue">
-                  <option value="">Select...</option>
-                  <option value="Pre-revenue">Pre-revenue</option>
-                  <option value="$0-10K">$0-10K</option>
-                  <option value="$10K-50K">$10K-50K</option>
-                  <option value="$50K-100K">$50K-100K</option>
-                  <option value="$100K-500K">$100K-500K</option>
-                  <option value="$500K-1M">$500K-1M</option>
-                  <option value="$1M-5M">$1M-5M</option>
-                  <option value="$5M+">$5M+</option>
-                </select>
-              </div>
-              <div class="field field-full">
-                <label for="pricing">Pricing Strategy</label>
-                <textarea id="pricing" name="pricing" placeholder="Tier breakdown, price points, free tier details..."></textarea>
-              </div>
-              <div class="field field-full">
-                <label for="traction">Traction</label>
-                <textarea id="traction" name="traction" placeholder="Revenue, pilots, customers, waitlist, growth, partnerships, LOIs..."></textarea>
-              </div>
-              <div class="field">
-                <label for="funding">Funding Raised</label>
-                <select id="funding" name="funding">
-                  <option value="">Select...</option>
-                  <option value="Unfunded">Unfunded</option>
-                  <option value="Pre-seed (<$500K)">Pre-seed (&lt;$500K)</option>
-                  <option value="Seed ($500K-$2M)">Seed ($500K-$2M)</option>
-                  <option value="Series A ($2M-$15M)">Series A ($2M-$15M)</option>
-                  <option value="Series B+ ($15M+)">Series B+ ($15M+)</option>
-                  <option value="Bootstrapped (profitable)">Bootstrapped (profitable)</option>
-                </select>
-              </div>
-              <div class="field">
-                <label for="ask">Ask</label>
-                <input id="ask" name="ask" type="text" placeholder="Market viability, investor readiness...">
-              </div>
-              <div class="field field-full">
-                <label for="team">Team</label>
-                <textarea id="team" name="team" placeholder="Key team members, roles, relevant background..."></textarea>
-              </div>
-              <div class="field field-full">
-                <label for="advantage">Moat / Advantage</label>
-                <textarea id="advantage" name="advantage" placeholder="What makes this defensible? IP, network effects, data moat, speed..."></textarea>
-              </div>
-              <div class="field field-full">
-                <label for="competitors">Known Competitors</label>
-                <input id="competitors" name="competitors" type="text" placeholder="Competitor A, Competitor B, Competitor C...">
-              </div>
-              <div class="field field-full">
-                <label for="deckUrl">Pitch Deck URL</label>
-                <input id="deckUrl" name="deckUrl" type="url" placeholder="https://docsend.com/...">
-              </div>
-              <div class="field field-full">
-                <label for="risk">Key Risks</label>
-                <textarea id="risk" name="risk" placeholder="What could kill this? Sales cycle, regulation, incumbents, switching cost..."></textarea>
-              </div>
-              <div class="field field-full">
-                <label for="extraContext">Additional Context</label>
-                <textarea id="extraContext" name="extraContext" placeholder="Paste your full pitch, exec summary, or any extra detail. This text is sent verbatim to the analysis." style="min-height: 160px;"></textarea>
-              </div>
+          <div class="preview-head">
+            <div>
+              <span>Mirai-native workflow</span>
+              <h3>The dedicated intake lives on <code>/submit</code></h3>
             </div>
-
-            <div class="form-actions">
-              <button class="button button-primary" type="submit" id="submitRequest">Sign In To Submit</button>
-              <button class="button button-secondary" type="button" id="loadSample">Load Sample</button>
-              <a class="button button-secondary" href="/signin?callbackUrl=%2F" id="signinInlineButton">Sign In With Google</a>
-              <a class="button button-secondary" href="/api/auth/signout" id="logoutInlineButton" hidden>Sign Out</a>
-            </div>
-            <div class="form-message" id="formMessage" aria-live="polite"></div>
-            <p class="lab-note" id="labNote">Only authenticated users can submit. Public users never see your private dashboard or warmboard from this flow.</p>
-          </form>
+          </div>
+          <p style="margin-top: 18px;">
+            Use the structured submit page for the full rating workflow. It is tuned for Mirai&apos;s scoring pipeline, not a generic application:
+            buyer reality, pricing/GTM, proof, founder fit, competition, and risk.
+          </p>
+          <ul class="lab-checklist" style="margin-top: 18px;">
+            <li>Buyer reality: end user, economic buyer, and switching trigger.</li>
+            <li>Commercial realism: pricing model, sales motion, contract size, and deployment complexity.</li>
+            <li>Proof: pilots, LOIs, customers, revenue, and growth.</li>
+            <li>Execution: founder fit, moat, known competitors, and what could break.</li>
+          </ul>
+          <div class="form-actions" style="margin-top: 22px;">
+            <a class="button button-primary" href="/submit" id="portalPrimaryAction">Open Mirai Intake</a>
+            <a class="button button-secondary" href="/dashboard" id="portalDashboardAction" hidden>Go to Dashboard</a>
+            <a class="button button-secondary" href="/signin?callbackUrl=%2Fsubmit" id="signinInlineButton">Sign In With Google</a>
+            <a class="button button-secondary" href="/api/auth/signout" id="logoutInlineButton" hidden>Sign Out</a>
+          </div>
+          <div class="form-message" id="formMessage" aria-live="polite"></div>
+          <p class="lab-note" id="labNote">The homepage no longer owns a separate form. All serious submissions go through `/submit`.</p>
         </div>
       </div>
 
       <div class="preview-card reveal" style="margin-top: 28px;" data-tilt>
         <div class="preview-head">
           <div>
-            <span>Queued summary</span>
-            <h3>What Mirai receives for the report request</h3>
+            <span>Status</span>
+            <h3>Recent requests and queue visibility</h3>
           </div>
           <div class="form-actions" style="margin-top: 0;">
-            <button class="button button-secondary button-compact" type="button" id="copyBrief">Copy Summary</button>
+            <a class="button button-secondary button-compact" href="/submit">Open /submit</a>
             <button class="button button-secondary button-compact" type="button" id="refreshRequests">Refresh Status</button>
           </div>
         </div>
@@ -2722,31 +2607,16 @@
           <div class="meta-pill" id="previewSessionState">Checking session...</div>
           <div class="meta-pill" id="previewSavedState">No request submitted yet.</div>
         </div>
-        <pre class="preview-code" id="briefPreview">Company: CleanSentinels
-Website: https://cleansentinels.example
-Industry: Climate / CleanTech
-Stage: Seed
+        <pre class="preview-code">Mirai&apos;s live intake now captures:
 
-One-line pitch:
-AI compliance operating system for industrial water operators facing rising environmental scrutiny.
+- company snapshot and stage
+- buyer reality and switching trigger
+- GTM, pricing, and implementation friction
+- proof and traction
+- founder fit and moat
+- competition, risk, and the exact question Mirai should pressure-test
 
-Customer and market:
-Mid-sized industrial facilities and utilities that need to stay ahead of reporting, contamination, and audit requirements. The pain is real because non-compliance is expensive, operationally disruptive, and increasingly visible.
-
-Business model:
-Annual software contract priced by site count and monitoring complexity, with implementation revenue plus expansion into reporting workflows and vendor coordination.
-
-Traction or proof:
-Five paid pilots, two converting to multi-site deployments, one regional utility partnership, and a growing inbound pipeline after regulatory updates in target states.
-
-Why this team might win:
-Founders previously built workflow software for environmental operations and understand both the buyer and the implementation pain.
-
-Main open question:
-Can urgency compress the enterprise sales cycle enough, or does this remain a slow compliance sale that looks bigger in pitch form than in practice?
-
-Deck or data room link:
-https://docs.google.com/presentation/d/example</pre>
+Use /submit for the real intake. Use this panel to see whether your latest request is queued, reviewing, or delivered.</pre>
 
         <div class="request-history">
           <div class="request-history-head">
@@ -2774,7 +2644,7 @@ https://docs.google.com/presentation/d/example</pre>
         <div class="faq-card reveal" data-tilt>
           <details open>
             <summary>What do I need to provide to get a useful output?</summary>
-            <p>A precise one-liner, customer and market description, business model, proof or traction, the main unresolved risk, and ideally a deck link. The request portal above is structured around exactly that.</p>
+            <p>A precise product description, buyer reality, why-now trigger, GTM shape, proof or traction, and the main unresolved risk. The `/submit` intake is structured around exactly those rating-critical facts.</p>
           </details>
           <details>
             <summary>Does Mirai replace real diligence?</summary>
@@ -2793,7 +2663,7 @@ https://docs.google.com/presentation/d/example</pre>
           </details>
           <details>
             <summary>Is the report instant?</summary>
-            <p>No. This public flow is a reviewed request queue. Users sign in with Google, submit the company brief, and receive the report within 24 hours.</p>
+            <p>No. Users sign in with Google, submit the company through `/submit`, and the request enters the reviewed queue before the report is delivered.</p>
           </details>
           <details>
             <summary>Does this expose the private dashboard?</summary>
@@ -2920,32 +2790,7 @@ https://docs.google.com/presentation/d/example</pre>
     });
   }
 
-  const sampleBrief = {
-    companyName: "CleanSentinels",
-    websiteUrl: "https://cleansentinels.com",
-    industry: "Climate / CleanTech",
-    stage: "Pre-seed",
-    location: "Fargo, ND",
-    yearFounded: "2024",
-    oneLiner: "BlueSentinels - AI-powered water quality monitoring. Camera-based vision analysis detects algal blooms, pollution, and water anomalies in real time. Paired with EcoGrow nanotech for a detect-to-treat loop.",
-    customers: "Lake managers, watershed management organizations, environmental nonprofits, and municipalities. Initially targeting Upper Midwest (Red River Basin).",
-    businessModel: "SaaS Subscription",
-    pricing: "Starter $9/mo (basic alerts + dashboard), Pro $29/mo (AI analysis + automated reports), Business $129/mo (full platform + API + custom ML models).",
-    traction: "30+ NSF I-Corps interviews. LOI with Red River Basin Riverkeepers. Completed NSF I-Corps, Gener8tor gBETA, NDSU Possibility Fellowship.",
-    revenue: "Pre-revenue",
-    funding: "Unfunded",
-    team: "Aditya Goyal (Founder/CEO), Carter Kipp (Dir. Operations), Marcel Roy Domalanta (Dir. Strategy), Navneet Uniyal (Dir. Product Engineering)",
-    ask: "Market viability, investor readiness, competitive landscape assessment",
-    advantage: "Detect-to-treat loop (AI detection + treatment). Camera-first approach is 10x cheaper than traditional sensor deployments. Growing dataset improves models.",
-    competitors: "Xylem (YSI), HACH (Danaher), Aquasight, LG Sonic, BlueGreen Water Technologies",
-    deckUrl: "",
-    risk: "Can urgency compress the enterprise sales cycle enough, or does this remain a slow compliance sale?",
-    extraContext: ""
-  };
-
-  const landingAnchor = "/#brief-lab";
-  const landingRoot = "/";
-  const signInHref = "/signin?callbackUrl=%2F";
+  const signInHref = "/signin?callbackUrl=%2Fsubmit";
   const logoutHref = "/api/auth/signout";
 
   const sessionState = {
@@ -2955,11 +2800,8 @@ https://docs.google.com/presentation/d/example</pre>
     submissions: []
   };
 
-  const form = document.getElementById("briefForm");
-  const preview = document.getElementById("briefPreview");
-  const copyButton = document.getElementById("copyBrief");
-  const sampleButton = document.getElementById("loadSample");
-  const submitButton = document.getElementById("submitRequest");
+  const portalPrimaryAction = document.getElementById("portalPrimaryAction");
+  const portalDashboardAction = document.getElementById("portalDashboardAction");
   const refreshRequestsButton = document.getElementById("refreshRequests");
   const formMessage = document.getElementById("formMessage");
   const requestList = document.getElementById("requestList");
@@ -2985,67 +2827,8 @@ https://docs.google.com/presentation/d/example</pre>
   navLogoutLink.href = logoutHref;
   logoutInlineButton.href = logoutHref;
 
-  function fillForm(values) {
-    Object.entries(values).forEach(([key, value]) => {
-      const field = form.elements.namedItem(key);
-      if (field) field.value = value;
-    });
-    renderPreview(values);
-  }
-
-  function sanitizeText(value) {
-    return typeof value === "string" ? value.trim() : "";
-  }
-
-  function collectFormData() {
-    const data = Object.fromEntries(new FormData(form));
-    return {
-      companyName: sanitizeText(data.companyName),
-      websiteUrl: sanitizeText(data.websiteUrl),
-      industry: sanitizeText(data.industry),
-      stage: sanitizeText(data.stage),
-      oneLiner: sanitizeText(data.oneLiner),
-      customers: sanitizeText(data.customers),
-      businessModel: sanitizeText(data.businessModel),
-      traction: sanitizeText(data.traction),
-      deckUrl: sanitizeText(data.deckUrl),
-      advantage: sanitizeText(data.advantage),
-      risk: sanitizeText(data.risk)
-    };
-  }
-
-  function buildBrief(data) {
-    const lines = [];
-    const add = (label, val) => { if (val) lines.push(`${label}: ${val}`); };
-    add("Company", data.companyName);
-    add("Website", data.websiteUrl);
-    add("Industry", data.industry);
-    add("Stage", data.stage);
-    add("Location", data.location);
-    add("Year Founded", data.yearFounded);
-    if (data.oneLiner) { lines.push(""); lines.push("Product / Service:"); lines.push(data.oneLiner); }
-    if (data.customers) { lines.push(""); lines.push("Target Market:"); lines.push(data.customers); }
-    add("Business Model", data.businessModel);
-    if (data.pricing) { lines.push(""); lines.push("Pricing:"); lines.push(data.pricing); }
-    if (data.traction) { lines.push(""); lines.push("Traction:"); lines.push(data.traction); }
-    add("Revenue / ARR", data.revenue);
-    add("Funding Raised", data.funding);
-    if (data.team) { lines.push(""); lines.push("Team:"); lines.push(data.team); }
-    add("Ask", data.ask);
-    if (data.advantage) { lines.push(""); lines.push("Moat / Advantage:"); lines.push(data.advantage); }
-    add("Known Competitors", data.competitors);
-    add("Deck", data.deckUrl);
-    if (data.risk) { lines.push(""); lines.push("Key Risks:"); lines.push(data.risk); }
-    if (data.extraContext) { lines.push(""); lines.push("Additional Context:"); lines.push(data.extraContext); }
-    return lines.join("\n");
-  }
-
-  function renderPreview(data) {
-    preview.textContent = buildBrief(data);
-    copyButton.textContent = "Copy Summary";
-  }
-
   function setFormMessage(message, tone) {
+    if (!formMessage) return;
     if (!message) {
       formMessage.className = "form-message";
       formMessage.textContent = "";
@@ -3053,12 +2836,6 @@ https://docs.google.com/presentation/d/example</pre>
     }
     formMessage.className = `form-message is-visible is-${tone || "info"}`;
     formMessage.textContent = message;
-  }
-
-  function setButtonLoading(button, loading, idleLabel, loadingLabel) {
-    if (!button) return;
-    button.disabled = loading;
-    button.textContent = loading ? loadingLabel : idleLabel;
   }
 
   function formatDate(value) {
@@ -3097,13 +2874,13 @@ https://docs.google.com/presentation/d/example</pre>
 
   function renderRequests(submissions) {
     if (!sessionState.authenticated) {
-      requestList.innerHTML = '<div class="request-empty">Sign in with Google to submit a request and track its status here.</div>';
+      requestList.innerHTML = '<div class="request-empty">Sign in and use /submit to create a request. Recent status will appear here.</div>';
       previewSavedState.textContent = "No request submitted yet.";
       return;
     }
 
     if (!submissions.length) {
-      requestList.innerHTML = '<div class="request-empty">No requests yet. Submit the form and your queue status will appear here.</div>';
+      requestList.innerHTML = '<div class="request-empty">No requests yet. Open /submit and your latest request status will appear here.</div>';
       previewSavedState.textContent = "Signed in. No request submitted yet.";
       return;
     }
@@ -3150,6 +2927,8 @@ https://docs.google.com/presentation/d/example</pre>
     footerAdminLink.hidden = !isAdmin;
 
     signinInlineButton.hidden = authenticated;
+    if (portalDashboardAction) portalDashboardAction.hidden = !authenticated;
+    if (refreshRequestsButton) refreshRequestsButton.hidden = !authenticated;
 
     navAuthButton.href = authenticated ? "/submit" : signInHref;
     navAuthButton.textContent = authenticated ? "Submit" : "Sign In";
@@ -3165,35 +2944,34 @@ https://docs.google.com/presentation/d/example</pre>
     if (heroSubmitAction) heroSubmitAction.hidden = !authenticated;
     if (heroDeliverableLink) heroDeliverableLink.hidden = authenticated;
 
+    if (portalPrimaryAction) {
+      portalPrimaryAction.href = authenticated ? "/submit" : signInHref;
+      portalPrimaryAction.textContent = authenticated ? "Open Mirai Intake" : "Sign In To Start";
+    }
+
     ctaPrimaryAction.href = authenticated ? "/submit" : signInHref;
     ctaPrimaryAction.textContent = authenticated ? "Submit A Company" : "Request A Report";
 
-    footerAuthLink.href = authenticated ? "#brief-lab" : signInHref;
-    footerAuthLink.textContent = authenticated ? "Request Portal" : "Sign In";
+    footerAuthLink.href = authenticated ? "/submit" : signInHref;
+    footerAuthLink.textContent = authenticated ? "Submit" : "Sign In";
 
     if (authenticated) {
-      submitButton.disabled = false;
-      submitButton.textContent = "Submit Request";
       heroSessionState.textContent = `Signed in as ${displayName}`;
       heroSessionMeta.textContent = isAdmin
-        ? "You can submit requests here and access the separate admin board."
-        : "You can submit a company brief here and track the queue status below.";
+        ? "Open /submit for the live intake, or use the separate admin board."
+        : "Open /submit for the live intake, then come back here to watch request status.";
       previewSessionState.textContent = `Authenticated as ${displayName}`;
-      labNote.textContent = "Authenticated users can submit the landing-page intake. This public flow stays separate from your private dashboard and warmboard.";
+      labNote.textContent = "Authenticated users should use /submit for intake. This page is now the marketing layer plus request visibility.";
     } else if (googleConfigured) {
-      submitButton.disabled = true;
-      submitButton.textContent = "Sign In To Submit";
       heroSessionState.textContent = "Google sign-in required";
-      heroSessionMeta.textContent = "Authenticate before submitting the request. After sign-in, this page will track queue status and recent submissions.";
-      previewSessionState.textContent = "Google sign-in required before submission.";
-      labNote.textContent = "Only authenticated users can submit. Public users never see your private dashboard or warmboard from this flow.";
+      heroSessionMeta.textContent = "Authenticate first, then use /submit for the structured Mirai intake.";
+      previewSessionState.textContent = "Sign in first, then open /submit.";
+      labNote.textContent = "The homepage no longer has a second intake form. Sign in and continue in /submit.";
     } else {
-      submitButton.disabled = true;
-      submitButton.textContent = "OAuth Not Configured";
       heroSessionState.textContent = "Google OAuth is not configured";
       heroSessionMeta.textContent = "Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and MIRAI_SESSION_SECRET on the server before taking public submissions.";
       previewSessionState.textContent = "Server-side Google OAuth is not configured yet.";
-      labNote.textContent = "This portal is wired for Google sign-in, but the server still needs OAuth environment variables before users can submit.";
+      labNote.textContent = "The submit flow is ready, but the server still needs OAuth environment variables before public use.";
     }
   }
 
@@ -3240,90 +3018,20 @@ https://docs.google.com/presentation/d/example</pre>
     }
   }
 
-  form.addEventListener("input", () => {
-    renderPreview(collectFormData());
-  });
-
-  form.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const data = collectFormData();
-    renderPreview(data);
-
-    if (!sessionState.authenticated) {
-      window.location.href = signInHref;
-      return;
-    }
-
-    setFormMessage("Submitting request…", "info");
-    setButtonLoading(submitButton, true, "Submit Request", "Submitting…");
-
-    try {
-      const response = await fetch("/api/portal/submit", {
-        method: "POST",
-        credentials: "same-origin",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify(data)
-      });
-
-      if (response.status === 401) {
-        window.location.href = signInHref;
-        return;
+  if (refreshRequestsButton) {
+    refreshRequestsButton.addEventListener("click", async () => {
+      refreshRequestsButton.disabled = true;
+      const originalLabel = refreshRequestsButton.textContent;
+      refreshRequestsButton.textContent = "Refreshing…";
+      try {
+        await loadSession();
+      } finally {
+        refreshRequestsButton.disabled = false;
+        refreshRequestsButton.textContent = originalLabel;
       }
+    });
+  }
 
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        setFormMessage(payload.error || "Could not submit the request.", "error");
-        return;
-      }
-
-      setFormMessage(payload.message || "Request received.", "success");
-      await loadRequests();
-      if (payload.submission) {
-        previewSavedState.textContent = `Queued as request #${payload.submission.id} on ${formatDate(payload.submission.created_at)}`;
-      }
-    } catch (error) {
-      setFormMessage("Network error while submitting the request.", "error");
-    } finally {
-      setButtonLoading(submitButton, false, sessionState.authenticated ? "Submit Request" : "Sign In To Submit", "Submitting…");
-    }
-  });
-
-  sampleButton.addEventListener("click", () => {
-    fillForm(sampleBrief);
-    setFormMessage("", "info");
-  });
-
-  refreshRequestsButton.addEventListener("click", async () => {
-    refreshRequestsButton.disabled = true;
-    const originalLabel = refreshRequestsButton.textContent;
-    refreshRequestsButton.textContent = "Refreshing…";
-    try {
-      await loadSession();
-    } finally {
-      refreshRequestsButton.disabled = false;
-      refreshRequestsButton.textContent = originalLabel;
-    }
-  });
-
-  copyButton.addEventListener("click", async () => {
-    const text = preview.textContent;
-    try {
-      await navigator.clipboard.writeText(text);
-      copyButton.textContent = "Copied";
-      window.setTimeout(() => {
-        copyButton.textContent = "Copy Summary";
-      }, 1600);
-    } catch (error) {
-      copyButton.textContent = "Copy Failed";
-      window.setTimeout(() => {
-        copyButton.textContent = "Copy Summary";
-      }, 1600);
-    }
-  });
-
-  fillForm(sampleBrief);
   loadSession();
 </script>
 </body>

@@ -849,9 +849,18 @@ async def bi_analyze(request: Request):
                 industry=structured_fields.get("industry", ""),
                 product=structured_fields.get("product", ""),
                 target_market=structured_fields.get("target_market", ""),
+                end_user=structured_fields.get("end_user", ""),
+                economic_buyer=structured_fields.get("economic_buyer", ""),
+                switching_trigger=structured_fields.get("switching_trigger", ""),
                 business_model=structured_fields.get("business_model", ""),
                 stage=structured_fields.get("stage", ""),
                 traction=structured_fields.get("traction", ""),
+                loi_count=structured_fields.get("loi_count", ""),
+                pilot_count=structured_fields.get("pilot_count", ""),
+                active_customer_count=structured_fields.get("active_customer_count", ""),
+                paid_customer_count=structured_fields.get("paid_customer_count", ""),
+                monthly_revenue_value=structured_fields.get("monthly_revenue_value", ""),
+                growth_rate=structured_fields.get("growth_rate", ""),
                 ask=structured_fields.get("ask", ""),
                 claims=[],
                 key_differentiators=[],
@@ -863,6 +872,20 @@ async def bi_analyze(request: Request):
                 funding=structured_fields.get("funding", ""),
                 team=structured_fields.get("team", ""),
                 pricing=structured_fields.get("pricing", ""),
+                pricing_model=structured_fields.get("pricing_model", ""),
+                starting_price=structured_fields.get("starting_price", ""),
+                sales_motion=structured_fields.get("sales_motion", ""),
+                typical_contract_size=structured_fields.get("typical_contract_size", ""),
+                implementation_complexity=structured_fields.get("implementation_complexity", ""),
+                time_to_value=structured_fields.get("time_to_value", ""),
+                current_substitute=structured_fields.get("current_substitute", ""),
+                demo_url=structured_fields.get("demo_url", ""),
+                customer_proof_url=structured_fields.get("customer_proof_url", ""),
+                pilot_docs_url=structured_fields.get("pilot_docs_url", ""),
+                founder_problem_fit=structured_fields.get("founder_problem_fit", ""),
+                founder_years_in_industry=structured_fields.get("founder_years_in_industry", ""),
+                technical_founder=structured_fields.get("technical_founder", ""),
+                primary_risk_category=structured_fields.get("primary_risk_category", ""),
             )
             extraction = bi._compute_data_quality(extraction)
             logger.info(f"[BI-REST] Structured passthrough: company={extraction.company}, "
@@ -960,7 +983,16 @@ async def bi_analyze(request: Request):
                     company=extraction.company,
                     industry=extraction.industry,
                     product=extraction.product,
-                    target_market=extraction.target_market,
+                    target_market=" | ".join(
+                        part for part in [
+                            extraction.target_market,
+                            f"End user: {extraction.end_user}" if extraction.end_user else "",
+                            f"Economic buyer: {extraction.economic_buyer}" if extraction.economic_buyer else "",
+                            f"Switching trigger: {extraction.switching_trigger}" if extraction.switching_trigger else "",
+                            f"Current substitute: {extraction.current_substitute}" if extraction.current_substitute else "",
+                        ]
+                        if part
+                    ),
                     stage=stage,
                     research_data=research if isinstance(research, dict) else None,
                 )

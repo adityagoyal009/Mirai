@@ -6,8 +6,11 @@ import {
   INDUSTRY_OPTIONS,
   STAGE_OPTIONS,
   BUSINESS_MODEL_OPTIONS,
-  REVENUE_OPTIONS,
-  FUNDING_OPTIONS,
+  PRICING_MODEL_OPTIONS,
+  SALES_MOTION_OPTIONS,
+  IMPLEMENTATION_COMPLEXITY_OPTIONS,
+  CURRENT_SUBSTITUTE_OPTIONS,
+  PRIMARY_RISK_OPTIONS,
   REFERRAL_SOURCE_OPTIONS,
 } from "@/lib/form-options";
 
@@ -24,30 +27,44 @@ function buildExecSummary(d: Record<string, string>): string {
   add("Company", d.companyName);
   add("Website", d.websiteUrl);
   add("Industry", d.industry);
-  add("Industry Priority Areas", d.industryPriorityAreas);
   add("Stage", d.stage);
-  add("Location", d.location);
   add("Country", d.country);
   add("Year Founded", d.yearFounded);
   add("Product", d.oneLiner);
   add("Target Market", d.customers);
+  add("End User", d.endUser);
+  add("Economic Buyer", d.economicBuyer);
+  add("Why They Switch Now", d.switchingTrigger);
+  add("Current Substitute", d.currentSubstitute);
   add("Business Model", d.businessModel);
-  add("Pricing", d.pricing);
+  add("Pricing Model", d.pricingModel);
+  add("Starting Price", d.startingPrice);
+  add("Sales Motion", d.salesMotion);
+  add("Typical Contract Size", d.typicalContractSize);
+  add("Implementation Complexity", d.implementationComplexity);
+  add("Time To First Value", d.timeToValue);
   add("Traction", d.traction);
+  add("LOIs", d.loiCount);
+  add("Pilots", d.pilotCount);
+  add("Active Customers", d.activeCustomerCount);
+  add("Paid Customers", d.paidCustomerCount);
+  add("Monthly Revenue", d.monthlyRevenueValue);
+  add("Growth Rate", d.growthRate);
   add("Has Customers", d.hasCustomers);
   add("Generating Revenue", d.generatingRevenue);
   add("Revenue / ARR", d.revenue);
-  add("Funding Raised", d.funding);
+  add("Capital Raised To Date", d.funding);
   add("Currently Fundraising", d.currentlyFundraising);
   add("Team", d.team);
-  add("Ask", d.ask);
-  add("Moat / Advantage", d.advantage);
+  add("Founder Fit", d.founderProblemFit);
+  add("Founder Years In Industry", d.founderYearsInIndustry);
+  add("Technical Founder", d.technicalFounder);
+  add("What Mirai Should Pressure-Test", d.ask);
+  add("Why You Win / Moat", d.advantage);
   add("Known Competitors", d.competitors);
-  add("Key Risks", d.risk);
-  add("Keywords", d.keywords);
-  if (d.deckUrl) add("Deck", d.deckUrl);
-  add("Referral Source", d.referralSource);
-  if (d.extraContext) lines.push(`\nAdditional Context:\n${d.extraContext}`);
+  add("What Could Break", d.risk);
+  add("Main Risk Category", d.primaryRiskCategory);
+  if (d.extraContext) lines.push(`\nEvidence Links / Notes:\n${d.extraContext}`);
 
   return lines.join("\n\n");
 }
@@ -90,6 +107,18 @@ export async function POST(request: NextRequest) {
   if (!customers) {
     return NextResponse.json({ error: "Target market is required." }, { status: 400 });
   }
+  const endUser = s(body.endUser);
+  if (!endUser) {
+    return NextResponse.json({ error: "End user is required." }, { status: 400 });
+  }
+  const economicBuyer = s(body.economicBuyer);
+  if (!economicBuyer) {
+    return NextResponse.json({ error: "Economic buyer is required." }, { status: 400 });
+  }
+  const switchingTrigger = s(body.switchingTrigger);
+  if (!switchingTrigger) {
+    return NextResponse.json({ error: "Why they switch now is required." }, { status: 400 });
+  }
 
   // Enum validation for select fields
   if (!(INDUSTRY_OPTIONS as readonly string[]).includes(industry)) {
@@ -103,13 +132,34 @@ export async function POST(request: NextRequest) {
   }
 
   const revenue = s(body.revenue);
-  if (revenue && !(REVENUE_OPTIONS as readonly string[]).includes(revenue)) {
-    return NextResponse.json({ error: "Invalid revenue selection." }, { status: 400 });
+  const funding = s(body.funding);
+
+  const pricingModel = s(body.pricingModel);
+  if (pricingModel && !(PRICING_MODEL_OPTIONS as readonly string[]).includes(pricingModel)) {
+    return NextResponse.json({ error: "Invalid pricing model selection." }, { status: 400 });
   }
 
-  const funding = s(body.funding);
-  if (funding && !(FUNDING_OPTIONS as readonly string[]).includes(funding)) {
-    return NextResponse.json({ error: "Invalid funding selection." }, { status: 400 });
+  const salesMotion = s(body.salesMotion);
+  if (salesMotion && !(SALES_MOTION_OPTIONS as readonly string[]).includes(salesMotion)) {
+    return NextResponse.json({ error: "Invalid sales motion selection." }, { status: 400 });
+  }
+
+  const implementationComplexity = s(body.implementationComplexity);
+  if (
+    implementationComplexity &&
+    !(IMPLEMENTATION_COMPLEXITY_OPTIONS as readonly string[]).includes(implementationComplexity)
+  ) {
+    return NextResponse.json({ error: "Invalid implementation complexity selection." }, { status: 400 });
+  }
+
+  const currentSubstitute = s(body.currentSubstitute);
+  if (currentSubstitute && !(CURRENT_SUBSTITUTE_OPTIONS as readonly string[]).includes(currentSubstitute)) {
+    return NextResponse.json({ error: "Invalid current substitute selection." }, { status: 400 });
+  }
+
+  const primaryRiskCategory = s(body.primaryRiskCategory);
+  if (primaryRiskCategory && !(PRIMARY_RISK_OPTIONS as readonly string[]).includes(primaryRiskCategory)) {
+    return NextResponse.json({ error: "Invalid main risk category selection." }, { status: 400 });
   }
 
   const referralSource = s(body.referralSource);
@@ -128,8 +178,29 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Pitch deck URL must start with http:// or https://" }, { status: 400 });
   }
 
+  const demoUrl = s(body.demoUrl);
+  if (demoUrl && !/^https?:\/\/.+/.test(demoUrl)) {
+    return NextResponse.json({ error: "Demo URL must start with http:// or https://" }, { status: 400 });
+  }
+
+  const customerProofUrl = s(body.customerProofUrl);
+  if (customerProofUrl && !/^https?:\/\/.+/.test(customerProofUrl)) {
+    return NextResponse.json({ error: "Customer proof URL must start with http:// or https://" }, { status: 400 });
+  }
+
+  const pilotDocsUrl = s(body.pilotDocsUrl);
+  if (pilotDocsUrl && !/^https?:\/\/.+/.test(pilotDocsUrl)) {
+    return NextResponse.json({ error: "Pilot docs URL must start with http:// or https://" }, { status: 400 });
+  }
+
   // Length limits on text fields
-  const textKeys = ["oneLiner", "customers", "pricing", "traction", "team", "advantage", "risk", "extraContext"];
+  const textKeys = [
+    "oneLiner", "customers", "endUser", "economicBuyer", "switchingTrigger",
+    "pricing", "startingPrice", "typicalContractSize", "timeToValue", "traction",
+    "loiCount", "pilotCount", "activeCustomerCount", "paidCustomerCount",
+    "monthlyRevenueValue", "revenue", "growthRate", "funding", "team", "founderProblemFit",
+    "founderYearsInIndustry", "advantage", "competitors", "risk", "extraContext",
+  ];
   for (const key of textKeys) {
     if (typeof body[key] === "string" && body[key].length > MAX_TEXT_LENGTH) {
       return NextResponse.json({ error: `${key} exceeds maximum length of ${MAX_TEXT_LENGTH} characters.` }, { status: 400 });
@@ -142,20 +213,43 @@ export async function POST(request: NextRequest) {
     websiteUrl,
     industry,
     stage,
+    endUser,
+    economicBuyer,
+    switchingTrigger,
     location: s(body.location),
     yearFounded: s(body.yearFounded),
     customers,
     businessModel,
     pricing: s(body.pricing),
+    pricingModel,
+    startingPrice: s(body.startingPrice),
+    salesMotion,
+    typicalContractSize: s(body.typicalContractSize),
+    implementationComplexity,
+    timeToValue: s(body.timeToValue),
+    currentSubstitute,
     traction: s(body.traction),
+    loiCount: s(body.loiCount),
+    pilotCount: s(body.pilotCount),
+    activeCustomerCount: s(body.activeCustomerCount),
+    paidCustomerCount: s(body.paidCustomerCount),
+    monthlyRevenueValue: s(body.monthlyRevenueValue),
+    growthRate: s(body.growthRate),
     revenue,
     funding,
     team: s(body.team),
+    founderProblemFit: s(body.founderProblemFit),
+    founderYearsInIndustry: s(body.founderYearsInIndustry),
+    technicalFounder: s(body.technicalFounder),
     ask: s(body.ask),
     deckUrl,
+    demoUrl,
+    customerProofUrl,
+    pilotDocsUrl,
     advantage: s(body.advantage),
     competitors: s(body.competitors),
     risk: s(body.risk),
+    primaryRiskCategory,
     extraContext: s(body.extraContext),
     country: s(body.country),
     industryPriorityAreas: s(body.industryPriorityAreas),
@@ -168,39 +262,48 @@ export async function POST(request: NextRequest) {
 
   // Atomic transaction: create submission + event together
   const sub = await prisma.$transaction(async (tx) => {
-    const submission = await tx.submission.create({
-      data: {
-        userId: session.user.id,
-        companyName: fields.companyName,
-        websiteUrl: fields.websiteUrl,
-        industry: fields.industry,
-        stage: fields.stage,
-        oneLiner: fields.oneLiner,
-        customers: fields.customers,
-        businessModel: fields.businessModel,
-        traction: fields.traction,
-        deckUrl: fields.deckUrl,
-        advantage: fields.advantage,
-        risk: fields.risk,
-        location: fields.location,
-        yearFounded: fields.yearFounded,
-        pricing: fields.pricing,
-        revenue: fields.revenue,
-        funding: fields.funding,
-        team: fields.team,
-        ask: fields.ask,
-        competitors: fields.competitors,
-        extraContext: fields.extraContext,
-        country: fields.country,
-        industryPriorityAreas: fields.industryPriorityAreas,
-        keywords: fields.keywords,
-        hasCustomers: fields.hasCustomers,
-        generatingRevenue: fields.generatingRevenue,
-        currentlyFundraising: fields.currentlyFundraising,
-        referralSource: fields.referralSource,
-        status: "queued",
-      },
-    });
+    const createdAt = new Date().toISOString();
+    const columns = [
+      "user_id", "company_name", "website_url", "industry", "stage", "one_liner",
+      "customers", "end_user", "economic_buyer", "switching_trigger", "business_model",
+      "traction", "loi_count", "pilot_count", "active_customer_count", "paid_customer_count",
+      "monthly_revenue_value", "growth_rate", "deck_url", "demo_url", "customer_proof_url",
+      "pilot_docs_url", "advantage", "risk", "primary_risk_category", "location",
+      "year_founded", "pricing", "pricing_model", "starting_price", "sales_motion",
+      "typical_contract_size", "implementation_complexity", "time_to_value",
+      "current_substitute", "revenue", "funding", "team", "founder_problem_fit",
+      "founder_years_in_industry", "technical_founder", "ask", "competitors",
+      "extra_context", "country", "industry_priority_areas", "keywords",
+      "has_customers", "generating_revenue", "currently_fundraising",
+      "referral_source", "status", "created_at", "updated_at",
+    ];
+    const values = [
+      session.user.id, fields.companyName, fields.websiteUrl, fields.industry, fields.stage, fields.oneLiner,
+      fields.customers, fields.endUser, fields.economicBuyer, fields.switchingTrigger, fields.businessModel,
+      fields.traction, fields.loiCount, fields.pilotCount, fields.activeCustomerCount, fields.paidCustomerCount,
+      fields.monthlyRevenueValue, fields.growthRate, fields.deckUrl, fields.demoUrl, fields.customerProofUrl,
+      fields.pilotDocsUrl, fields.advantage, fields.risk, fields.primaryRiskCategory, fields.location,
+      fields.yearFounded, fields.pricing, fields.pricingModel, fields.startingPrice, fields.salesMotion,
+      fields.typicalContractSize, fields.implementationComplexity, fields.timeToValue, fields.currentSubstitute,
+      fields.revenue, fields.funding, fields.team, fields.founderProblemFit, fields.founderYearsInIndustry,
+      fields.technicalFounder, fields.ask, fields.competitors, fields.extraContext, fields.country,
+      fields.industryPriorityAreas, fields.keywords, fields.hasCustomers, fields.generatingRevenue,
+      fields.currentlyFundraising, fields.referralSource, "queued", createdAt, createdAt,
+    ];
+    const placeholders = columns.map(() => "?").join(", ");
+
+    await tx.$executeRawUnsafe(
+      `INSERT INTO submissions (${columns.join(", ")}) VALUES (${placeholders})`,
+      ...values,
+    );
+
+    const inserted = await tx.$queryRawUnsafe<Array<{ id: number; created_at: string }>>(
+      "SELECT id, created_at FROM submissions WHERE rowid = last_insert_rowid() LIMIT 1"
+    );
+    const submission = inserted[0];
+    if (!submission) {
+      throw new Error("Failed to create submission row.");
+    }
 
     await tx.event.create({
       data: {
@@ -211,7 +314,7 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    return submission;
+    return { id: submission.id, createdAt: new Date(submission.created_at) };
   });
 
   // Build structured fields for direct passthrough (skips LLM extraction on backend)
@@ -220,9 +323,18 @@ export async function POST(request: NextRequest) {
     industry: fields.industry,
     product: fields.oneLiner,
     target_market: fields.customers,
+    end_user: fields.endUser,
+    economic_buyer: fields.economicBuyer,
+    switching_trigger: fields.switchingTrigger,
     business_model: fields.businessModel,
     stage: fields.stage,
     traction: fields.traction,
+    loi_count: fields.loiCount,
+    pilot_count: fields.pilotCount,
+    active_customer_count: fields.activeCustomerCount,
+    paid_customer_count: fields.paidCustomerCount,
+    monthly_revenue_value: fields.monthlyRevenueValue,
+    growth_rate: fields.growthRate,
     ask: fields.ask,
     website_url: fields.websiteUrl,
     year_founded: fields.yearFounded,
@@ -232,6 +344,20 @@ export async function POST(request: NextRequest) {
     funding: fields.funding,
     team: fields.team,
     pricing: fields.pricing,
+    pricing_model: fields.pricingModel,
+    starting_price: fields.startingPrice,
+    sales_motion: fields.salesMotion,
+    typical_contract_size: fields.typicalContractSize,
+    implementation_complexity: fields.implementationComplexity,
+    time_to_value: fields.timeToValue,
+    current_substitute: fields.currentSubstitute,
+    demo_url: fields.demoUrl,
+    customer_proof_url: fields.customerProofUrl,
+    pilot_docs_url: fields.pilotDocsUrl,
+    founder_problem_fit: fields.founderProblemFit,
+    founder_years_in_industry: fields.founderYearsInIndustry,
+    technical_founder: fields.technicalFounder,
+    primary_risk_category: fields.primaryRiskCategory,
     country: fields.country,
     keywords: fields.keywords,
     industry_priority_areas: fields.industryPriorityAreas,

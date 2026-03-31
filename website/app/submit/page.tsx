@@ -5,14 +5,14 @@ import Link from "next/link";
 import { useState, useRef, useEffect } from "react";
 import {
   INDUSTRY_OPTIONS,
-  INDUSTRY_PRIORITY_OPTIONS,
-  KEYWORD_OPTIONS,
   COUNTRY_OPTIONS,
   STAGE_OPTIONS,
   BUSINESS_MODEL_OPTIONS,
-  REVENUE_OPTIONS,
-  FUNDING_OPTIONS,
-  REFERRAL_SOURCE_OPTIONS,
+  PRICING_MODEL_OPTIONS,
+  SALES_MOTION_OPTIONS,
+  IMPLEMENTATION_COMPLEXITY_OPTIONS,
+  CURRENT_SUBSTITUTE_OPTIONS,
+  PRIMARY_RISK_OPTIONS,
 } from "@/lib/form-options";
 
 /* ── Field definition ──────────────────────────────────────────── */
@@ -34,30 +34,79 @@ const FIELDS: Field[] = [
   { key: "websiteUrl", label: "Website URL", required: false, placeholder: "https://example.com", type: "url", half: true },
   { key: "industry", label: "Industry", required: true, placeholder: "Search industries...", type: "searchable-select", half: true, options: INDUSTRY_OPTIONS },
   { key: "stage", label: "Stage", required: true, placeholder: "", type: "select", half: true, options: ["", ...STAGE_OPTIONS] },
-  { key: "location", label: "City", required: false, placeholder: "San Francisco", type: "text", half: true },
   { key: "country", label: "Country", required: false, placeholder: "Search countries...", type: "searchable-select", half: true, options: COUNTRY_OPTIONS },
   { key: "yearFounded", label: "Year Founded", required: false, placeholder: "2024", type: "text", half: true },
   { key: "businessModel", label: "Business Model", required: true, placeholder: "", type: "select", half: true, options: ["", ...BUSINESS_MODEL_OPTIONS] },
-  { key: "industryPriorityAreas", label: "Industry Priority Areas", required: false, placeholder: "Select priority areas...", type: "multiselect", options: INDUSTRY_PRIORITY_OPTIONS, hint: "Select all that apply." },
-  { key: "oneLiner", label: "Product / Service", required: true, placeholder: "Describe the product, what it does, key differentiators, and how it works.", type: "textarea" },
-  { key: "customers", label: "Target Market", required: true, placeholder: "Who buys this, why now, and what problem is painful enough to matter?", type: "textarea" },
-  { key: "pricing", label: "Pricing Strategy", required: false, placeholder: "Tier breakdown, price points, free tier details...", type: "textarea" },
-  { key: "traction", label: "Traction", required: false, placeholder: "Revenue, users, pilots, waitlist, growth, partnerships, LOIs...", type: "textarea" },
+  { key: "oneLiner", label: "What Are You Building?", required: true, placeholder: "Describe the product, what it does, and what is materially different about it.", type: "textarea" },
+  { key: "customers", label: "Target Market & Pain", required: true, placeholder: "Who feels this pain, how painful is it, and why does it matter right now?", type: "textarea" },
+  { key: "endUser", label: "End User", required: true, placeholder: "Who uses the product day to day?", type: "text", half: true },
+  { key: "economicBuyer", label: "Economic Buyer", required: true, placeholder: "Who signs the budget or contract?", type: "text", half: true },
+  { key: "switchingTrigger", label: "Why They Switch Now", required: true, placeholder: "What event or pain makes them change behavior now instead of later?", type: "textarea" },
+  { key: "currentSubstitute", label: "Current Substitute", required: false, placeholder: "", type: "select", half: true, options: ["", ...CURRENT_SUBSTITUTE_OPTIONS] },
+  { key: "pricingModel", label: "Pricing Model", required: false, placeholder: "", type: "select", half: true, options: ["", ...PRICING_MODEL_OPTIONS] },
+  { key: "startingPrice", label: "Starting Price", required: false, placeholder: "$99/mo, $12k/year, 2% take rate...", type: "text", half: true },
+  { key: "salesMotion", label: "Sales Motion", required: false, placeholder: "", type: "select", half: true, options: ["", ...SALES_MOTION_OPTIONS] },
+  { key: "typicalContractSize", label: "Typical Contract Size", required: false, placeholder: "$3k pilot, $25k ACV...", type: "text", half: true },
+  { key: "implementationComplexity", label: "Implementation Complexity", required: false, placeholder: "", type: "select", half: true, options: ["", ...IMPLEMENTATION_COMPLEXITY_OPTIONS] },
+  { key: "timeToValue", label: "Time To First Value", required: false, placeholder: "Immediate, 2 weeks, 3 months...", type: "text", half: true },
+  { key: "pilotCount", label: "Pilots", required: false, placeholder: "0, 1, 5...", type: "text", half: true },
+  { key: "loiCount", label: "LOIs", required: false, placeholder: "0, 3, 12...", type: "text", half: true },
+  { key: "activeCustomerCount", label: "Active Customers", required: false, placeholder: "0, 10, 250...", type: "text", half: true },
+  { key: "paidCustomerCount", label: "Paid Customers", required: false, placeholder: "0, 2, 40...", type: "text", half: true },
+  { key: "traction", label: "Traction Notes", required: false, placeholder: "Pilots, customer usage, signed deals, retention, growth, partnerships, or proof points.", type: "textarea" },
+  { key: "monthlyRevenueValue", label: "Current Monthly Revenue", required: false, placeholder: "$0, $2.5k, $18k...", type: "text", half: true },
+  { key: "revenue", label: "Revenue / ARR", required: false, placeholder: "$30k ARR, pre-revenue, or annual contract run-rate...", type: "text", half: true },
+  { key: "growthRate", label: "Growth Rate", required: false, placeholder: "20% MoM, 2x YoY...", type: "text", half: true },
   { key: "hasCustomers", label: "Have Customers?", required: false, placeholder: "", type: "radio", half: true, options: ["Yes", "No"], hint: "Do you currently have customers using your product or service?" },
   { key: "generatingRevenue", label: "Generating Revenue?", required: false, placeholder: "", type: "radio", half: true, options: ["Yes", "No"], hint: "Is the company generating revenue?" },
-  { key: "revenue", label: "Revenue / ARR", required: false, placeholder: "", type: "select", half: true, options: ["", ...REVENUE_OPTIONS] },
-  { key: "funding", label: "Funding Raised", required: false, placeholder: "", type: "select", half: true, options: ["", ...FUNDING_OPTIONS] },
+  { key: "funding", label: "Capital Raised To Date", required: false, placeholder: "$0, bootstrapped, $750k pre-seed, grant-funded...", type: "text", half: true },
   { key: "currentlyFundraising", label: "Currently Fundraising?", required: false, placeholder: "", type: "radio", half: true, options: ["Yes", "No"] },
-  { key: "team", label: "Team", required: false, placeholder: "Key team members, roles, relevant background...", type: "textarea" },
-  { key: "ask", label: "Ask", required: false, placeholder: "What do you want assessed? Market viability, investor readiness, competitive landscape...", type: "text" },
-  { key: "advantage", label: "Moat / Advantage", required: false, placeholder: "What makes this defensible? IP, network effects, data moat, speed...", type: "textarea" },
+  { key: "team", label: "Team", required: false, placeholder: "Key team members, roles, and the strongest relevant background.", type: "textarea" },
+  { key: "founderProblemFit", label: "Founder Fit", required: false, placeholder: "Why is this team unusually credible to solve this problem?", type: "textarea" },
+  { key: "founderYearsInIndustry", label: "Years In Industry", required: false, placeholder: "0, 3, 10...", type: "text", half: true },
+  { key: "technicalFounder", label: "Technical Founder?", required: false, placeholder: "", type: "radio", half: true, options: ["Yes", "No"] },
+  { key: "advantage", label: "Why You Win / Moat", required: false, placeholder: "What makes this defensible or hard to copy?", type: "textarea" },
   { key: "competitors", label: "Known Competitors", required: false, placeholder: "List known competitors, separated by commas", type: "text" },
-  { key: "deckUrl", label: "Pitch Deck URL", required: false, placeholder: "https://docsend.com/...", type: "url" },
-  { key: "risk", label: "Key Risks", required: false, placeholder: "What could kill this? Sales cycle, regulation, incumbents...", type: "textarea" },
-  { key: "keywords", label: "Keywords", required: false, placeholder: "Search keywords...", type: "multiselect", maxSelections: 15, options: KEYWORD_OPTIONS, hint: "Select up to 15 keywords that describe your business." },
-  { key: "referralSource", label: "How did you hear about Mirai?", required: false, placeholder: "", type: "select", half: true, options: ["", ...REFERRAL_SOURCE_OPTIONS] },
-  { key: "extraContext", label: "Additional Context", required: false, placeholder: "Paste your full pitch, exec summary, or any extra detail. This text is sent verbatim to the analysis.", type: "textarea" },
+  { key: "primaryRiskCategory", label: "Main Risk Category", required: false, placeholder: "", type: "select", half: true, options: ["", ...PRIMARY_RISK_OPTIONS] },
+  { key: "risk", label: "What Could Break?", required: false, placeholder: "What are the real risks: sales cycle, regulation, tech, adoption, capital, timing?", type: "textarea" },
+  { key: "ask", label: "What Should Mirai Pressure-Test?", required: false, placeholder: "Go/no-go, investor readiness, GTM realism, competition, timing, pricing, etc.", type: "text" },
+  { key: "extraContext", label: "Evidence Links / Notes", required: false, placeholder: "Paste demo links, customer proof, pilot docs, press, or anything Mirai should verify.", type: "textarea" },
 ];
+
+const FIELD_BY_KEY = Object.fromEntries(FIELDS.map((field) => [field.key, field])) as Record<string, Field>;
+
+const FORM_SECTIONS = [
+  {
+    title: "Company Snapshot",
+    description: "Anchor the company, category, and stage before Mirai starts scoring.",
+    fields: ["companyName", "websiteUrl", "industry", "stage", "country", "yearFounded"],
+  },
+  {
+    title: "Product & Buyer Reality",
+    description: "This is the core of the evaluation: who hurts, who pays, and why they move now.",
+    fields: ["oneLiner", "customers", "endUser", "economicBuyer", "switchingTrigger", "currentSubstitute"],
+  },
+  {
+    title: "GTM & Deployment",
+    description: "Mirai scores commercial realism, pricing clarity, and how hard it is to adopt.",
+    fields: ["businessModel", "pricingModel", "startingPrice", "salesMotion", "typicalContractSize", "implementationComplexity", "timeToValue"],
+  },
+  {
+    title: "Proof & Traction",
+    description: "Concrete proof matters more than storytelling. Add whatever evidence exists today.",
+    fields: ["traction", "pilotCount", "loiCount", "activeCustomerCount", "paidCustomerCount", "monthlyRevenueValue", "revenue", "growthRate", "hasCustomers", "generatingRevenue", "funding", "currentlyFundraising"],
+  },
+  {
+    title: "Team & Defensibility",
+    description: "Show why this team can execute and why the wedge is hard to copy.",
+    fields: ["team", "founderProblemFit", "founderYearsInIndustry", "technicalFounder", "advantage"],
+  },
+  {
+    title: "Competition & Risk",
+    description: "Tell Mirai where the company wins, what can go wrong, and what should be pressure-tested.",
+    fields: ["competitors", "primaryRiskCategory", "risk", "ask", "extraContext"],
+  },
+] as const;
 
 /* ── Shared styles ─────────────────────────────────────────────── */
 
@@ -112,11 +161,11 @@ function SearchableSelect({
         autoComplete="off"
       />
       {open && (
-        <ul id={`${id}-listbox`} role="listbox" className="absolute z-50 mt-1 max-h-60 w-full overflow-auto rounded-[12px] border border-[rgba(11,26,47,0.1)] bg-white shadow-lg">
+        <ul id={`${id}-listbox`} role="listbox" className="absolute z-50 mt-1 max-h-[24rem] w-full overflow-y-auto overscroll-contain rounded-[12px] border border-[rgba(11,26,47,0.1)] bg-white shadow-lg md:max-h-[28rem]">
           {filtered.length === 0 && (
             <li className="px-4 py-2.5 text-sm text-ink-faint">No matches</li>
           )}
-          {filtered.slice(0, 50).map((opt) => (
+          {filtered.slice(0, 100).map((opt) => (
             <li
               key={opt}
               role="option"
@@ -129,9 +178,9 @@ function SearchableSelect({
               {opt}
             </li>
           ))}
-          {filtered.length > 50 && (
+          {filtered.length > 100 && (
             <li className="px-4 py-2 text-xs text-ink-faint">
-              Type to narrow {filtered.length - 50} more results...
+              Type to narrow {filtered.length - 100} more results...
             </li>
           )}
         </ul>
@@ -248,11 +297,11 @@ function MultiSelect({
               autoFocus
             />
           </div>
-          <ul id={`${id}-listbox`} role="listbox" aria-multiselectable="true" className="max-h-52 overflow-auto">
+          <ul id={`${id}-listbox`} role="listbox" aria-multiselectable="true" className="max-h-[22rem] overflow-y-auto overscroll-contain md:max-h-[26rem]">
             {filtered.length === 0 && (
               <li className="px-4 py-2.5 text-sm text-ink-faint">No matches</li>
             )}
-            {filtered.slice(0, 80).map((opt) => {
+            {filtered.slice(0, 120).map((opt) => {
               const isSelected = selected.includes(opt);
               const isDisabled = atLimit && !isSelected;
               return (
@@ -275,9 +324,9 @@ function MultiSelect({
                 </li>
               );
             })}
-            {filtered.length > 80 && (
+            {filtered.length > 120 && (
               <li className="px-4 py-2 text-xs text-ink-faint">
-                Type to narrow {filtered.length - 80} more results...
+                Type to narrow {filtered.length - 120} more results...
               </li>
             )}
           </ul>
@@ -409,14 +458,14 @@ export default function SubmitPage() {
       <section className="hero-gradient text-white rounded-[34px] p-8 shadow-lg mb-8">
         <div className="flex items-center gap-2.5 text-xs font-bold tracking-[0.14em] uppercase text-white/70">
           <span className="w-8 h-px bg-white/30" />
-          Submit for evaluation
+          Mirai intake
         </div>
         <h1 className="mt-4 font-display text-4xl md:text-5xl leading-[0.92] tracking-tight">
-          Tell us about the <span className="text-sky italic">startup</span>
+          Give Mirai the <span className="text-sky italic">facts that matter</span>
         </h1>
         <p className="mt-4 text-white/70 max-w-[600px]">
-          Fill in what you know. The more context you provide, the sharper the evaluation.
-          Analysis starts automatically after submission.
+          This form is tuned for Mirai&apos;s scoring pipeline, not a generic application.
+          Focus on buyer reality, proof, GTM, execution, and risk. Analysis starts automatically after submission.
         </p>
       </section>
 
@@ -424,79 +473,98 @@ export default function SubmitPage() {
         onSubmit={handleSubmit}
         className="p-8 rounded-[34px] border border-[rgba(11,26,47,0.1)] bg-white/85 shadow-lg"
       >
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-5">
-          {FIELDS.map((f) => {
-            const isFullWidth = !f.half;
-            return (
-              <div key={f.key} className={isFullWidth ? "sm:col-span-2" : ""}>
-                <label htmlFor={f.key} className="block text-xs font-bold text-ink-faint uppercase tracking-[0.1em] mb-1.5">
-                  {f.label}
-                  {f.required && <span className="text-coral ml-1">*</span>}
-                </label>
-
-                {f.type === "searchable-select" ? (
-                  <SearchableSelect
-                    id={f.key}
-                    value={form[f.key]}
-                    onChange={(v) => update(f.key, v)}
-                    options={f.options || []}
-                    placeholder={f.placeholder}
-                  />
-                ) : f.type === "multiselect" ? (
-                  <MultiSelect
-                    id={f.key}
-                    value={form[f.key]}
-                    onChange={(v) => update(f.key, v)}
-                    options={f.options || []}
-                    placeholder={f.placeholder}
-                    maxSelections={f.maxSelections}
-                    hint={f.hint}
-                  />
-                ) : f.type === "radio" ? (
-                  <RadioGroup
-                    name={f.key}
-                    value={form[f.key]}
-                    onChange={(v) => update(f.key, v)}
-                    options={f.options || []}
-                    hint={f.hint}
-                    legend={f.label}
-                  />
-                ) : f.type === "select" ? (
-                  <select
-                    id={f.key}
-                    value={form[f.key]}
-                    onChange={(e) => update(f.key, e.target.value)}
-                    required={f.required}
-                    className={inputCls}
-                  >
-                    {f.options?.map((opt) => (
-                      <option key={opt} value={opt}>{opt || `Select ${f.label.toLowerCase()}...`}</option>
-                    ))}
-                  </select>
-                ) : f.type === "textarea" ? (
-                  <textarea
-                    id={f.key}
-                    value={form[f.key]}
-                    onChange={(e) => update(f.key, e.target.value)}
-                    placeholder={f.placeholder}
-                    required={f.required}
-                    rows={f.key === "extraContext" ? 5 : 3}
-                    className={`${inputCls} resize-y`}
-                  />
-                ) : (
-                  <input
-                    id={f.key}
-                    type={f.type}
-                    value={form[f.key]}
-                    onChange={(e) => update(f.key, e.target.value)}
-                    placeholder={f.placeholder}
-                    required={f.required}
-                    className={inputCls}
-                  />
-                )}
+        <div className="space-y-9">
+          {FORM_SECTIONS.map((section, sectionIndex) => (
+            <section
+              key={section.title}
+              className={sectionIndex === 0 ? "" : "border-t border-[rgba(11,26,47,0.08)] pt-8"}
+            >
+              <div className="mb-4">
+                <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#196cff]">
+                  {section.title}
+                </p>
+                <p className="mt-1 text-sm text-ink-soft max-w-[700px]">
+                  {section.description}
+                </p>
               </div>
-            );
-          })}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-5">
+                {section.fields.map((fieldKey) => {
+                  const f = FIELD_BY_KEY[fieldKey];
+                  const isFullWidth = !f.half;
+                  return (
+                    <div key={f.key} className={isFullWidth ? "sm:col-span-2" : ""}>
+                      <label htmlFor={f.key} className="block text-xs font-bold text-ink-faint uppercase tracking-[0.1em] mb-1.5">
+                        {f.label}
+                        {f.required && <span className="text-coral ml-1">*</span>}
+                      </label>
+
+                      {f.type === "searchable-select" ? (
+                        <SearchableSelect
+                          id={f.key}
+                          value={form[f.key]}
+                          onChange={(v) => update(f.key, v)}
+                          options={f.options || []}
+                          placeholder={f.placeholder}
+                        />
+                      ) : f.type === "multiselect" ? (
+                        <MultiSelect
+                          id={f.key}
+                          value={form[f.key]}
+                          onChange={(v) => update(f.key, v)}
+                          options={f.options || []}
+                          placeholder={f.placeholder}
+                          maxSelections={f.maxSelections}
+                          hint={f.hint}
+                        />
+                      ) : f.type === "radio" ? (
+                        <RadioGroup
+                          name={f.key}
+                          value={form[f.key]}
+                          onChange={(v) => update(f.key, v)}
+                          options={f.options || []}
+                          hint={f.hint}
+                          legend={f.label}
+                        />
+                      ) : f.type === "select" ? (
+                        <select
+                          id={f.key}
+                          value={form[f.key]}
+                          onChange={(e) => update(f.key, e.target.value)}
+                          required={f.required}
+                          className={inputCls}
+                        >
+                          {f.options?.map((opt) => (
+                            <option key={opt} value={opt}>{opt || `Select ${f.label.toLowerCase()}...`}</option>
+                          ))}
+                        </select>
+                      ) : f.type === "textarea" ? (
+                        <textarea
+                          id={f.key}
+                          value={form[f.key]}
+                          onChange={(e) => update(f.key, e.target.value)}
+                          placeholder={f.placeholder}
+                          required={f.required}
+                          rows={f.key === "extraContext" ? 4 : 3}
+                          className={`${inputCls} resize-y`}
+                        />
+                      ) : (
+                        <input
+                          id={f.key}
+                          type={f.type}
+                          value={form[f.key]}
+                          onChange={(e) => update(f.key, e.target.value)}
+                          placeholder={f.placeholder}
+                          required={f.required}
+                          className={inputCls}
+                        />
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          ))}
         </div>
 
         {result && (

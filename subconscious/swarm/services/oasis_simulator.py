@@ -390,6 +390,10 @@ class OasisSimulator:
         product = str(extraction.get("product", "") or "").strip()
         target_market = str(extraction.get("target_market", "") or "").strip()
         business_model = str(extraction.get("business_model", "") or "").strip()
+        end_user = str(extraction.get("end_user", "") or "").strip()
+        economic_buyer = str(extraction.get("economic_buyer", "") or "").strip()
+        switching_trigger = str(extraction.get("switching_trigger", "") or "").strip()
+        current_substitute = str(extraction.get("current_substitute", "") or "").strip()
 
         if company and industry:
             return {
@@ -398,6 +402,10 @@ class OasisSimulator:
                 "product": product,
                 "target_market": target_market,
                 "business_model": business_model,
+                "end_user": end_user,
+                "economic_buyer": economic_buyer,
+                "switching_trigger": switching_trigger,
+                "current_substitute": current_substitute,
             }
 
         prompt = (
@@ -449,6 +457,10 @@ class OasisSimulator:
             "product": product,
             "target_market": target_market,
             "business_model": business_model,
+            "end_user": end_user,
+            "economic_buyer": economic_buyer,
+            "switching_trigger": switching_trigger,
+            "current_substitute": current_substitute,
         }
 
     def _headline_queries(self, startup_context: Dict[str, str]) -> List[str]:
@@ -458,6 +470,10 @@ class OasisSimulator:
         product = startup_context.get("product", "").strip()
         target_market = startup_context.get("target_market", "").strip()
         business_model = startup_context.get("business_model", "").strip()
+        end_user = startup_context.get("end_user", "").strip()
+        economic_buyer = startup_context.get("economic_buyer", "").strip()
+        switching_trigger = startup_context.get("switching_trigger", "").strip()
+        current_substitute = startup_context.get("current_substitute", "").strip()
 
         queries = []
         if company and company.lower() != "startup":
@@ -466,8 +482,18 @@ class OasisSimulator:
                 queries.append(f"\"{company}\" {product} news")
             if target_market:
                 queries.append(f"\"{company}\" {target_market} customer partnership news")
+            if end_user:
+                queries.append(f"\"{company}\" {end_user} deployment news")
         if industry and target_market:
             queries.append(f"{industry} {target_market} market news")
+        if industry and economic_buyer:
+            queries.append(f"{industry} {economic_buyer} budget spending news")
+        if industry and switching_trigger:
+            queries.append(f"{industry} {switching_trigger} news")
+        if industry and current_substitute:
+            queries.append(f"{industry} replacing {current_substitute} software trend")
+        if product and business_model:
+            queries.append(f"{product} {business_model} adoption news")
         if industry and product:
             queries.append(f"{industry} {product} market adoption news")
         if industry and business_model:

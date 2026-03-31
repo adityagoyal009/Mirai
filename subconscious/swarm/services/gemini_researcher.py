@@ -29,6 +29,7 @@ RESEARCH_STEPS = [
         "company",
         "Research the startup called {company} in the {industry} industry. "
         "They build: {product}. "
+        "{founder_context_note}"
         "{website_note}"
         "Find: their website, team members with titles, product features, pricing tiers with dollar amounts, "
         "funding history, employee count, HQ location, year founded, customer testimonials, and any press coverage. "
@@ -37,6 +38,7 @@ RESEARCH_STEPS = [
     (
         "competitors",
         "Find the top 5-8 competitors to {company} in the {industry} market. "
+        "{founder_context_note}"
         "{known_competitors_note}"
         "For EACH competitor provide: company name, 1-2 sentence description, HQ location, year founded, "
         "total funding raised, financing status (VC-backed/bootstrapped/public), employee count, "
@@ -46,6 +48,7 @@ RESEARCH_STEPS = [
     (
         "market",
         "Find the total addressable market (TAM) and serviceable addressable market (SAM) for the {industry} market. "
+        "{founder_context_note}"
         "Search for market size reports from Grand View Research, MarketsandMarkets, Statista, Fortune Business Insights. "
         "Find: TAM in dollars, SAM in dollars, CAGR percentage, growth drivers, and source citations. "
         "Also find the AI/IoT subsegment size if the product involves technology ({product}). "
@@ -54,6 +57,7 @@ RESEARCH_STEPS = [
     (
         "regulatory",
         "What regulations and policies affect the {industry} industry in 2025-2026? "
+        "{founder_context_note}"
         "Target market: {target_market}. "
         "Find: relevant EPA, FDA, SEC, or state regulations, pending legislation, compliance costs, "
         "government funding programs (IIJA, IRA, grants), and barriers to entry. "
@@ -62,6 +66,7 @@ RESEARCH_STEPS = [
     (
         "risks",
         "What are the biggest risks for a startup in {industry} building {product}? "
+        "{founder_context_note}"
         "Find: similar companies that failed in this space and why, challenges with the target customer segment "
         "({target_market}), technology risks, competitive threats from incumbents, and market timing risks. "
         "Be specific — name actual failed companies if you can find them."
@@ -80,6 +85,7 @@ class GeminiResearcher:
         target_market: str = "",
         website_url: str = "",
         known_competitors: str = "",
+        extra_context: str = "",
         on_progress=None,
     ) -> Dict[str, Any]:
         """Run 5-step grounded research. Returns AgenticFindings-compatible dict."""
@@ -96,6 +102,7 @@ class GeminiResearcher:
             f"Known competitors include: {known_competitors}. Search for these plus any others you find. "
             if known_competitors else ""
         )
+        founder_context_note = f"Founder-provided context: {extra_context}. " if extra_context else ""
 
         for i, (step_name, prompt_template) in enumerate(RESEARCH_STEPS):
             if on_progress:
@@ -108,6 +115,7 @@ class GeminiResearcher:
                 target_market=target_market or "their target market",
                 website_note=website_note,
                 known_competitors_note=known_competitors_note,
+                founder_context_note=founder_context_note,
             )
 
             try:

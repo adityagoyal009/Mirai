@@ -5,6 +5,7 @@
 
 These notes reflect the current live pipeline as of 2026-03-30.
 
+- **Founder intake**: the website form now captures structured buyer, proof, pricing/GTM, implementation, substitute, evidence, founder-fit, and primary-risk fields. Those inputs are persisted and carried through the live pipeline as typed context.
 - **Live research**: OpenClaw is the primary fresh-facts engine. Gemini is fallback only. The old BI degraded research path is not used in the live website flow.
 - **Council**: 11-model council with peer review and chairman reconciliation. Council fact-checking now verifies council reasoning text, not the raw research JSON blob.
 - **Persona swarm**: 50-agent stage-aware, target-market-aware swarm. Persona selection now uses `industry + product + target_market + stage`, and pre-seed runs no longer receive late-stage finance personas.
@@ -15,7 +16,7 @@ These notes reflect the current live pipeline as of 2026-03-30.
 
 ## What Mirai Does
 
-Give Mirai a startup's details → it researches the market with OpenClaw live web search (Gemini fallback only if needed), scores across 10 dimensions using an 11-model council with peer review and chairman reconciliation, simulates crowd reaction with a 50-agent persona swarm across 6 zones, runs a 4-round OASIS market trajectory simulation, and generates a PitchBook-quality HTML report with inline SVG charts.
+Give Mirai a startup's structured details → it preserves the founder's buyer / proof / pricing / implementation context, researches the market with OpenClaw live web search (Gemini fallback only if needed), scores across 10 dimensions using an 11-model council with peer review and chairman reconciliation, simulates crowd reaction with a 50-agent persona swarm across 6 zones, runs a 4-round OASIS market trajectory simulation, and generates a PitchBook-quality HTML report with inline SVG charts that show both founder-provided inputs and Mirai-verified findings.
 
 ## Key Features
 

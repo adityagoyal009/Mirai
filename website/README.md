@@ -37,6 +37,8 @@ Open [http://localhost:3000](http://localhost:3000).
 
 ## Operational Notes
 
+- Founder intake is now rating-oriented, not just summary-oriented. The form captures structured buyer, proof, pricing/GTM, implementation, substitute, evidence, founder-fit, and risk fields.
+- Website submissions send those fields as structured passthrough payloads to the swarm backend instead of relying on backend-side LLM extraction.
 - Submissions are serialized through a single-worker in-memory queue to protect downstream model capacity.
 - Daily operating target is `50 analyses / 24h`.
 - On restart, resumable `queued` and `reviewing` submissions are rebuilt from the database into the queue automatically.

@@ -1,10 +1,11 @@
-# Mirai (未来) + Sensei (先生) — System Architecture v0.11.2
+# Mirai (未来) + Sensei (先生) — System Architecture v0.11.3
 
 ## Current Corrections
 
 These are the current runtime truths that matter most:
 
 - Live website analyses use OpenClaw-first research with Gemini as fallback only. The old degraded BI web-less path is not part of the live flow.
+- The website intake schema now captures structured buyer, proof, pricing/GTM, implementation, substitute, evidence, founder-fit, and risk fields and carries them through the runtime pipeline.
 - Persona selection is now stage-aware and context-aware (`industry`, `product`, `target_market`, `stage`) on the main swarm path.
 - Final verdict logic is shared between REST and WebSocket and uses numeric council + swarm + OASIS blending.
 - OASIS runs 4 rounds and now measures trajectory from the pre-simulation baseline sentiment.

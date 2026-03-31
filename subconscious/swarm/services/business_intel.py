@@ -101,10 +101,17 @@ EXEC_SUMMARY_TEMPLATE = {
 # ── Critical fields — analysis won't proceed without these ────────
 
 _CRITICAL_FIELDS = ["company", "industry", "product"]
-_IMPORTANT_FIELDS = ["target_market", "business_model", "funding", "revenue"]
+_IMPORTANT_FIELDS = [
+    "target_market", "business_model", "funding", "revenue",
+    "end_user", "economic_buyer", "switching_trigger",
+]
 _OPTIONAL_FIELDS = ["stage", "traction", "ask", "claims", "key_differentiators",
                      "website_url", "year_founded", "location", "team", "pricing",
-                     "known_competitors"]
+                     "known_competitors", "current_substitute", "pricing_model",
+                     "sales_motion", "implementation_complexity", "loi_count",
+                     "pilot_count", "active_customer_count", "paid_customer_count",
+                     "growth_rate", "founder_problem_fit", "technical_founder",
+                     "primary_risk_category"]
 
 # ── Data classes ──────────────────────────────────────────────────
 
@@ -116,9 +123,18 @@ class ExtractionResult:
     industry: str = ""
     product: str = ""
     target_market: str = ""
+    end_user: str = ""
+    economic_buyer: str = ""
+    switching_trigger: str = ""
     business_model: str = ""
     stage: str = ""
     traction: str = ""
+    loi_count: str = ""
+    pilot_count: str = ""
+    active_customer_count: str = ""
+    paid_customer_count: str = ""
+    monthly_revenue_value: str = ""
+    growth_rate: str = ""
     ask: str = ""
     claims: List[str] = field(default_factory=list)
     key_differentiators: List[str] = field(default_factory=list)
@@ -131,6 +147,20 @@ class ExtractionResult:
     funding: str = ""
     team: str = ""
     pricing: str = ""
+    pricing_model: str = ""
+    starting_price: str = ""
+    sales_motion: str = ""
+    typical_contract_size: str = ""
+    implementation_complexity: str = ""
+    time_to_value: str = ""
+    current_substitute: str = ""
+    demo_url: str = ""
+    customer_proof_url: str = ""
+    pilot_docs_url: str = ""
+    founder_problem_fit: str = ""
+    founder_years_in_industry: str = ""
+    technical_founder: str = ""
+    primary_risk_category: str = ""
     # Quality tracking
     fields_present: List[str] = field(default_factory=list)
     fields_missing: List[str] = field(default_factory=list)
@@ -149,6 +179,9 @@ class ResearchReport:
     product: str
     target_market: str = ""
     business_model: str = ""
+    traction_breakdown: Dict[str, Any] = field(default_factory=dict)
+    evidence_links: Dict[str, str] = field(default_factory=dict)
+    founder_inputs: Dict[str, Any] = field(default_factory=dict)
     summary: str = ""
     company_profile: Dict[str, Any] = field(default_factory=dict)
     market_data: Dict[str, Any] = field(default_factory=dict)
@@ -422,9 +455,18 @@ class BusinessIntelEngine:
                         "- industry: industry or vertical\n"
                         "- product: what they are building\n"
                         "- target_market: who buys this\n"
+                        "- end_user: who uses the product day-to-day\n"
+                        "- economic_buyer: who signs the budget or contract\n"
+                        "- switching_trigger: why the customer would switch now\n"
                         "- business_model: how they make money\n"
                         "- stage: one of pre-seed/seed/series a/series b/series c (or empty)\n"
                         "- traction: any metrics — users, revenue, growth (or empty)\n"
+                        "- loi_count: number of LOIs (or empty)\n"
+                        "- pilot_count: number of pilots (or empty)\n"
+                        "- active_customer_count: number of active customers (or empty)\n"
+                        "- paid_customer_count: number of paid customers (or empty)\n"
+                        "- monthly_revenue_value: MRR / monthly revenue if stated (or empty)\n"
+                        "- growth_rate: MoM or YoY growth if stated (or empty)\n"
                         "- ask: what they want to know (or empty)\n"
                         "- claims: list of specific claims made\n"
                         "- key_differentiators: list of competitive advantages\n"
@@ -436,6 +478,20 @@ class BusinessIntelEngine:
                         "- funding: total funding raised and latest round (or empty)\n"
                         "- team: key team members and roles (or empty)\n"
                         "- pricing: pricing model and price points (or empty)\n\n"
+                        "- pricing_model: price structure such as subscription / usage / enterprise (or empty)\n"
+                        "- starting_price: entry-level price point if stated (or empty)\n"
+                        "- sales_motion: self-serve / founder-led / enterprise / channel (or empty)\n"
+                        "- typical_contract_size: typical ACV / pilot / contract size (or empty)\n"
+                        "- implementation_complexity: self-serve / light integration / heavy integration (or empty)\n"
+                        "- time_to_value: time to first value or deployment time (or empty)\n"
+                        "- current_substitute: spreadsheet / manual / incumbent / in-house / do nothing (or empty)\n"
+                        "- demo_url: demo link if provided (or empty)\n"
+                        "- customer_proof_url: link to customer proof if provided (or empty)\n"
+                        "- pilot_docs_url: link to pilot docs if provided (or empty)\n"
+                        "- founder_problem_fit: why the founder/team is especially suited to solve this problem (or empty)\n"
+                        "- founder_years_in_industry: years the founder/team spent in this industry (or empty)\n"
+                        "- technical_founder: yes / no if clearly stated (or empty)\n"
+                        "- primary_risk_category: sales / technical / adoption / competition / regulatory / capital intensity / team (or empty)\n\n"
                         "If a field is mentioned but vague/unclear, still extract what you can "
                         "but also include the field name in a 'vague_fields' list."
                     ),
@@ -450,9 +506,18 @@ class BusinessIntelEngine:
             industry=extraction.get("industry", ""),
             product=extraction.get("product", ""),
             target_market=extraction.get("target_market", ""),
+            end_user=extraction.get("end_user", ""),
+            economic_buyer=extraction.get("economic_buyer", ""),
+            switching_trigger=extraction.get("switching_trigger", ""),
             business_model=extraction.get("business_model", ""),
             stage=extraction.get("stage", ""),
             traction=extraction.get("traction", ""),
+            loi_count=extraction.get("loi_count", ""),
+            pilot_count=extraction.get("pilot_count", ""),
+            active_customer_count=extraction.get("active_customer_count", ""),
+            paid_customer_count=extraction.get("paid_customer_count", ""),
+            monthly_revenue_value=extraction.get("monthly_revenue_value", ""),
+            growth_rate=extraction.get("growth_rate", ""),
             ask=extraction.get("ask", ""),
             claims=extraction.get("claims", []),
             key_differentiators=extraction.get("key_differentiators", []),
@@ -465,6 +530,20 @@ class BusinessIntelEngine:
             funding=extraction.get("funding", ""),
             team=extraction.get("team", ""),
             pricing=extraction.get("pricing", ""),
+            pricing_model=extraction.get("pricing_model", ""),
+            starting_price=extraction.get("starting_price", ""),
+            sales_motion=extraction.get("sales_motion", ""),
+            typical_contract_size=extraction.get("typical_contract_size", ""),
+            implementation_complexity=extraction.get("implementation_complexity", ""),
+            time_to_value=extraction.get("time_to_value", ""),
+            current_substitute=extraction.get("current_substitute", ""),
+            demo_url=extraction.get("demo_url", ""),
+            customer_proof_url=extraction.get("customer_proof_url", ""),
+            pilot_docs_url=extraction.get("pilot_docs_url", ""),
+            founder_problem_fit=extraction.get("founder_problem_fit", ""),
+            founder_years_in_industry=extraction.get("founder_years_in_industry", ""),
+            technical_founder=extraction.get("technical_founder", ""),
+            primary_risk_category=extraction.get("primary_risk_category", ""),
         )
 
         vague_from_llm = extraction.get("vague_fields", [])
@@ -481,9 +560,18 @@ class BusinessIntelEngine:
             "industry": result.industry,
             "product": result.product,
             "target_market": result.target_market,
+            "end_user": result.end_user,
+            "economic_buyer": result.economic_buyer,
+            "switching_trigger": result.switching_trigger,
             "business_model": result.business_model,
             "stage": result.stage,
             "traction": result.traction,
+            "loi_count": result.loi_count,
+            "pilot_count": result.pilot_count,
+            "active_customer_count": result.active_customer_count,
+            "paid_customer_count": result.paid_customer_count,
+            "monthly_revenue_value": result.monthly_revenue_value,
+            "growth_rate": result.growth_rate,
             "ask": result.ask,
             "funding": result.funding,
             "revenue": result.revenue,
@@ -492,6 +580,20 @@ class BusinessIntelEngine:
             "location": result.location,
             "team": result.team,
             "pricing": result.pricing,
+            "pricing_model": result.pricing_model,
+            "starting_price": result.starting_price,
+            "sales_motion": result.sales_motion,
+            "typical_contract_size": result.typical_contract_size,
+            "implementation_complexity": result.implementation_complexity,
+            "time_to_value": result.time_to_value,
+            "current_substitute": result.current_substitute,
+            "demo_url": result.demo_url,
+            "customer_proof_url": result.customer_proof_url,
+            "pilot_docs_url": result.pilot_docs_url,
+            "founder_problem_fit": result.founder_problem_fit,
+            "founder_years_in_industry": result.founder_years_in_industry,
+            "technical_founder": result.technical_founder,
+            "primary_risk_category": result.primary_risk_category,
         }
 
         present = []
@@ -570,6 +672,33 @@ class BusinessIntelEngine:
         product = extraction.product or "Unknown"
         target_market = extraction.target_market or ""
         business_model = extraction.business_model or ""
+        founder_context_lines = []
+        add_context = lambda label, value: founder_context_lines.append(f"{label}: {value}") if value else None
+        add_context("Business model", business_model)
+        add_context("End user", extraction.end_user)
+        add_context("Economic buyer", extraction.economic_buyer)
+        add_context("Why they switch now", extraction.switching_trigger)
+        add_context("Current substitute", extraction.current_substitute)
+        add_context("Pricing model", extraction.pricing_model)
+        add_context("Starting price", extraction.starting_price)
+        add_context("Sales motion", extraction.sales_motion)
+        add_context("Typical contract size", extraction.typical_contract_size)
+        add_context("Implementation complexity", extraction.implementation_complexity)
+        add_context("Time to first value", extraction.time_to_value)
+        add_context("LOIs", extraction.loi_count)
+        add_context("Pilots", extraction.pilot_count)
+        add_context("Active customers", extraction.active_customer_count)
+        add_context("Paid customers", extraction.paid_customer_count)
+        add_context("Monthly revenue", extraction.monthly_revenue_value)
+        add_context("Growth rate", extraction.growth_rate)
+        add_context("Founder fit", extraction.founder_problem_fit)
+        add_context("Founder years in industry", extraction.founder_years_in_industry)
+        add_context("Technical founder", extraction.technical_founder)
+        add_context("Primary risk category", extraction.primary_risk_category)
+        add_context("Demo URL", extraction.demo_url)
+        add_context("Customer proof URL", extraction.customer_proof_url)
+        add_context("Pilot docs URL", extraction.pilot_docs_url)
+        founder_context = "\n".join(founder_context_lines)
         try:
             from .agentic_researcher import AgenticResearcher
 
@@ -583,6 +712,7 @@ class BusinessIntelEngine:
                 target_market=target_market,
                 website_url=extraction.website_url,
                 known_competitors=", ".join(extraction.known_competitors or []),
+                extra_context=founder_context,
                 on_progress=on_progress,
             )
             findings_dict = asdict(findings) if hasattr(findings, "__dataclass_fields__") else findings
@@ -610,6 +740,7 @@ class BusinessIntelEngine:
                 target_market=target_market,
                 website_url=extraction.website_url,
                 known_competitors=", ".join(extraction.known_competitors or []),
+                extra_context=founder_context,
                 on_progress=on_progress,
             )
             report = self._normalize_live_research(findings_dict, extraction, engine_name="gemini")
@@ -645,6 +776,18 @@ class BusinessIntelEngine:
             company_profile["team_summary"] = extraction.team
         if extraction.pricing and not company_profile.get("pricing"):
             company_profile["pricing"] = extraction.pricing
+        if extraction.pricing_model and not company_profile.get("pricing_model"):
+            company_profile["pricing_model"] = extraction.pricing_model
+        if extraction.starting_price and not company_profile.get("starting_price"):
+            company_profile["starting_price"] = extraction.starting_price
+        if extraction.sales_motion and not company_profile.get("sales_motion"):
+            company_profile["sales_motion"] = extraction.sales_motion
+        if extraction.typical_contract_size and not company_profile.get("typical_contract_size"):
+            company_profile["typical_contract_size"] = extraction.typical_contract_size
+        if extraction.implementation_complexity and not company_profile.get("implementation_complexity"):
+            company_profile["implementation_complexity"] = extraction.implementation_complexity
+        if extraction.time_to_value and not company_profile.get("time_to_value"):
+            company_profile["time_to_value"] = extraction.time_to_value
         if extraction.funding and not company_profile.get("total_raised"):
             company_profile["total_raised"] = extraction.funding
         if extraction.revenue:
@@ -663,6 +806,46 @@ class BusinessIntelEngine:
         market_data = findings.get("market_data", {})
         if not isinstance(market_data, dict):
             market_data = {}
+        if extraction.current_substitute and not market_data.get("current_substitute"):
+            market_data["current_substitute"] = extraction.current_substitute
+        if extraction.switching_trigger and not market_data.get("switching_trigger"):
+            market_data["switching_trigger"] = extraction.switching_trigger
+
+        traction_breakdown = {
+            "loi_count": extraction.loi_count,
+            "pilot_count": extraction.pilot_count,
+            "active_customer_count": extraction.active_customer_count,
+            "paid_customer_count": extraction.paid_customer_count,
+            "monthly_revenue_value": extraction.monthly_revenue_value,
+            "growth_rate": extraction.growth_rate,
+        }
+        traction_breakdown = {k: v for k, v in traction_breakdown.items() if v}
+
+        evidence_links = {
+            "website_url": extraction.website_url,
+            "demo_url": extraction.demo_url,
+            "customer_proof_url": extraction.customer_proof_url,
+            "pilot_docs_url": extraction.pilot_docs_url,
+        }
+        evidence_links = {k: v for k, v in evidence_links.items() if v}
+
+        founder_inputs = {
+            "end_user": extraction.end_user,
+            "economic_buyer": extraction.economic_buyer,
+            "switching_trigger": extraction.switching_trigger,
+            "current_substitute": extraction.current_substitute,
+            "pricing_model": extraction.pricing_model,
+            "starting_price": extraction.starting_price,
+            "sales_motion": extraction.sales_motion,
+            "typical_contract_size": extraction.typical_contract_size,
+            "implementation_complexity": extraction.implementation_complexity,
+            "time_to_value": extraction.time_to_value,
+            "founder_problem_fit": extraction.founder_problem_fit,
+            "founder_years_in_industry": extraction.founder_years_in_industry,
+            "technical_founder": extraction.technical_founder,
+            "primary_risk_category": extraction.primary_risk_category,
+        }
+        founder_inputs = {k: v for k, v in founder_inputs.items() if v}
 
         browser_queries = [
             q for q in [
@@ -687,6 +870,9 @@ class BusinessIntelEngine:
             product=extraction.product or str(company_profile.get("product_description", "") or ""),
             target_market=extraction.target_market,
             business_model=extraction.business_model,
+            traction_breakdown=traction_breakdown,
+            evidence_links=evidence_links,
+            founder_inputs=founder_inputs,
             summary=str(findings.get("summary", "") or ""),
             company_profile=company_profile,
             market_data=market_data,

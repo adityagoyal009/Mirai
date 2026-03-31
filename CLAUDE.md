@@ -27,9 +27,10 @@ Key rules:
 
 ## Website Form
 - 122 industries (searchable), 789 keywords (multiselect, max 15), 195 countries (searchable)
-- 7 structured fields: country, industryPriorityAreas, keywords, hasCustomers, generatingRevenue, currentlyFundraising, referralSource
+- Rating-critical structured fields now include buyer context (`endUser`, `economicBuyer`, `switchingTrigger`), proof counts (`loiCount`, `pilotCount`, `activeCustomerCount`, `paidCustomerCount`, `monthlyRevenueValue`, `growthRate`), pricing/GTM (`pricingModel`, `startingPrice`, `salesMotion`, `typicalContractSize`), implementation (`implementationComplexity`, `timeToValue`), substitute / evidence / founder-fit / risk fields
 - Backend validation: enum checks, URL format, 100K char limit, atomic Prisma transactions
 - Structured fields passthrough to backend (skips LLM extraction)
+- The structured intake must flow into research, swarm persona selection, OASIS context, and report transparency. Do not treat these as cosmetic extra fields.
 - Retry queue: 3 retries with 10s delay, health check before each attempt, 60 min timeout
 - Restart recovery rebuilds safe `queued` and `reviewing` jobs into the queue
 - Founder APIs expose `status_message` instead of raw `admin_notes`

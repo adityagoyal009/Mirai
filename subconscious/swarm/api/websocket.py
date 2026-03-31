@@ -158,9 +158,18 @@ def _handle_full_analysis(msg: dict):
                     industry=structured.get("industry", ""),
                     product=structured.get("product", ""),
                     target_market=structured.get("target_market", ""),
+                    end_user=structured.get("end_user", ""),
+                    economic_buyer=structured.get("economic_buyer", ""),
+                    switching_trigger=structured.get("switching_trigger", ""),
                     business_model=structured.get("business_model", ""),
                     stage=structured.get("stage", ""),
                     traction=structured.get("traction", ""),
+                    loi_count=structured.get("loi_count", ""),
+                    pilot_count=structured.get("pilot_count", ""),
+                    active_customer_count=structured.get("active_customer_count", ""),
+                    paid_customer_count=structured.get("paid_customer_count", ""),
+                    monthly_revenue_value=structured.get("monthly_revenue_value", ""),
+                    growth_rate=structured.get("growth_rate", ""),
                     ask=structured.get("ask", ""),
                     claims=structured.get("claims", []),
                     key_differentiators=structured.get("key_differentiators", []),
@@ -172,6 +181,20 @@ def _handle_full_analysis(msg: dict):
                     funding=structured.get("funding", ""),
                     team=structured.get("team", ""),
                     pricing=structured.get("pricing", ""),
+                    pricing_model=structured.get("pricing_model", ""),
+                    starting_price=structured.get("starting_price", ""),
+                    sales_motion=structured.get("sales_motion", ""),
+                    typical_contract_size=structured.get("typical_contract_size", ""),
+                    implementation_complexity=structured.get("implementation_complexity", ""),
+                    time_to_value=structured.get("time_to_value", ""),
+                    current_substitute=structured.get("current_substitute", ""),
+                    demo_url=structured.get("demo_url", ""),
+                    customer_proof_url=structured.get("customer_proof_url", ""),
+                    pilot_docs_url=structured.get("pilot_docs_url", ""),
+                    founder_problem_fit=structured.get("founder_problem_fit", ""),
+                    founder_years_in_industry=structured.get("founder_years_in_industry", ""),
+                    technical_founder=structured.get("technical_founder", ""),
+                    primary_risk_category=structured.get("primary_risk_category", ""),
                 )
                 extraction = bi._compute_data_quality(extraction)
                 logger.info(f"[WS] Using structured fields from frontend (skipping LLM extraction) — "
@@ -398,7 +421,16 @@ def _handle_full_analysis(msg: dict):
                     company=extraction.company if hasattr(extraction, 'company') else '',
                     industry=extraction.industry if hasattr(extraction, 'industry') else '',
                     product=extraction.product if hasattr(extraction, 'product') else '',
-                    target_market=extraction.target_market if hasattr(extraction, 'target_market') else '',
+                    target_market=" | ".join(
+                        part for part in [
+                            extraction.target_market if hasattr(extraction, "target_market") else "",
+                            f"End user: {extraction.end_user}" if hasattr(extraction, "end_user") and extraction.end_user else "",
+                            f"Economic buyer: {extraction.economic_buyer}" if hasattr(extraction, "economic_buyer") and extraction.economic_buyer else "",
+                            f"Switching trigger: {extraction.switching_trigger}" if hasattr(extraction, "switching_trigger") and extraction.switching_trigger else "",
+                            f"Current substitute: {extraction.current_substitute}" if hasattr(extraction, "current_substitute") and extraction.current_substitute else "",
+                        ]
+                        if part
+                    ),
                     stage=stage or (extraction.stage if hasattr(extraction, 'stage') else ''),
                     research_data=research if isinstance(research, dict) else None,
                 )

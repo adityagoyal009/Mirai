@@ -1023,6 +1023,44 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
   </div>
 </div>
 
+<div class="section-bar" style="margin-top: 16px;">Structured Founder Inputs</div>
+<div class="grid-2 keep-together">
+  <div>
+    {"<div class='fact-item'><div class='fact-label'>End User</div><div class='fact-value'>" + extraction.get("end_user", "") + "</div></div>" if extraction.get("end_user") else ""}
+    {"<div class='fact-item'><div class='fact-label'>Economic Buyer</div><div class='fact-value'>" + extraction.get("economic_buyer", "") + "</div></div>" if extraction.get("economic_buyer") else ""}
+    {"<div class='fact-item'><div class='fact-label'>Why They Switch Now</div><div class='fact-value'>" + extraction.get("switching_trigger", "") + "</div></div>" if extraction.get("switching_trigger") else ""}
+    {"<div class='fact-item'><div class='fact-label'>Current Substitute</div><div class='fact-value'>" + extraction.get("current_substitute", "") + "</div></div>" if extraction.get("current_substitute") else ""}
+    {"<div class='fact-item'><div class='fact-label'>Implementation Complexity</div><div class='fact-value'>" + extraction.get("implementation_complexity", "") + "</div></div>" if extraction.get("implementation_complexity") else ""}
+    {"<div class='fact-item'><div class='fact-label'>Time To First Value</div><div class='fact-value'>" + extraction.get("time_to_value", "") + "</div></div>" if extraction.get("time_to_value") else ""}
+  </div>
+  <div>
+    {"<div class='fact-item'><div class='fact-label'>Pricing Model</div><div class='fact-value'>" + extraction.get("pricing_model", "") + "</div></div>" if extraction.get("pricing_model") else ""}
+    {"<div class='fact-item'><div class='fact-label'>Starting Price</div><div class='fact-value'>" + extraction.get("starting_price", "") + "</div></div>" if extraction.get("starting_price") else ""}
+    {"<div class='fact-item'><div class='fact-label'>Sales Motion</div><div class='fact-value'>" + extraction.get("sales_motion", "") + "</div></div>" if extraction.get("sales_motion") else ""}
+    {"<div class='fact-item'><div class='fact-label'>Typical Contract Size</div><div class='fact-value'>" + extraction.get("typical_contract_size", "") + "</div></div>" if extraction.get("typical_contract_size") else ""}
+    {"<div class='fact-item'><div class='fact-label'>Founder Fit</div><div class='fact-value'>" + extraction.get("founder_problem_fit", "") + "</div></div>" if extraction.get("founder_problem_fit") else ""}
+    {"<div class='fact-item'><div class='fact-label'>Main Risk Category</div><div class='fact-value'>" + extraction.get("primary_risk_category", "") + "</div></div>" if extraction.get("primary_risk_category") else ""}
+  </div>
+</div>
+
+<div class="grid-2 keep-together" style="margin-top: 8px;">
+  <div>
+    {"<div class='fact-item'><div class='fact-label'>LOIs</div><div class='fact-value'>" + extraction.get("loi_count", "") + "</div></div>" if extraction.get("loi_count") else ""}
+    {"<div class='fact-item'><div class='fact-label'>Pilots</div><div class='fact-value'>" + extraction.get("pilot_count", "") + "</div></div>" if extraction.get("pilot_count") else ""}
+    {"<div class='fact-item'><div class='fact-label'>Active Customers</div><div class='fact-value'>" + extraction.get("active_customer_count", "") + "</div></div>" if extraction.get("active_customer_count") else ""}
+    {"<div class='fact-item'><div class='fact-label'>Paid Customers</div><div class='fact-value'>" + extraction.get("paid_customer_count", "") + "</div></div>" if extraction.get("paid_customer_count") else ""}
+    {"<div class='fact-item'><div class='fact-label'>Monthly Revenue</div><div class='fact-value'>" + extraction.get("monthly_revenue_value", "") + "</div></div>" if extraction.get("monthly_revenue_value") else ""}
+    {"<div class='fact-item'><div class='fact-label'>Growth Rate</div><div class='fact-value'>" + extraction.get("growth_rate", "") + "</div></div>" if extraction.get("growth_rate") else ""}
+  </div>
+  <div>
+    {"<div class='fact-item'><div class='fact-label'>Demo</div><div class='fact-value'><a href='" + extraction.get("demo_url", "") + "' style='color:#3366cc;'>" + extraction.get("demo_url", "") + "</a></div></div>" if extraction.get("demo_url") else ""}
+    {"<div class='fact-item'><div class='fact-label'>Customer Proof</div><div class='fact-value'><a href='" + extraction.get("customer_proof_url", "") + "' style='color:#3366cc;'>" + extraction.get("customer_proof_url", "") + "</a></div></div>" if extraction.get("customer_proof_url") else ""}
+    {"<div class='fact-item'><div class='fact-label'>Pilot Docs</div><div class='fact-value'><a href='" + extraction.get("pilot_docs_url", "") + "' style='color:#3366cc;'>" + extraction.get("pilot_docs_url", "") + "</a></div></div>" if extraction.get("pilot_docs_url") else ""}
+    {"<div class='fact-item'><div class='fact-label'>Years In Industry</div><div class='fact-value'>" + extraction.get("founder_years_in_industry", "") + "</div></div>" if extraction.get("founder_years_in_industry") else ""}
+    {"<div class='fact-item'><div class='fact-label'>Technical Founder</div><div class='fact-value'>" + extraction.get("technical_founder", "") + "</div></div>" if extraction.get("technical_founder") else ""}
+  </div>
+</div>
+
 <!-- PAGE 2: AGENT HEATMAP + DIVERGENCE -->
 <div class="page-break"></div>
 

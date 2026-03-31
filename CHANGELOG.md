@@ -1,5 +1,24 @@
 # Mirai Changelog
 
+## [0.11.3] — 2026-03-30
+
+### Changed — Structured Founder Intake And Pipeline Wiring
+
+**Website Intake**
+- Founder intake now captures structured buyer, proof, pricing/GTM, implementation, substitute, evidence, founder-fit, and risk fields instead of pushing all of that signal into generic text boxes.
+- New intake fields include `end_user`, `economic_buyer`, `switching_trigger`, traction proof counts, pricing model / starting price / sales motion / contract size, implementation complexity, current substitute, evidence URLs, founder-fit fields, and primary risk category.
+- These fields are persisted in the portal database and passed through the website queue as first-class structured payloads.
+
+**Research And Scoring Context**
+- The live pipeline now treats the new intake schema as structured context, not just extra prompt text.
+- OpenClaw research receives founder-provided buyer / pricing / traction / evidence context directly.
+- Research normalization now preserves `traction_breakdown`, `evidence_links`, and `founder_inputs` for downstream council/swarm/report consumers.
+- Swarm persona selection now receives richer buyer context by combining target-market summary with end user, economic buyer, switching trigger, and current substitute.
+
+**OASIS And Report Transparency**
+- OASIS headline query generation now uses the richer startup context from the intake form, including buyer and substitute signals.
+- HTML reports now surface the structured founder inputs and proof/evidence links that materially influenced the rating.
+
 ## [0.11.2] — 2026-03-30
 
 ### Changed — Live Research, Persona Fit, Verdict Math, Report Fidelity

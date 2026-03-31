@@ -356,6 +356,57 @@ export const FUNDING_OPTIONS = [
   "Bootstrapped (profitable)",
 ] as const;
 
+export const PRICING_MODEL_OPTIONS = [
+  "Per Seat",
+  "Subscription",
+  "Usage-Based",
+  "Enterprise Annual Contract",
+  "Transaction Fee",
+  "Services",
+  "Hybrid",
+  "Other",
+] as const;
+
+export const SALES_MOTION_OPTIONS = [
+  "Self-Serve",
+  "Founder-Led Sales",
+  "Inside Sales",
+  "Enterprise Sales",
+  "Channel / Partners",
+  "Outbound-Led",
+  "Other",
+] as const;
+
+export const IMPLEMENTATION_COMPLEXITY_OPTIONS = [
+  "Self-Serve",
+  "Light Integration",
+  "Heavy Integration",
+  "On-Prem / Complex Deployment",
+  "Not Sure",
+] as const;
+
+export const CURRENT_SUBSTITUTE_OPTIONS = [
+  "Spreadsheets",
+  "Manual Workflow",
+  "Incumbent Software",
+  "In-House Tools",
+  "Consultants / Agencies",
+  "Do Nothing",
+  "Other",
+] as const;
+
+export const PRIMARY_RISK_OPTIONS = [
+  "Sales / GTM",
+  "Technical Execution",
+  "Adoption / Behavior Change",
+  "Competition",
+  "Capital Intensity",
+  "Regulatory / Compliance",
+  "Supply Chain / Operations",
+  "Team / Hiring",
+  "Other",
+] as const;
+
 export const REFERRAL_SOURCE_OPTIONS = [
   "Search Engine",
   "Social Media (Twitter/X, LinkedIn)",

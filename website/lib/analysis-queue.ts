@@ -6,7 +6,6 @@
  */
 
 import prisma from "./prisma";
-import type { Submission } from "@prisma/client";
 import { MIRAI_API, miraiInternalHeaders, miraiJsonHeaders } from "./mirai-api";
 const DAILY_LIMIT = 50;
 const MAX_RETRIES = 3;
@@ -18,9 +17,18 @@ interface StructuredFields {
   industry: string;
   product: string;
   target_market: string;
+  end_user: string;
+  economic_buyer: string;
+  switching_trigger: string;
   business_model: string;
   stage: string;
   traction: string;
+  loi_count: string;
+  pilot_count: string;
+  active_customer_count: string;
+  paid_customer_count: string;
+  monthly_revenue_value: string;
+  growth_rate: string;
   ask: string;
   website_url: string;
   year_founded: string;
@@ -30,6 +38,20 @@ interface StructuredFields {
   funding: string;
   team: string;
   pricing: string;
+  pricing_model: string;
+  starting_price: string;
+  sales_motion: string;
+  typical_contract_size: string;
+  implementation_complexity: string;
+  time_to_value: string;
+  current_substitute: string;
+  demo_url: string;
+  customer_proof_url: string;
+  pilot_docs_url: string;
+  founder_problem_fit: string;
+  founder_years_in_industry: string;
+  technical_founder: string;
+  primary_risk_category: string;
   country: string;
   keywords: string;
   industry_priority_areas: string;
@@ -46,7 +68,65 @@ interface QueueJob {
   retries: number;
 }
 
-function buildExecSummaryFromSubmission(submission: Submission): string {
+interface SubmissionRecord {
+  id: number;
+  status: string;
+  reportUrl: string;
+  adminNotes: string;
+  companyName: string;
+  websiteUrl: string;
+  industry: string;
+  industryPriorityAreas: string;
+  stage: string;
+  location: string;
+  country: string;
+  yearFounded: string;
+  oneLiner: string;
+  customers: string;
+  endUser: string;
+  economicBuyer: string;
+  switchingTrigger: string;
+  currentSubstitute: string;
+  businessModel: string;
+  pricing: string;
+  pricingModel: string;
+  startingPrice: string;
+  salesMotion: string;
+  typicalContractSize: string;
+  implementationComplexity: string;
+  timeToValue: string;
+  traction: string;
+  loiCount: string;
+  pilotCount: string;
+  activeCustomerCount: string;
+  paidCustomerCount: string;
+  monthlyRevenueValue: string;
+  growthRate: string;
+  hasCustomers: string;
+  generatingRevenue: string;
+  revenue: string;
+  funding: string;
+  currentlyFundraising: string;
+  team: string;
+  founderProblemFit: string;
+  founderYearsInIndustry: string;
+  technicalFounder: string;
+  ask: string;
+  advantage: string;
+  competitors: string;
+  risk: string;
+  primaryRiskCategory: string;
+  keywords: string;
+  deckUrl: string;
+  demoUrl: string;
+  customerProofUrl: string;
+  pilotDocsUrl: string;
+  referralSource: string;
+  extraContext: string;
+  createdAt: Date;
+}
+
+function buildExecSummaryFromSubmission(submission: SubmissionRecord): string {
   const lines: string[] = [];
   const add = (label: string, value: string) => {
     if (value) lines.push(`${label}: ${value}`);
@@ -55,54 +135,91 @@ function buildExecSummaryFromSubmission(submission: Submission): string {
   add("Company", submission.companyName);
   add("Website", submission.websiteUrl);
   add("Industry", submission.industry);
-  add("Industry Priority Areas", submission.industryPriorityAreas);
   add("Stage", submission.stage);
-  add("Location", submission.location);
   add("Country", submission.country);
   add("Year Founded", submission.yearFounded);
   add("Product", submission.oneLiner);
   add("Target Market", submission.customers);
+  add("End User", submission.endUser);
+  add("Economic Buyer", submission.economicBuyer);
+  add("Why They Switch Now", submission.switchingTrigger);
+  add("Current Substitute", submission.currentSubstitute);
   add("Business Model", submission.businessModel);
-  add("Pricing", submission.pricing);
+  add("Pricing Model", submission.pricingModel);
+  add("Starting Price", submission.startingPrice);
+  add("Sales Motion", submission.salesMotion);
+  add("Typical Contract Size", submission.typicalContractSize);
+  add("Implementation Complexity", submission.implementationComplexity);
+  add("Time To First Value", submission.timeToValue);
   add("Traction", submission.traction);
+  add("LOIs", submission.loiCount);
+  add("Pilots", submission.pilotCount);
+  add("Active Customers", submission.activeCustomerCount);
+  add("Paid Customers", submission.paidCustomerCount);
+  add("Monthly Revenue", submission.monthlyRevenueValue);
+  add("Growth Rate", submission.growthRate);
   add("Has Customers", submission.hasCustomers);
   add("Generating Revenue", submission.generatingRevenue);
   add("Revenue / ARR", submission.revenue);
-  add("Funding Raised", submission.funding);
+  add("Capital Raised To Date", submission.funding);
   add("Currently Fundraising", submission.currentlyFundraising);
   add("Team", submission.team);
-  add("Ask", submission.ask);
-  add("Moat / Advantage", submission.advantage);
+  add("Founder Fit", submission.founderProblemFit);
+  add("Founder Years In Industry", submission.founderYearsInIndustry);
+  add("Technical Founder", submission.technicalFounder);
+  add("What Mirai Should Pressure-Test", submission.ask);
+  add("Why You Win / Moat", submission.advantage);
   add("Known Competitors", submission.competitors);
-  add("Key Risks", submission.risk);
-  add("Keywords", submission.keywords);
-  if (submission.deckUrl) add("Deck", submission.deckUrl);
-  add("Referral Source", submission.referralSource);
-  if (submission.extraContext) lines.push(`\nAdditional Context:\n${submission.extraContext}`);
+  add("What Could Break", submission.risk);
+  add("Main Risk Category", submission.primaryRiskCategory);
+  if (submission.extraContext) lines.push(`\nEvidence Links / Notes:\n${submission.extraContext}`);
 
   return lines.join("\n\n");
 }
 
-function buildStructuredFields(submission: Submission): StructuredFields {
+function buildStructuredFields(submission: SubmissionRecord): StructuredFields {
   return {
     company: submission.companyName,
     industry: submission.industry,
     product: submission.oneLiner,
     target_market: submission.customers,
+    end_user: submission.endUser,
+    economic_buyer: submission.economicBuyer,
+    switching_trigger: submission.switchingTrigger,
     business_model: submission.businessModel,
     stage: submission.stage,
     traction: submission.traction,
+    loi_count: submission.loiCount,
+    pilot_count: submission.pilotCount,
+    active_customer_count: submission.activeCustomerCount,
+    paid_customer_count: submission.paidCustomerCount,
+    monthly_revenue_value: submission.monthlyRevenueValue,
+    growth_rate: submission.growthRate,
     ask: submission.ask,
     website_url: submission.websiteUrl,
     year_founded: submission.yearFounded,
     location: submission.location,
     revenue: submission.revenue,
     known_competitors: submission.competitors
-      ? submission.competitors.split(",").map((company) => company.trim()).filter(Boolean)
+      ? submission.competitors.split(",").map((company: string) => company.trim()).filter(Boolean)
       : [],
     funding: submission.funding,
     team: submission.team,
     pricing: submission.pricing,
+    pricing_model: submission.pricingModel,
+    starting_price: submission.startingPrice,
+    sales_motion: submission.salesMotion,
+    typical_contract_size: submission.typicalContractSize,
+    implementation_complexity: submission.implementationComplexity,
+    time_to_value: submission.timeToValue,
+    current_substitute: submission.currentSubstitute,
+    demo_url: submission.demoUrl,
+    customer_proof_url: submission.customerProofUrl,
+    pilot_docs_url: submission.pilotDocsUrl,
+    founder_problem_fit: submission.founderProblemFit,
+    founder_years_in_industry: submission.founderYearsInIndustry,
+    technical_founder: submission.technicalFounder,
+    primary_risk_category: submission.primaryRiskCategory,
     country: submission.country,
     keywords: submission.keywords,
     industry_priority_areas: submission.industryPriorityAreas,
@@ -119,7 +236,7 @@ function parseRetryCount(adminNotes: string): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function shouldAutoResume(submission: Submission): boolean {
+function shouldAutoResume(submission: SubmissionRecord): boolean {
   if (submission.status === "reviewing") return true;
   if (submission.status !== "queued" || Boolean(submission.reportUrl)) return false;
 
@@ -144,17 +261,74 @@ class AnalysisQueue {
   }
 
   private async recoverStuck() {
-    const recoverable = await prisma.submission.findMany({
-      where: {
-        OR: [{ status: "queued" }, { status: "reviewing" }],
-      },
-      orderBy: { createdAt: "asc" },
-    });
+    const recoverable = await prisma.$queryRawUnsafe<SubmissionRecord[]>(`
+      SELECT
+        id,
+        status,
+        report_url AS reportUrl,
+        admin_notes AS adminNotes,
+        company_name AS companyName,
+        website_url AS websiteUrl,
+        industry,
+        industry_priority_areas AS industryPriorityAreas,
+        stage,
+        location,
+        country,
+        year_founded AS yearFounded,
+        one_liner AS oneLiner,
+        customers,
+        COALESCE(end_user, '') AS endUser,
+        COALESCE(economic_buyer, '') AS economicBuyer,
+        COALESCE(switching_trigger, '') AS switchingTrigger,
+        COALESCE(current_substitute, '') AS currentSubstitute,
+        business_model AS businessModel,
+        pricing,
+        COALESCE(pricing_model, '') AS pricingModel,
+        COALESCE(starting_price, '') AS startingPrice,
+        COALESCE(sales_motion, '') AS salesMotion,
+        COALESCE(typical_contract_size, '') AS typicalContractSize,
+        COALESCE(implementation_complexity, '') AS implementationComplexity,
+        COALESCE(time_to_value, '') AS timeToValue,
+        traction,
+        COALESCE(loi_count, '') AS loiCount,
+        COALESCE(pilot_count, '') AS pilotCount,
+        COALESCE(active_customer_count, '') AS activeCustomerCount,
+        COALESCE(paid_customer_count, '') AS paidCustomerCount,
+        COALESCE(monthly_revenue_value, '') AS monthlyRevenueValue,
+        COALESCE(growth_rate, '') AS growthRate,
+        has_customers AS hasCustomers,
+        generating_revenue AS generatingRevenue,
+        revenue,
+        funding,
+        currently_fundraising AS currentlyFundraising,
+        team,
+        COALESCE(founder_problem_fit, '') AS founderProblemFit,
+        COALESCE(founder_years_in_industry, '') AS founderYearsInIndustry,
+        COALESCE(technical_founder, '') AS technicalFounder,
+        ask,
+        advantage,
+        competitors,
+        risk,
+        COALESCE(primary_risk_category, '') AS primaryRiskCategory,
+        keywords,
+        deck_url AS deckUrl,
+        COALESCE(demo_url, '') AS demoUrl,
+        COALESCE(customer_proof_url, '') AS customerProofUrl,
+        COALESCE(pilot_docs_url, '') AS pilotDocsUrl,
+        referral_source AS referralSource,
+        extra_context AS extraContext,
+        created_at AS createdAt
+      FROM submissions
+      WHERE status IN ('queued', 'reviewing')
+      ORDER BY created_at ASC
+    `);
 
-    const resumable = recoverable.filter(shouldAutoResume);
+    const resumable = recoverable.filter((submission: SubmissionRecord) =>
+      shouldAutoResume(submission)
+    );
     const reviewingIds = resumable
-      .filter((submission) => submission.status === "reviewing")
-      .map((submission) => submission.id);
+      .filter((submission: SubmissionRecord) => submission.status === "reviewing")
+      .map((submission: SubmissionRecord) => submission.id);
 
     if (reviewingIds.length > 0) {
       await prisma.submission.updateMany({
