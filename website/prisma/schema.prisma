@@ -115,3 +115,24 @@ model DailyUsage {
 
   @@map("daily_usage")
 }
+
+model PageView {
+  id           Int      @id @default(autoincrement())
+  path         String
+  referrer     String?
+  userAgent    String   @default("") @map("user_agent")
+  ip           String   @default("")
+  visitorId    String?  @map("visitor_id")
+  sessionId    String?  @map("session_id")
+  screenWidth  Int?     @map("screen_width")
+  screenHeight Int?     @map("screen_height")
+  language     String?
+  city         String?
+  region       String?
+  country      String?
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([createdAt])
+  @@index([visitorId])
+  @@map("page_views")
+}

@@ -6,9 +6,58 @@
 <title>Mirai | AI Startup Due Diligence That Shows Its Work</title>
 <meta name="description" content="Mirai turns a founder narrative into a research-backed startup decision memo with live web research, multi-model council scoring, swarm reaction, and scenario simulation.">
 <meta name="theme-color" content="#0f2440">
-<meta property="og:title" content="Mirai | AI Startup Due Diligence That Shows Its Work">
-<meta property="og:description" content="Research-backed startup diligence with live web research, model debate, swarm reaction, and structured decision memos.">
+<meta name="keywords" content="startup due diligence, AI startup evaluation, venture capital AI, startup analysis tool, VC due diligence, startup scoring, AI investment memo, startup risk assessment, multi-model AI council, swarm intelligence, VC Labs, Mirai">
+<meta name="author" content="VC Labs">
+<meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
+<link rel="canonical" href="https://vclabs.org">
+<meta property="og:title" content="Mirai by VC Labs | AI Startup Due Diligence That Shows Its Work">
+<meta property="og:description" content="Research-backed startup diligence with live web research, multi-model council debate, swarm reaction, scenario simulation, and structured decision memos.">
 <meta property="og:type" content="website">
+<meta property="og:url" content="https://vclabs.org">
+<meta property="og:site_name" content="VC Labs">
+<meta property="og:locale" content="en_US">
+<meta property="og:image" content="https://vclabs.org/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Mirai by VC Labs - AI Startup Due Diligence That Shows Its Work">
+<meta name="twitter:image" content="https://vclabs.org/og-image.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Mirai | AI Startup Due Diligence That Shows Its Work">
+<meta name="twitter:description" content="Multi-model council scoring, persona swarm reaction, and scenario simulation for startup evaluation.">
+<meta name="twitter:site" content="@VCLabsAI">
+<meta name="twitter:creator" content="@VCLabsAI">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "Mirai",
+  "applicationCategory": "BusinessApplication",
+  "operatingSystem": "Web",
+  "url": "https://vclabs.org",
+  "description": "AI-powered startup due diligence platform with multi-model council scoring, persona swarm reaction, scenario simulation, and structured decision memos.",
+  "offers": {
+    "@type": "Offer",
+    "price": "0",
+    "priceCurrency": "USD"
+  },
+  "creator": {
+    "@type": "Organization",
+    "name": "VC Labs",
+    "url": "https://vclabs.org"
+  }
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Organization",
+  "name": "VC Labs",
+  "url": "https://vclabs.org",
+  "description": "AI startup intelligence and evaluation tools for investors and founders.",
+  "foundingDate": "2026",
+  "sameAs": []
+}
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700;800&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
@@ -3033,6 +3082,34 @@ Use /submit for the real intake. Use this panel to see whether your latest submi
   }
 
   loadSession();
+
+  // Analytics tracking for static landing page
+  (function() {
+    var visitorId = localStorage.getItem('mirai-visitor-id');
+    if (!visitorId) {
+      visitorId = Math.random().toString(36).substring(2) + Date.now().toString(36);
+      localStorage.setItem('mirai-visitor-id', visitorId);
+    }
+    var sessionId = sessionStorage.getItem('mirai-session-id');
+    if (!sessionId) {
+      sessionId = Math.random().toString(36).substring(2) + Date.now().toString(36);
+      sessionStorage.setItem('mirai-session-id', sessionId);
+    }
+    var data = JSON.stringify({
+      path: '/',
+      referrer: document.referrer || null,
+      visitorId: visitorId,
+      sessionId: sessionId,
+      screenWidth: window.screen.width,
+      screenHeight: window.screen.height,
+      language: navigator.language || null
+    });
+    if (navigator.sendBeacon) {
+      navigator.sendBeacon('/api/analytics/track', data);
+    } else {
+      fetch('/api/analytics/track', { method: 'POST', body: data, keepalive: true });
+    }
+  })();
 </script>
 </body>
 </html>

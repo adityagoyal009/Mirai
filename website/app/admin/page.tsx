@@ -96,6 +96,12 @@ export default function AdminPage() {
           >
             Analytics Dashboard
           </Link>
+          <Link
+            href="/analytics"
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full border border-white/20 bg-white/10 text-sm font-bold hover:bg-white/20 transition-colors"
+          >
+            Site Analytics
+          </Link>
         </div>
       </section>
 
