@@ -21,6 +21,12 @@ export default function Navbar() {
 
       <div className="flex items-center gap-3 flex-wrap">
         <Link
+          href="/blog"
+          className="px-4 py-2 rounded-full border border-slate-200 bg-white/80 text-sm font-bold hover:-translate-y-0.5 transition-transform"
+        >
+          Blog
+        </Link>
+        <Link
           href="/submit"
           className="px-4 py-2 rounded-full border border-slate-200 bg-white/80 text-sm font-bold hover:-translate-y-0.5 transition-transform"
         >

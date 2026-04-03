@@ -72,3 +72,42 @@ body {
   @apply absolute inset-y-0 left-0 rounded-full;
   background: linear-gradient(90deg, var(--coral), var(--amber), var(--mint));
 }
+
+/* Blog prose styles */
+.prose {
+  @apply text-ink leading-relaxed;
+  font-size: 1.0625rem;
+}
+.prose h2 {
+  @apply font-display text-2xl md:text-3xl text-ink mt-12 mb-4;
+}
+.prose h3 {
+  @apply font-bold text-lg text-ink mt-8 mb-3;
+}
+.prose p {
+  @apply mb-5 text-ink-soft;
+}
+.prose a {
+  @apply text-blue font-medium underline underline-offset-2 hover:no-underline;
+}
+.prose ul, .prose ol {
+  @apply mb-5 pl-6 text-ink-soft;
+}
+.prose ul {
+  @apply list-disc;
+}
+.prose ol {
+  @apply list-decimal;
+}
+.prose li {
+  @apply mb-2;
+}
+.prose strong {
+  @apply text-ink font-bold;
+}
+.prose blockquote {
+  @apply border-l-4 border-blue/30 pl-5 italic text-ink-soft my-6;
+}
+.prose hr {
+  @apply my-10 border-t border-[var(--line)];
+}
