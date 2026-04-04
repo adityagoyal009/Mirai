@@ -48,6 +48,45 @@ from .utils.logger import get_logger
 
 logger = get_logger('mirai.app')
 
+
+def _should_store_final_research_cache(research: Any) -> bool:
+    if not isinstance(research, dict):
+        return False
+
+    summary = str(research.get("summary", "") or "")
+    lowered_summary = summary.lower()
+    if "api rate limit reached" in lowered_summary or "hit your limit" in lowered_summary:
+        return False
+
+    facts = research.get("facts", [])
+    sources = research.get("sources", [])
+    competitors = research.get("competitors", [])
+    facts_count = len(facts) if isinstance(facts, list) else 0
+    sources_count = len(sources) if isinstance(sources, list) else 0
+    competitors_count = len(competitors) if isinstance(competitors, list) else 0
+
+    quality = research.get("research_quality", {})
+    overall_score = None
+    parse_quality = str(research.get("parse_quality", "") or "")
+    if isinstance(quality, dict):
+        overall_score = quality.get("overall_score")
+        parse_quality = str(quality.get("parse_quality", parse_quality) or "")
+
+    if parse_quality == "prose_only" and facts_count == 0 and sources_count == 0:
+        return False
+
+    try:
+        if overall_score is not None and float(overall_score) < 0.4:
+            return False
+    except Exception:
+        pass
+
+    research_method = str(research.get("research_method", "") or "")
+    if research_method.startswith("openclaw") and facts_count == 0 and sources_count == 0 and competitors_count == 0:
+        return False
+
+    return True
+
 # ── Paths ──
 _BASE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _DASHBOARD_DIST = os.path.join(_BASE, "dashboard", "dist")
@@ -712,15 +751,20 @@ def _start_sensei_session(msg: dict, session_key):
         try:
             from .services.research_cache import ResearchCache
             cache = ResearchCache()
-            cache_key = cache.make_key(
-                getattr(extraction, 'company', ''),
-                getattr(extraction, 'industry', ''),
+            cache_key = cache.make_exact_key(
+                exec_summary,
+                {
+                    "company": getattr(extraction, "company", ""),
+                    "industry": getattr(extraction, "industry", ""),
+                    "product": getattr(extraction, "product", ""),
+                    "target_market": getattr(extraction, "target_market", ""),
+                },
             )
             cached = cache.get(cache_key)
-            if cached and hasattr(cached, 'summary') and cached.summary:
+            if isinstance(cached, dict) and cached.get("summary"):
                 research_context = json.dumps({
-                    "summary": cached.summary[:2000],
-                    "competitors": getattr(cached, 'competitors', [])[:10],
+                    "summary": str(cached.get("summary", ""))[:2000],
+                    "competitors": list(cached.get("competitors", []))[:10],
                 }, default=str)
                 _sensei_sync_broadcast({"type": "researchProgress", "status": "Using cached research"})
         except Exception:
@@ -860,6 +904,7 @@ async def bi_analyze(request: Request):
     async_mode = body.get("async", True)  # default async for website
     report_renderer = _normalize_report_renderer(body.get("report_renderer", "legacy"))
     generate_llm_preview = _coerce_bool(body.get("generate_llm_preview", False))
+    force_refresh = _coerce_bool(body.get("force_refresh", False))
     submission_id = body.get("submission_id")
     if not exec_summary:
         return JSONResponse({"error": "Missing exec_summary"}, status_code=400)
@@ -891,6 +936,10 @@ async def bi_analyze(request: Request):
         llm_preview_status = "not_requested"
         llm_preview_error = ""
         llm_preview_generated = False
+        research_cache_hit = False
+        research_cache_age_days = None
+        research_cache_key = ""
+        research_cache_scope = ""
         audit_path = ""
         extraction = None
         final_verdict_value = ""
@@ -1043,6 +1092,20 @@ async def bi_analyze(request: Request):
             }
 
         stage = extraction.stage or ""
+        research_cache = None
+        try:
+            from .services.research_cache import ResearchCache
+            research_cache = ResearchCache()
+            research_cache_key = research_cache.make_exact_key(
+                exec_summary,
+                structured_fields if isinstance(structured_fields, dict) else (
+                    extraction.to_dict() if hasattr(extraction, "to_dict") else {}
+                ),
+                depth=depth,
+            )
+        except Exception as cache_init_err:
+            logger.warning(f"[BI-REST] Research cache unavailable (non-fatal): {cache_init_err}")
+            research_cache = None
 
         # Start blind scoring in parallel with research (same as dashboard)
         _blind_scores = [None]
@@ -1078,12 +1141,57 @@ async def bi_analyze(request: Request):
 
         # Phase 1: Research (OpenClaw primary, Gemini fallback)
         try:
-            research_report = bi.research(exec_summary, depth=depth, extraction=extraction)
-            research = research_report.to_dict() if hasattr(research_report, "to_dict") else research_report
-            logger.info(
-                f"[BI-REST] Live research: {len(research.get('facts', []))} facts, "
-                f"{len(research.get('competitors', []))} competitors, {len(research.get('sources', []))} sources"
-            )
+            research = None
+            if research_cache and not force_refresh:
+                cached_research = research_cache.get(research_cache_key)
+                if isinstance(cached_research, dict):
+                    research = cached_research
+                    research_cache_hit = True
+                    research_cache_age_days = cached_research.get("_cache_age_days")
+                    cache_meta = cached_research.get("_cache_meta", {})
+                    if isinstance(cache_meta, dict):
+                        research_cache_scope = str(cache_meta.get("scope", "exact_form"))
+                    else:
+                        research_cache_scope = "exact_form"
+                    logger.info(
+                        f"[BI-REST] Research cache HIT ({research_cache_scope}) for "
+                        f"{getattr(extraction, 'company', '')}: "
+                        f"{len(research.get('facts', []))} facts, "
+                        f"{len(research.get('competitors', []))} competitors, "
+                        f"{len(research.get('sources', []))} sources"
+                    )
+
+            if research is None:
+                research_report = bi.research(
+                    exec_summary,
+                    depth=depth,
+                    extraction=extraction,
+                    research_cache_key=research_cache_key,
+                    force_refresh=force_refresh,
+                )
+                research = research_report.to_dict() if hasattr(research_report, "to_dict") else research_report
+                logger.info(
+                    f"[BI-REST] Live research: {len(research.get('facts', []))} facts, "
+                    f"{len(research.get('competitors', []))} competitors, {len(research.get('sources', []))} sources"
+                )
+                if research_cache and isinstance(research, dict):
+                    if _should_store_final_research_cache(research):
+                        research_cache.store(
+                            company=getattr(extraction, "company", ""),
+                            industry=getattr(extraction, "industry", ""),
+                            product=getattr(extraction, "product", ""),
+                            research_data=research,
+                            exec_summary=exec_summary,
+                            structured_fields=structured_fields if isinstance(structured_fields, dict) else (
+                                extraction.to_dict() if hasattr(extraction, "to_dict") else {}
+                            ),
+                            depth=depth,
+                        )
+                    else:
+                        logger.warning(
+                            "[BI-REST] Skipping final research cache write because the result was degraded "
+                            "or provider-limited"
+                        )
         except Exception as e:
             _fatal_pipeline_error("research", e)
 
@@ -1479,6 +1587,11 @@ async def bi_analyze(request: Request):
             "research_coverage_score": research_quality.get("coverage_score"),
             "research_source_quality_score": research_quality.get("source_quality_score"),
             "research_freshness_score": research_quality.get("freshness_score"),
+            "research_cache_hit": research_cache_hit,
+            "research_cache_age_days": research_cache_age_days,
+            "research_cache_key": research_cache_key,
+            "research_cache_scope": research_cache_scope,
+            "research_force_refresh": force_refresh,
             "low_coverage_dimensions": research_quality.get("low_coverage_dimensions", [])[:10] if isinstance(research_quality.get("low_coverage_dimensions", []), list) else [],
             "missing_evidence_flags": research_quality.get("missing_evidence_flags", [])[:10] if isinstance(research_quality.get("missing_evidence_flags", []), list) else [],
             "audit_path": audit_path,

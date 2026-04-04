@@ -10,6 +10,7 @@ Gateway handles auth profile rotation, rate limiting, and model routing.
 import json
 import os
 import re
+import subprocess
 import threading
 import time
 import urllib.request
@@ -17,6 +18,7 @@ import urllib.error
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List
 
+from .cli_subprocess import run_cli_to_files
 from .logger import get_logger
 
 logger = get_logger('mirai.llm_client')
@@ -341,9 +343,10 @@ def _call_claude_cli(
     cli_model = model.replace("anthropic/", "")
 
     try:
-        result = subprocess.run(
-            ["claude", "-p", prompt, "--model", cli_model, "--output-format", "text"],
-            capture_output=True, text=True, timeout=timeout,
+        result = run_cli_to_files(
+            ["claude", "-p", "--model", cli_model, "--output-format", "text"],
+            timeout=timeout,
+            stdin_data=prompt,
         )
         content = result.stdout.strip()
         if content:

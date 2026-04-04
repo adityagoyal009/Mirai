@@ -54,6 +54,18 @@ def _max_consecutive_declines(timeline: List[Dict[str, Any]]) -> int:
     return max_consecutive
 
 
+def _max_consecutive_improvements(timeline: List[Dict[str, Any]]) -> int:
+    consecutive = 0
+    max_consecutive = 0
+    for entry in timeline:
+        if _coerce_float(entry.get("sentiment_change", entry.get("change", 0))) > 0:
+            consecutive += 1
+            max_consecutive = max(max_consecutive, consecutive)
+        else:
+            consecutive = 0
+    return max_consecutive
+
+
 def _swarm_numeric_score(swarm: Dict[str, Any], fallback: float) -> float:
     avg_scores = swarm.get("avg_scores", {})
     avg_overall = 0.0
@@ -155,23 +167,34 @@ def finalize_prediction(
     oasis_adjusted = False
     if isinstance(oasis, dict) and oasis:
         trajectory = oasis.get("trajectory", "stable")
+        timeline = oasis.get("timeline", []) or []
         start = _coerce_float(oasis.get("start_sentiment", oasis.get("startSentiment")), 50.0)
         end = _coerce_float(oasis.get("final_sentiment", oasis.get("end_sentiment", oasis.get("endSentiment"))), 50.0)
         delta = end - start
         confidence_low = final_confidence < 0.75
+        material_event_count = int(_coerce_float(oasis.get("material_event_count"), 0.0))
+        decline_streak = max(
+            int(_coerce_float(oasis.get("decline_streak"), 0.0)),
+            _max_consecutive_declines(timeline),
+        )
+        improve_streak = max(
+            int(_coerce_float(oasis.get("improve_streak"), 0.0)),
+            _max_consecutive_improvements(timeline),
+        )
+        deep_mode = str(oasis.get("mode", "") or "").lower() == "deep"
 
         if trajectory in ("declining", "improving") and trajectory != "stable":
             warnings.append(f"OASIS projects {trajectory} trajectory — monitor closely.")
 
         if trajectory == "declining" and final_score >= 5.0:
-            if confidence_low or _max_consecutive_declines(oasis.get("timeline", []) or []) >= 2:
-                penalty = 1.0 if delta <= -20 else 0.6
+            if confidence_low or decline_streak >= 2 or delta <= -15 or (deep_mode and material_event_count >= 2 and delta <= -10):
+                penalty = 1.2 if delta <= -24 or decline_streak >= 3 else 0.75
                 final_score = round(_clamp(final_score - penalty), 2)
                 final_verdict = _numeric_to_verdict(final_score)
                 oasis_adjusted = True
-        elif trajectory == "improving" and final_score <= 6.2:
-            if confidence_low:
-                boost = 1.0 if delta >= 20 else 0.6
+        elif trajectory == "improving" and final_score <= 6.5:
+            if confidence_low or improve_streak >= 3 or delta >= 15 or (deep_mode and material_event_count >= 2 and delta >= 10):
+                boost = 1.2 if delta >= 24 or improve_streak >= 4 else 0.75
                 final_score = round(_clamp(final_score + boost), 2)
                 final_verdict = _numeric_to_verdict(final_score)
                 oasis_adjusted = True

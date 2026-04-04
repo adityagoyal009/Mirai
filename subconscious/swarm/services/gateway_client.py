@@ -1,8 +1,9 @@
 """
-Gateway Client — OpenClaw-backed web search and fetch helpers.
+Gateway Client — live web search and fetch helpers.
 
-These helpers are for fresh external facts. They intentionally avoid the old
-Claude `web_search=True` shim and route through OpenClaw's native tools.
+Provider order:
+1. Claude Code CLI with native WebSearch/WebFetch
+2. OpenClaw gateway fallback
 """
 
 import json as _json
@@ -11,11 +12,37 @@ from typing import Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
 from ..utils.llm_client import _call_openclaw_gateway, _strip_markdown_fences
+from ..utils.cli_subprocess import run_cli_to_files
 from ..utils.logger import get_logger
 
 logger = get_logger("mirai.gateway_client")
 
 _SEARCH_CACHE: Dict[Tuple[str, int, str], List[Dict]] = {}
+
+
+def _claude_cli_text(prompt: str, *, max_tokens: int, timeout: int) -> str:
+    del max_tokens  # Claude CLI does not expose an equivalent output cap flag here.
+    result = run_cli_to_files(
+        [
+            "claude",
+            "-p",
+            "--allowedTools",
+            "WebSearch,WebFetch",
+            "--output-format",
+            "text",
+            "--max-turns",
+            "12",
+        ],
+        timeout=timeout,
+        stdin_data=prompt,
+    )
+    if result.returncode != 0:
+        stderr = (result.stderr or "").strip()
+        raise RuntimeError(f"Claude CLI failed (exit {result.returncode}): {stderr[:300]}")
+    raw = _strip_markdown_fences((result.stdout or "").strip())
+    if not raw:
+        raise RuntimeError("Claude CLI returned empty output")
+    return raw
 
 
 def _openclaw_text(prompt: str, *, max_tokens: int, timeout: int) -> str:
@@ -25,6 +52,21 @@ def _openclaw_text(prompt: str, *, max_tokens: int, timeout: int) -> str:
         timeout=timeout,
     )
     return _strip_markdown_fences(raw)
+
+
+def _provider_text(prompt: str, *, max_tokens: int, timeout: int) -> Tuple[str, str]:
+    errors = []
+    try:
+        return "claude-cli-web", _claude_cli_text(prompt, max_tokens=max_tokens, timeout=timeout)
+    except Exception as e:
+        errors.append(f"Claude CLI: {e}")
+
+    try:
+        return "openclaw-web", _openclaw_text(prompt, max_tokens=max_tokens, timeout=timeout)
+    except Exception as e:
+        errors.append(f"OpenClaw: {e}")
+
+    raise RuntimeError(" ; ".join(errors))
 
 
 def _extract_json_payload(raw: str) -> str:
@@ -110,7 +152,7 @@ def _coerce_results(results: object, query: str, count: int) -> List[Dict]:
 
 def web_search(query: str, count: int = 10, freshness: str = "") -> List[Dict]:
     """
-    Search the web via OpenClaw's native tools.
+    Search the live web via Claude CLI first, then OpenClaw fallback.
 
     Returns a list of dicts with: title, url, description.
     Falls back to an empty list on error.
@@ -144,12 +186,14 @@ def web_search(query: str, count: int = 10, freshness: str = "") -> List[Dict]:
     for attempt_query, timeout in attempts:
         attempt_prompt = prompt.replace(f"Query: {query}", f"Query: {attempt_query}")
         try:
-            raw = _openclaw_text(attempt_prompt, max_tokens=2500, timeout=timeout)
+            provider, raw = _provider_text(attempt_prompt, max_tokens=2500, timeout=timeout)
             payload = _extract_balanced_json(raw)
             results = _json.loads(payload)
             cleaned = _coerce_results(results, attempt_query, count)
             if cleaned:
-                logger.info(f"[GatewayClient] web_search '{query[:50]}' -> {len(cleaned)} results")
+                logger.info(
+                    f"[GatewayClient] web_search '{query[:50]}' -> {len(cleaned)} results via {provider}"
+                )
                 _SEARCH_CACHE[cache_key] = cleaned
                 return [dict(item) for item in cleaned]
         except _json.JSONDecodeError:
@@ -174,7 +218,7 @@ def web_search(query: str, count: int = 10, freshness: str = "") -> List[Dict]:
 
 def web_fetch(url: str, max_chars: int = 50000) -> Optional[Dict]:
     """
-    Fetch and extract content from a URL via OpenClaw's native browsing tools.
+    Fetch and extract content from a URL via Claude CLI first, then OpenClaw fallback.
 
     Returns dict with: url, title, content.
     Returns None on error.
@@ -190,7 +234,7 @@ def web_fetch(url: str, max_chars: int = 50000) -> Optional[Dict]:
     )
 
     try:
-        raw = _openclaw_text(prompt, max_tokens=5000, timeout=120)
+        provider, raw = _provider_text(prompt, max_tokens=5000, timeout=120)
         payload = _extract_json_payload(raw)
         parsed = _json.loads(payload)
         if isinstance(parsed, dict) and parsed.get("content"):
@@ -198,7 +242,7 @@ def web_fetch(url: str, max_chars: int = 50000) -> Optional[Dict]:
                 "url": url,
                 "title": parsed.get("title", url.split("/")[-1]),
                 "content": str(parsed.get("content", ""))[:max_chars],
-                "extractor": "openclaw-web",
+                "extractor": provider,
                 "status": 200,
             }
         return None

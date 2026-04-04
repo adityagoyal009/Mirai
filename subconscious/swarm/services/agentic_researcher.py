@@ -21,6 +21,7 @@ from typing import Any, List, Dict, Optional
 from ..config import Config, get_researcher_models
 # cli_llm imported locally in _parse_research_json for gateway structuring fallback
 from ..utils.logger import get_logger
+from ..utils.cli_subprocess import run_cli_to_files
 from .search_engine import SOURCE_CREDIBILITY, _extract_root_domain
 from .hallucination_guard import check_faithfulness
 
@@ -62,13 +63,12 @@ def _check_claude_cli() -> bool:
     return _CLAUDE_CLI_AVAILABLE
 
 
-def _call_claude_cli_research(prompt: str, timeout: int = 300) -> str:
+def _call_claude_cli_research(prompt: str, timeout: int = 1800) -> str:
     """Call Claude Code CLI with native web search tools enabled."""
-    result = subprocess.run(
+    result = run_cli_to_files(
         [
             "claude",
             "-p",
-            prompt,
             "--allowedTools",
             "WebSearch,WebFetch",
             "--output-format",
@@ -76,9 +76,8 @@ def _call_claude_cli_research(prompt: str, timeout: int = 300) -> str:
             "--max-turns",
             "30",
         ],
-        capture_output=True,
-        text=True,
         timeout=timeout,
+        stdin_data=prompt,
     )
     if result.returncode != 0:
         raise RuntimeError(
@@ -425,7 +424,7 @@ _RESEARCH_PHASES: List[Dict[str, Any]] = [
         "name": "company_product",
         "label": "Company & Product",
         "progress": "Phase 1/6: Company, product, website, and traction...",
-        "timeout": 240,
+        "timeout": 1800,
         "instructions": """STEP 1: COMPANY DEEP DIVE
 - Search for and visit the company's website. Read homepage, product page, pricing page, about/team page.
 - Extract exact product features, pricing tiers with dollar amounts, employee count, office locations.
@@ -461,7 +460,7 @@ _RESEARCH_PHASES: List[Dict[str, Any]] = [
         "name": "team_leadership",
         "label": "Team & Leadership",
         "progress": "Phase 2/6: Founders, executives, and board...",
-        "timeout": 240,
+        "timeout": 1800,
         "instructions": """STEP 2: TEAM & LEADERSHIP
 - Search for each founder/executive by name on LinkedIn, Crunchbase, press, and company bios.
 - For each person: full name, exact title, prior companies, years of experience, education.
@@ -482,7 +481,7 @@ _RESEARCH_PHASES: List[Dict[str, Any]] = [
         "name": "funding_history",
         "label": "Funding & Deal History",
         "progress": "Phase 3/6: Funding rounds and deal history...",
-        "timeout": 240,
+        "timeout": 1800,
         "instructions": """STEP 3: DEAL HISTORY & FUNDING
 - Search Crunchbase, PitchBook, SEC/news coverage for every funding round you can verify.
 - For each round: date, deal type, amount raised, pre/post-money valuation if available, lead investors.
@@ -502,7 +501,7 @@ _RESEARCH_PHASES: List[Dict[str, Any]] = [
         "name": "competitors",
         "label": "Competitor Deep Dive",
         "progress": "Phase 4/6: Competitors and differentiation...",
-        "timeout": 360,
+        "timeout": 1800,
         "instructions": """STEP 4: COMPETITOR DEEP DIVE
 - For each known competitor and any you discover:
   - Visit their website for product description, HQ, year founded, employee count.
@@ -523,7 +522,7 @@ _RESEARCH_PHASES: List[Dict[str, Any]] = [
         "name": "market_regulatory_ip",
         "label": "Market, Regulatory, and IP",
         "progress": "Phase 5/6: Market sizing, regulation, and IP landscape...",
-        "timeout": 300,
+        "timeout": 1800,
         "instructions": """STEP 5: MARKET SIZING
 - Search for market size, TAM/SAM/SOM, CAGR, and industry benchmarks from reputable market analyses.
 
@@ -564,7 +563,7 @@ Return evidence, not generic category filler.""",
         "name": "evidence_risk_synthesis",
         "label": "Customer Evidence, Pricing, Risks, and Synthesis",
         "progress": "Phase 6/6: Customer proof, pricing, risks, and executive synthesis...",
-        "timeout": 300,
+        "timeout": 1800,
         "instructions": """STEP 8: CUSTOMER EVIDENCE & SOCIAL PROOF
 - Search G2, Capterra, Product Hunt, HackerNews, Reddit, Twitter/X, case studies, pilots, LOIs, contracts.
 - Capture customer proof, reviews, and any traction signals you can verify.
@@ -796,7 +795,9 @@ class AgenticResearcher:
                  target_market: str = "", website_url: str = "",
                  known_competitors: str = "", extra_context: str = "",
                  adaptive_context: Optional[Dict[str, Any]] = None,
-                 on_progress=None) -> AgenticFindings:
+                 on_progress=None,
+                 phase_cache_key: str = "",
+                 phase_cache_force_refresh: bool = False) -> AgenticFindings:
         """
         Run live research with provider order:
         1. Claude Code CLI (6 phases)
@@ -819,16 +820,55 @@ class AgenticResearcher:
         phase_qualities: List[str] = []
         findings_dict: Dict[str, Any]
         research_method = "claude_cli_6phase"
+        checkpoint_cache = None
 
         try:
             if not _check_claude_cli():
                 raise RuntimeError("Claude Code CLI is not available or not authenticated")
 
             logger.info(f"[AgenticResearch] Starting 6-phase Claude CLI research for {company} ({industry})")
+            if phase_cache_key:
+                from .research_cache import ResearchCache
+
+                checkpoint_cache = ResearchCache()
+                if phase_cache_force_refresh:
+                    checkpoint_cache.delete_phase_checkpoint(phase_cache_key)
+
             phase_results: List[Dict[str, Any]] = []
             merged_so_far: Dict[str, Any] = {}
+            resumed_count = 0
 
-            for idx, phase in enumerate(_RESEARCH_PHASES, start=1):
+            if checkpoint_cache and phase_cache_key and not phase_cache_force_refresh:
+                checkpoint = checkpoint_cache.get_phase_checkpoint(phase_cache_key)
+                if isinstance(checkpoint, dict):
+                    phase_entries = checkpoint.get("phase_entries", [])
+                    restored_results: List[Dict[str, Any]] = []
+                    restored_qualities: List[str] = []
+                    for expected_phase, entry in zip(_RESEARCH_PHASES, phase_entries if isinstance(phase_entries, list) else []):
+                        if not isinstance(entry, dict) or entry.get("name") != expected_phase["name"]:
+                            break
+                        result = entry.get("result")
+                        if not isinstance(result, dict):
+                            break
+                        restored_results.append(result)
+                        restored_qualities.append(str(entry.get("parse_quality", "json_clean") or "json_clean"))
+
+                    if restored_results:
+                        phase_results = restored_results
+                        phase_qualities = restored_qualities
+                        merged_so_far = _merge_research_phase_dicts(phase_results)
+                        resumed_count = len(phase_results)
+                        logger.info(
+                            f"[AgenticResearch] Resuming Claude research for {company} from phase "
+                            f"{resumed_count + 1}/6 using cached checkpoints"
+                        )
+                        if on_progress:
+                            on_progress(
+                                resumed_count,
+                                f"Resumed {resumed_count}/{len(_RESEARCH_PHASES)} cached research phases...",
+                            )
+
+            for idx, phase in enumerate(_RESEARCH_PHASES[resumed_count:], start=resumed_count + 1):
                 if on_progress:
                     on_progress(idx, phase["progress"])
 
@@ -853,7 +893,34 @@ class AgenticResearcher:
                 phase_qualities.append(self._last_parse_quality)
                 merged_so_far = _merge_research_phase_dicts(phase_results)
 
+                if checkpoint_cache and phase_cache_key:
+                    phase_entries = []
+                    for stored_phase, stored_result, stored_quality in zip(_RESEARCH_PHASES, phase_results, phase_qualities):
+                        phase_entries.append(
+                            {
+                                "name": stored_phase["name"],
+                                "result": stored_result,
+                                "parse_quality": stored_quality,
+                            }
+                        )
+                    checkpoint_cache.put_phase_checkpoint(
+                        phase_cache_key,
+                        {
+                            "company": company,
+                            "industry": industry,
+                            "completed_count": len(phase_results),
+                            "phase_entries": phase_entries,
+                        },
+                        meta={
+                            "company": company,
+                            "industry": industry,
+                            "scope": "phase_checkpoint",
+                        },
+                    )
+
             findings_dict = merged_so_far
+            if checkpoint_cache and phase_cache_key:
+                checkpoint_cache.delete_phase_checkpoint(phase_cache_key)
 
         except Exception as claude_err:
             logger.warning(f"[AgenticResearch] Claude CLI research failed: {claude_err}")

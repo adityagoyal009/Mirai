@@ -10,11 +10,11 @@ There are **two entirely separate OASIS systems** in this directory. Only one is
 
 **File:** `oasis_simulator.py`
 
-A lightweight, self-contained 4-round sentiment tracker built specifically for Mirai.
+A deep-default, self-contained 6-round market trajectory simulator built specifically for Mirai.
 
-- ~350 lines, no external dependencies beyond `LLMClient` and `BraveSearchEngine`
-- Runs 4 simulated "months" of market reaction after the council/swarm verdict
-- Each round fetches live news events via Brave Search and adjusts agent sentiment
+- Runs 6 simulated "months" of market reaction after the council/swarm verdict
+- Each round fetches live news events through the gateway search stack (Claude CLI first, OpenClaw fallback)
+- Uses structured startup + research context, carries timeline state forward, and avoids reusing the same sourced headline across rounds
 - Produces a trajectory (`improving` / `stable` / `declining`) that can adjust the final verdict
 - Called from the real FastAPI analysis path in `app.py` and from the legacy live dashboard path in `api/websocket.py`
 
@@ -43,7 +43,7 @@ These files implement a **full OASIS simulation framework** imported from a prio
 
 These files were imported as a starting point for a full OASIS integration — one that would run real multi-agent social simulations with Twitter/Reddit platform emulation, Zep knowledge graphs, and ChromaDB storage.
 
-That full integration was never completed. The main pipeline uses `oasis_simulator.py` instead (the lightweight tracker) because it requires zero external infrastructure.
+That full integration was never completed. The main pipeline uses `oasis_simulator.py` instead because it requires zero external simulation infrastructure.
 
 ### Language note
 
@@ -63,6 +63,6 @@ If full OASIS integration is desired:
 1. `simulation_manager.py` + `simulation_runner.py` provide the orchestration layer
 2. `oasis_profile_generator.py` maps Mirai personas → OASIS agent profiles
 3. Requires: Zep Cloud credentials, ChromaDB, and the `oasis` Python library
-4. The lightweight `oasis_simulator.py` would be replaced or run in parallel
+4. The active `oasis_simulator.py` could be replaced or run in parallel
 
 For now, **do not delete** these files — they represent significant reference work for future integration.

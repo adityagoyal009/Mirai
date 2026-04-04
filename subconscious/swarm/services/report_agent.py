@@ -126,6 +126,7 @@ class ReportAgent:
             f"  Swarm score: {prediction.get('swarm_score', '?')}",
             f"  Risk panel penalty: {prediction.get('risk_panel_penalty', 0)}",
             f"  OASIS trajectory: {oasis.get('trajectory', 'unavailable') if isinstance(oasis, dict) else 'unavailable'}",
+            f"  OASIS end sentiment: {oasis.get('final_sentiment', oasis.get('end_sentiment', '?')) if isinstance(oasis, dict) else '?'}",
             f"  Final score: {prediction.get('composite_score', prediction.get('overall_score', '?'))}",
         ])
 
@@ -138,10 +139,29 @@ class ReportAgent:
                 lines.append(f"  OASIS months simulated: {len(timeline)}")
                 for item in timeline:
                     if isinstance(item, dict):
+                        source_title = str(item.get('event_source_title', '') or '').strip()
+                        source_suffix = f" [Source: {source_title}]" if source_title else ""
                         lines.append(
                             f"  OASIS: Month {item.get('month', '?')} - "
-                            f"{str(item.get('event', ''))}"
+                            f"{str(item.get('event', ''))}{source_suffix}"
                         )
+            debriefs = oasis.get('debriefs', [])
+            if isinstance(debriefs, list) and debriefs:
+                lines.append("\nOASIS DEBRIEFS:")
+                for debrief in debriefs[:3]:
+                    if isinstance(debrief, dict):
+                        lines.append(
+                            f"  - {debrief.get('label', 'Panelist')}: "
+                            f"{str(debrief.get('summary', ''))}"
+                        )
+                        profile_summary = str(debrief.get('profile_summary', '') or '').strip()
+                        if profile_summary:
+                            lines.append(f"    Profile: {profile_summary}")
+                        watchpoints = debrief.get('watchpoints', [])
+                        if isinstance(watchpoints, list) and watchpoints:
+                            lines.append(
+                                "    Watchpoints: " + "; ".join(str(item) for item in watchpoints[:3])
+                            )
 
         if founder_narrative:
             lines.append(f"\nFOUNDER NARRATIVE:\n{str(founder_narrative)}")

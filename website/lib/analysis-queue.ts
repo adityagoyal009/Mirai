@@ -10,7 +10,9 @@ import { MIRAI_API_INTERNAL, MIRAI_API_PUBLIC, miraiInternalHeaders, miraiJsonHe
 const DAILY_LIMIT = 50;
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 10_000; // 10 seconds between retries
-const FETCH_TIMEOUT_MS = 3_600_000; // 60 minute timeout per attempt (full analysis with council/swarm)
+const FETCH_TIMEOUT_MS = 14_400_000; // 4 hour timeout per attempt (deep research + council + swarm + OASIS + report)
+const POLL_INTERVAL_MS = 15_000;
+const ACTIVE_JOB_NOTE_PREFIX = "Active BI job:";
 
 export interface StructuredFields {
   company: string;
@@ -93,6 +95,12 @@ interface QueueJob {
   structuredFields: StructuredFields;
   addedAt: number;
   retries: number;
+  activeJobId?: string;
+  resumedFromExistingJob?: boolean;
+}
+
+interface ActiveJobInfo {
+  jobId: string;
 }
 
 export interface SubmissionRecord {
@@ -278,6 +286,16 @@ function shouldAutoResume(submission: SubmissionRecord): boolean {
   return false;
 }
 
+function parseActiveJobInfo(adminNotes: string): ActiveJobInfo | null {
+  const match = adminNotes.match(/Active BI job:\s*(job_[a-z0-9]+)/i);
+  if (!match?.[1]) return null;
+  return { jobId: match[1] };
+}
+
+function buildActiveJobNote(jobId: string): string {
+  return `${ACTIVE_JOB_NOTE_PREFIX} ${jobId}`;
+}
+
 class AnalysisQueue {
   private queue: QueueJob[] = [];
   private processing = false;
@@ -356,13 +374,15 @@ class AnalysisQueue {
     const resumable = recoverable.filter((submission: SubmissionRecord) =>
       shouldAutoResume(submission)
     );
-    const reviewingIds = resumable
-      .filter((submission: SubmissionRecord) => submission.status === "reviewing")
+    const reviewingWithoutActiveJobIds = resumable
+      .filter((submission: SubmissionRecord) =>
+        submission.status === "reviewing" && !parseActiveJobInfo(submission.adminNotes)
+      )
       .map((submission: SubmissionRecord) => submission.id);
 
-    if (reviewingIds.length > 0) {
+    if (reviewingWithoutActiveJobIds.length > 0) {
       await prisma.submission.updateMany({
-        where: { id: { in: reviewingIds } },
+        where: { id: { in: reviewingWithoutActiveJobIds } },
         data: {
           status: "queued",
           adminNotes: "Resumed after server restart — automatically re-queued.",
@@ -371,21 +391,32 @@ class AnalysisQueue {
     }
 
     for (const submission of resumable) {
+      const activeJob = parseActiveJobInfo(submission.adminNotes);
       this.queue.push({
         submissionId: submission.id,
         execSummary: buildExecSummaryFromSubmission(submission),
         structuredFields: buildStructuredFields(submission),
         addedAt: Date.now(),
         retries: parseRetryCount(submission.adminNotes),
+        activeJobId: activeJob?.jobId,
+        resumedFromExistingJob: Boolean(activeJob),
       });
     }
 
     if (resumable.length > 0) {
       console.log(
-        `[queue] Recovered ${resumable.length} submission(s) after restart (${reviewingIds.length} were mid-analysis)`
+        `[queue] Recovered ${resumable.length} submission(s) after restart (${reviewingWithoutActiveJobIds.length} were re-queued, ${resumable.filter((submission) => Boolean(parseActiveJobInfo(submission.adminNotes))).length} resumed existing BI jobs)`
       );
       this.tick();
     }
+  }
+
+  private async pollJob(jobId: string): Promise<Record<string, unknown>> {
+    const pollRes = await fetch(`${MIRAI_API_INTERNAL}/api/bi/job/${jobId}`, {
+      headers: miraiInternalHeaders(),
+      signal: AbortSignal.timeout(10_000),
+    });
+    return await pollRes.json() as Record<string, unknown>;
   }
 
   private getTodayKey(): string {
@@ -413,6 +444,14 @@ class AnalysisQueue {
     // Deduplicate
     if (this.currentJob?.submissionId === submissionId) return { ok: true };
     if (this.queue.some((j) => j.submissionId === submissionId)) return { ok: true };
+
+    const existing = await prisma.submission.findUnique({
+      where: { id: submissionId },
+      select: { status: true, adminNotes: true },
+    });
+    if (existing?.status === "reviewing" && parseActiveJobInfo(existing.adminNotes || "")) {
+      return { ok: true };
+    }
 
     // Check daily limit (DB count + in-flight + queued)
     const dbCount = await this.getDailyCount();
@@ -476,7 +515,7 @@ class AnalysisQueue {
 
     this.processing = true;
     this.currentJob = this.queue.shift()!;
-    const { submissionId, execSummary, structuredFields, retries } = this.currentJob;
+    const { submissionId, execSummary, structuredFields, retries, activeJobId, resumedFromExistingJob } = this.currentJob;
 
     console.log(
       `[queue] Starting analysis for submission ${submissionId} (${this.queue.length} remaining, attempt ${retries + 1}/${MAX_RETRIES + 1})`
@@ -492,10 +531,15 @@ class AnalysisQueue {
       // Update status to reviewing
       await prisma.submission.update({
         where: { id: submissionId },
-        data: { status: "reviewing" },
+        data: {
+          status: "reviewing",
+          adminNotes: activeJobId
+            ? `Resuming polling for ${buildActiveJobNote(activeJobId)}`
+            : "Submitting analysis to Mirai engine...",
+        },
       });
 
-      if (retries === 0) {
+      if (retries === 0 && !activeJobId) {
         await prisma.event.create({
           data: {
             event: "analysis_started",
@@ -510,34 +554,43 @@ class AnalysisQueue {
         });
       }
 
-      // Submit job to Mirai BI engine (async mode — returns immediately with job ID)
-      const submitRes = await fetch(`${MIRAI_API_INTERNAL}/api/bi/analyze`, {
-        method: "POST",
-        headers: miraiJsonHeaders(),
-        body: JSON.stringify({
-          exec_summary: execSummary,
-          structured_fields: structuredFields || null,
-          submission_id: submissionId,
-          depth: "deep",
-          agent_count: 50,
-          simulate_market: true,
-          async: true,
-        }),
-        signal: AbortSignal.timeout(30_000), // 30s to submit (fast)
-      });
+      let jobId = activeJobId || "";
+      if (jobId) {
+        console.log(`[queue] Resuming BI job ${jobId} for submission ${submissionId}`);
+      } else {
+        // Submit job to Mirai BI engine (async mode — returns immediately with job ID)
+        const submitRes = await fetch(`${MIRAI_API_INTERNAL}/api/bi/analyze`, {
+          method: "POST",
+          headers: miraiJsonHeaders(),
+          body: JSON.stringify({
+            exec_summary: execSummary,
+            structured_fields: structuredFields || null,
+            submission_id: submissionId,
+            depth: "deep",
+            agent_count: 50,
+            simulate_market: true,
+            async: true,
+          }),
+          signal: AbortSignal.timeout(30_000), // 30s to submit (fast)
+        });
 
-      if (!submitRes.ok) {
-        const errText = await submitRes.text();
-        throw new Error(`BI submit failed (${submitRes.status}): ${errText}`);
+        if (!submitRes.ok) {
+          const errText = await submitRes.text();
+          throw new Error(`BI submit failed (${submitRes.status}): ${errText}`);
+        }
+
+        const submitData = await submitRes.json();
+        if (!submitData.job_id) {
+          throw new Error("No job_id returned from BI engine");
+        }
+
+        jobId = submitData.job_id;
+        console.log(`[queue] Job ${jobId} submitted for submission ${submissionId}`);
+        await prisma.submission.update({
+          where: { id: submissionId },
+          data: { adminNotes: buildActiveJobNote(jobId) },
+        });
       }
-
-      const submitData = await submitRes.json();
-      if (!submitData.job_id) {
-        throw new Error("No job_id returned from BI engine");
-      }
-
-      const jobId = submitData.job_id;
-      console.log(`[queue] Job ${jobId} submitted for submission ${submissionId}`);
 
       // Poll for result (every 15s, up to FETCH_TIMEOUT_MS)
       const pollStart = Date.now();
@@ -545,14 +598,10 @@ class AnalysisQueue {
       let analysis: any = null;
 
       while (Date.now() - pollStart < FETCH_TIMEOUT_MS) {
-        await this.delay(15_000); // wait 15s between polls
+        await this.delay(POLL_INTERVAL_MS); // wait between polls
 
         try {
-          const pollRes = await fetch(`${MIRAI_API_INTERNAL}/api/bi/job/${jobId}`, {
-            headers: miraiInternalHeaders(),
-            signal: AbortSignal.timeout(10_000),
-          });
-          const pollData = await pollRes.json() as Record<string, unknown>;
+          const pollData = await this.pollJob(jobId);
 
           if (pollData.status === "running") {
             const elapsed = pollData.elapsed as number || 0;
@@ -574,6 +623,36 @@ class AnalysisQueue {
       }
 
       if (!analysis) {
+        try {
+          const finalPoll = await this.pollJob(jobId);
+          if (finalPoll.status === "running") {
+            console.warn(`[queue] Local poll timeout reached, but BI job ${jobId} is still running — resuming same job instead of submitting a duplicate`);
+            await prisma.submission.update({
+              where: { id: submissionId },
+              data: {
+                status: "reviewing",
+                adminNotes: buildActiveJobNote(jobId),
+              },
+            });
+
+            this.currentJob = null;
+            this.processing = false;
+            this.queue.unshift({
+              submissionId,
+              execSummary,
+              structuredFields,
+              addedAt: Date.now(),
+              retries,
+              activeJobId: jobId,
+              resumedFromExistingJob: true,
+            });
+            this.tick();
+            return;
+          }
+        } catch (finalPollErr) {
+          console.warn(`[queue] Final status check failed for ${jobId}: ${finalPollErr instanceof Error ? finalPollErr.message : finalPollErr}`);
+        }
+
         throw new Error(`Job ${jobId} timed out after ${FETCH_TIMEOUT_MS / 60000} minutes`);
       }
 
@@ -850,7 +929,9 @@ class AnalysisQueue {
         .catch(() => {});
     } finally {
       if (this.processing) {
-        const newCount = await this.incrementDaily();
+        const newCount = resumedFromExistingJob
+          ? await this.getDailyCount()
+          : await this.incrementDaily();
         this.currentJob = null;
         this.processing = false;
         console.log(`[queue] Daily usage: ${newCount}/${DAILY_LIMIT}`);

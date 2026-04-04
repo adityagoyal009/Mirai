@@ -10,14 +10,14 @@ These notes reflect the current runtime as of **2026-04-03**.
 - **Research**: OpenClaw is the primary fresh-facts engine. Gemini is fallback only.
 - **Council**: the main investment scoring path is the multi-model council in `business_intel.py`, with peer review, chairman reconciliation, and fact-check penalties.
 - **Swarm**: production swarm size is fixed at **50 agents**.
-- **OASIS**: the live simulation path runs **4 rounds** and feeds into the final verdict blend.
+- **OASIS**: the live simulation path now runs **6 deep rounds** and feeds into the final verdict blend.
 - **Reports**: founder reports use the deterministic HTML renderer by default for consistency. Admin can request an optional LLM comparison render without changing the founder-facing default.
 - **Admin analytics**: backend diagnostics, warnings, renderer metadata, and enhancement coverage are persisted into website `Event` rows and surfaced in the admin analytics dashboard.
 - **WebSocket dashboard path**: `/ws/swarm` still exists for the live operator/dashboard flow, but it is **not** the primary founder submission path.
 
 ## What Mirai Does
 
-Mirai takes a startup’s structured submission, preserves the buyer / proof / pricing / implementation context from the founder, researches the company and market with OpenClaw, scores it with a multi-model council, pressure-tests the thesis with a 50-agent persona swarm, runs OASIS trajectory simulation, and generates a consistent HTML report that can be shared back to the founder.
+Mirai takes a startup’s structured submission, preserves the buyer / proof / pricing / implementation context from the founder, researches the company and market with OpenClaw, scores it with a multi-model council, pressure-tests the thesis with a 50-agent persona swarm, runs deep OASIS trajectory simulation, and generates a consistent HTML report that can be shared back to the founder.
 
 ## Primary Runtime Paths
 
@@ -60,7 +60,7 @@ Mirai takes a startup’s structured submission, preserves the buyer / proof / p
 - Swarm output includes not just aggregate sentiment, but also `top_fixes` and `investor_matches`.
 
 ### Phase 4: OASIS
-- The active OASIS path runs **4 rounds**.
+- The active OASIS path runs **6 rounds**.
 - It produces a trajectory signal that feeds the final verdict blend.
 
 ### Phase 5: Reporting

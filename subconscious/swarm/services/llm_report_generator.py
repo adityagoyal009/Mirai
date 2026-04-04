@@ -582,7 +582,8 @@ DATA FIELD REFERENCE:
 - Validation experiments: plan.validation_experiments (array)
 - Founder narrative: exec_summary
 - Risk panel: risk_panel.summary, risk_panel.findings, risk_panel.dimension_penalties
-- OASIS: oasis.trajectory, oasis.start_sentiment, oasis.end_sentiment, oasis.timeline
+- OASIS: oasis.mode, oasis.trajectory, oasis.start_sentiment, oasis.final_sentiment, oasis.material_event_count, oasis.timeline, oasis.panelists, oasis.debriefs
+  Note: each panelist may include profile, profile_summary, and memory_snapshot; each round vote may include raw_adjustment and effective_adjustment
 - Report sections (narrative text): report_sections.* (keys like market_analysis, competitive_analysis, etc.)
 - Strengths: report_sections.strengths OR extract from report_sections
 - Weaknesses: report_sections.weaknesses OR extract from report_sections
@@ -699,7 +700,7 @@ Structure:
       <tr><td class="bold">Council</td><td>[prediction.council_score]/10</td><td>Primary calibrated scorecard</td></tr>
       <tr><td class="bold">Swarm</td><td>[prediction.swarm_score]/10 and [swarm.positive_pct]% positive</td><td>Perspective overlay from the swarm</td></tr>
       <tr><td class="bold">Risk Panel</td><td>[prediction.risk_panel_penalty] penalty and [prediction.risk_panel_high_severity_count] high-severity findings</td><td>Deterministic downside adjustment</td></tr>
-      [If oasis exists:]<tr><td class="bold">OASIS</td><td>[oasis.trajectory]</td><td>Scenario trajectory adjustment</td></tr>
+      [If oasis exists:]<tr><td class="bold">OASIS</td><td>[oasis.trajectory], [oasis.material_event_count] sourced events</td><td>Scenario trajectory adjustment</td></tr>
       <tr><td class="bold">Final</td><td>[prediction.composite_score]/10 and [prediction.verdict]</td><td>Founder-facing blended verdict</td></tr>
     </tbody>
   </table>
@@ -1069,6 +1070,17 @@ Structure:
     <thead><tr><th>Month</th><th>Event</th><th>Sentiment</th><th>Change</th><th>Confidence</th></tr></thead>
     <tbody>
       [For each item in oasis.timeline, render the full event text and confidence band.]
+    </tbody>
+  </table>
+  [If oasis.debriefs exists:]
+  <div class="subsection-label mt8">OASIS Panel Debriefs</div>
+  [For each debrief in oasis.debriefs, render label, role, start/end score, delta, summary, profile_summary, watchpoints, and turning points.]
+  [If oasis.panelists exists:]
+  <div class="subsection-label mt8">OASIS Panel Roster</div>
+  <table>
+    <thead><tr><th>Role</th><th>Zone</th><th>Profile</th><th>Start</th><th>End</th><th>Delta</th></tr></thead>
+    <tbody>
+      [For each panelist in oasis.panelists, render role, zone, profile_summary, watchpoints, starting_score, final_score, and total_delta.]
     </tbody>
   </table>
 
@@ -1664,9 +1676,10 @@ def _trim_analysis(analysis: Dict) -> Dict:
     trimmed['oasis'] = {
         k: v for k, v in oasis.items()
         if k in (
-            'trajectory', 'final_sentiment', 'rounds', 'agent_count',
+            'mode', 'trajectory', 'final_sentiment', 'rounds', 'agent_count',
+            'material_event_count', 'decline_streak', 'improve_streak',
             'start_sentiment', 'end_sentiment', 'startSentiment', 'endSentiment',
-            'timeline'
+            'timeline', 'panelists', 'debriefs'
         )
     }
 

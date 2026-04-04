@@ -679,6 +679,8 @@ class BusinessIntelEngine:
         extraction: Optional[ExtractionResult] = None,
         on_progress=None,
         allow_gemini_fallback: bool = True,
+        research_cache_key: str = "",
+        force_refresh: bool = False,
     ) -> ResearchReport:
         """Run the live research pipeline and normalize it to ResearchReport."""
         if extraction is None:
@@ -745,6 +747,8 @@ class BusinessIntelEngine:
                     "primary_risk_category": extraction.primary_risk_category,
                 },
                 on_progress=on_progress,
+                phase_cache_key=research_cache_key,
+                phase_cache_force_refresh=force_refresh,
             )
             findings_dict = asdict(findings) if hasattr(findings, "__dataclass_fields__") else findings
             research_method = str(findings_dict.get("research_method", "") or "")

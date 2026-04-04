@@ -1217,6 +1217,14 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
     if research_summary:
         html += '\n<div class="section-bar">Research Overview</div>\n'
         html += f'<div class="narrative">{_to_paragraphs(_sanitize_reasoning(_strip_markdown(research_summary)))}</div>\n'
+        research_payload = analysis.get('research', {}) if isinstance(analysis.get('research'), dict) else {}
+        cache_age_days = research_payload.get('_cache_age_days')
+        if isinstance(cache_age_days, (int, float)):
+            html += (
+                f'<p style="font-size: 9px; color: #666;">'
+                f'Research cache reused. Cached findings are {float(cache_age_days):.1f} days old.'
+                f'</p>\n'
+            )
         cited_count = len(cited_facts) if cited_facts else 0
         source_count = len(set(c.get('source_domain', '') for c in (cited_facts or []) if c.get('source_domain')))
         if cited_count:
@@ -1573,9 +1581,17 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
         html += f'<div class="section-bar">Market Trajectory Simulation ({month_count} {month_label})</div>\n'
         trajectory = oasis.get('trajectory', 'stable')
         start_s = oasis.get('start_sentiment', oasis.get('startSentiment', 50))
-        end_s = oasis.get('end_sentiment', oasis.get('endSentiment', 50))
+        end_s = oasis.get('final_sentiment', oasis.get('end_sentiment', oasis.get('endSentiment', 50)))
+        oasis_mode = str(oasis.get('mode', '') or '').strip()
+        material_events = oasis.get('material_event_count', 0)
         traj_color = '#2e7d32' if trajectory == 'improving' else '#d32f2f' if trajectory == 'declining' else '#f57c00'
         html += f'<p style="color: {traj_color}; font-weight: bold; font-size: 16px;">Trajectory: {trajectory.upper()} ({start_s}% -> {end_s}%)</p>\n'
+        if oasis_mode or material_events:
+            mode_bits = []
+            if oasis_mode:
+                mode_bits.append(f'Mode: {oasis_mode.upper()}')
+            mode_bits.append(f'Material sourced events: {material_events}')
+            html += f'<p style="font-size: 11px; color: #555;">{" | ".join(mode_bits)}</p>\n'
         html += '<table>\n<tr><th>Month</th><th>Event</th><th>Sentiment</th><th>Change</th><th>Confidence</th></tr>\n'
         for t in oasis_timeline:
             if isinstance(t, dict):
@@ -1583,6 +1599,19 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
                 change_str = f'+{change}%' if change > 0 else f'{change}%'
                 change_color = '#2e7d32' if change > 0 else '#d32f2f' if change < 0 else '#888'
                 event_text = _strip_markdown(_replace_em_dashes(str(t.get("event", ""))))
+                event_kind = _replace_em_dashes(str(t.get("event_kind", "") or "")).strip()
+                source_title = _strip_markdown(_replace_em_dashes(str(t.get("event_source_title", "") or ""))).strip()
+                source_url = str(t.get("event_source_url", "") or "").strip()
+                if source_url and source_title:
+                    event_text += (
+                        f'<div style="font-size: 10px; color: #666; margin-top: 4px;">'
+                        f'Source: <a href="{source_url}" target="_blank" rel="noopener noreferrer">{source_title}</a>'
+                        f'</div>'
+                    )
+                elif source_title:
+                    event_text += f'<div style="font-size: 10px; color: #666; margin-top: 4px;">Source: {source_title}</div>'
+                if event_kind and event_kind != 'none':
+                    event_text += f'<div style="font-size: 10px; color: #666;">Type: {event_kind}</div>'
                 conf_low = t.get("confidence_low", t.get("confidenceLow", 0))
                 conf_high = t.get("confidence_high", t.get("confidenceHigh", 100))
                 band_width = conf_high - conf_low
@@ -1596,6 +1625,101 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
         if oasis_trajectory != 'stable':
             direction = 'upgraded' if oasis_trajectory == 'improving' else 'adjusted downward'
             html += f'<p style="font-size: 10px; color: #666; margin-top: 8px;"><em>Note: The {month_count}-month market trajectory ({oasis_trajectory}) {direction} the final verdict assessment.</em></p>\n'
+
+        oasis_debriefs = oasis.get('debriefs', []) if isinstance(oasis, dict) else []
+        if oasis_debriefs:
+            html += '<div class="section-heading" style="margin-top: 18px;">OASIS Panel Debriefs</div>\n'
+            for debrief in oasis_debriefs:
+                if not isinstance(debrief, dict):
+                    continue
+                html += '<div class="risk-card keep-together" style="margin-bottom: 14px;">\n'
+                html += (
+                    f'<div style="font-weight: bold; font-size: 12px; margin-bottom: 6px;">'
+                    f'{_replace_em_dashes(str(debrief.get("label", "Panelist")))}'
+                    f' - {_replace_em_dashes(str(debrief.get("role", "Unknown role")))}'
+                    f'</div>\n'
+                )
+                html += (
+                    f'<div style="font-size: 11px; color: #555; margin-bottom: 6px;">'
+                    f'Zone: {_replace_em_dashes(str(debrief.get("zone", "synthetic")))} | '
+                    f'Start: {debrief.get("starting_score", "?")}/10 | '
+                    f'End: {debrief.get("final_score", "?")}/10 | '
+                    f'Delta: {debrief.get("total_delta", 0)}'
+                    f'</div>\n'
+                )
+                profile_summary = _replace_em_dashes(str(debrief.get("profile_summary", "") or "")).strip()
+                if profile_summary:
+                    html += f'<div style="font-size: 11px; color: #444; margin-bottom: 6px;"><strong>Profile:</strong> {profile_summary}</div>\n'
+                watchpoints = debrief.get('watchpoints', []) if isinstance(debrief.get('watchpoints', []), list) else []
+                if watchpoints:
+                    html += (
+                        f'<div style="font-size: 11px; color: #444; margin-bottom: 6px;"><strong>Watchpoints:</strong> '
+                        f'{_replace_em_dashes("; ".join(str(item) for item in watchpoints))}</div>\n'
+                    )
+                if debrief.get('summary'):
+                    html += f'<div class="narrative">{_to_paragraphs(_replace_em_dashes(str(debrief.get("summary", ""))))}</div>\n'
+                turning_points = debrief.get('turning_points', []) if isinstance(debrief.get('turning_points', []), list) else []
+                if turning_points:
+                    html += '<ul style="margin: 8px 0 0 18px; font-size: 11px; color: #333;">\n'
+                    for item in turning_points:
+                        if not isinstance(item, dict):
+                            continue
+                        html += (
+                            f'<li>Month {item.get("month", "?")}: '
+                            f'{_replace_em_dashes(str(item.get("event", "")))} '
+                            f'(raw {item.get("adjustment", 0)}, effective {item.get("effective_adjustment", item.get("adjustment", 0))}). '
+                            f'{_replace_em_dashes(str(item.get("reasoning", "")))}</li>\n'
+                        )
+                    html += '</ul>\n'
+                html += '</div>\n'
+
+        oasis_panelists = oasis.get('panelists', []) if isinstance(oasis, dict) else []
+        if oasis_panelists:
+            html += '<div class="section-heading" style="margin-top: 18px;">OASIS Panel Roster</div>\n'
+            html += '<table>\n<tr><th>Role</th><th>Zone</th><th>Profile</th><th>Start</th><th>End</th><th>Delta</th></tr>\n'
+            for panelist in oasis_panelists:
+                if not isinstance(panelist, dict):
+                    continue
+                profile_summary = _replace_em_dashes(str(panelist.get("profile_summary", "") or "")).strip()
+                watchpoints = panelist.get('profile', {}).get('watchpoints', []) if isinstance(panelist.get('profile', {}), dict) else []
+                profile_bits = []
+                if profile_summary:
+                    profile_bits.append(profile_summary)
+                if watchpoints:
+                    profile_bits.append("Watchpoints: " + "; ".join(str(item) for item in watchpoints[:3]))
+                profile_cell = "<br>".join(_replace_em_dashes(bit) for bit in profile_bits) if profile_bits else "Not available"
+                html += (
+                    f'<tr><td>{_replace_em_dashes(str(panelist.get("role", "")))}</td>'
+                    f'<td>{_replace_em_dashes(str(panelist.get("zone", "synthetic")))}</td>'
+                    f'<td>{profile_cell}</td>'
+                    f'<td>{panelist.get("starting_score", "?")}</td>'
+                    f'<td>{panelist.get("final_score", "?")}</td>'
+                    f'<td>{panelist.get("total_delta", 0)}</td></tr>\n'
+                )
+            html += '</table>\n'
+
+        detailed_votes = []
+        for item in oasis_timeline:
+            if isinstance(item, dict):
+                votes = item.get('round_votes', [])
+                if isinstance(votes, list):
+                    for vote in votes:
+                        if isinstance(vote, dict):
+                            detailed_votes.append((item.get('month', '?'), vote))
+        if detailed_votes:
+            html += '<div class="section-heading" style="margin-top: 18px;">OASIS Monthly Panel Votes</div>\n'
+            html += '<table>\n<tr><th>Month</th><th>Role</th><th>Zone</th><th>Score Path</th><th>Raw Adj.</th><th>Effective Adj.</th><th>Reasoning</th></tr>\n'
+            for month, vote in detailed_votes:
+                html += (
+                    f'<tr><td>{month}</td>'
+                    f'<td>{_replace_em_dashes(str(vote.get("role", "")))}</td>'
+                    f'<td>{_replace_em_dashes(str(vote.get("zone", "synthetic")))}</td>'
+                    f'<td>{vote.get("score_before", "?")} -&gt; {vote.get("score_after", "?")}</td>'
+                    f'<td>{vote.get("raw_adjustment", vote.get("adjustment", 0))}</td>'
+                    f'<td>{vote.get("effective_adjustment", vote.get("adjustment", 0))}</td>'
+                    f'<td>{_replace_em_dashes(str(vote.get("reasoning", "")))}</td></tr>\n'
+                )
+            html += '</table>\n'
 
     # ═══ RISKS + PLAN ═══
     html += '<div class="page-break"></div>\n'
