@@ -13,6 +13,7 @@ Sections:
   Appendix: Full Market Analysis + Competitive Landscape narratives
 """
 
+import json
 import math
 import os
 import re
@@ -139,6 +140,59 @@ def _truncate(text: str, max_len: int) -> str:
     if last_space > max_len * 0.6:
         truncated = truncated[:last_space]
     return truncated.rstrip('.,;:- ') + '...'
+
+
+def _narrative_preview(text: str, max_chars: int = 1400, max_paragraphs: int = 3) -> str:
+    """Return a readable preview without crushing a section into a single sentence."""
+    if not text:
+        return ''
+    paragraphs = [p.strip() for p in re.split(r'\n\s*\n', text.strip()) if p.strip()]
+    if not paragraphs:
+        paragraphs = [text.strip()]
+
+    selected: List[str] = []
+    total_chars = 0
+    for paragraph in paragraphs:
+        if selected and (len(selected) >= max_paragraphs or total_chars + len(paragraph) > max_chars):
+            break
+        selected.append(paragraph)
+        total_chars += len(paragraph)
+
+    preview = "\n\n".join(selected) if selected else text.strip()
+    return preview if len(preview) >= len(text.strip()) - 50 else _truncate(preview, max_chars)
+
+
+def _humanize_field_name(field: str) -> str:
+    return str(field or '').replace('_', ' ').strip().title()
+
+
+def _display_value(value: Any) -> str:
+    if value is None:
+        return ''
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, (int, float, bool)):
+        return str(value)
+    if isinstance(value, list):
+        rendered = [_display_value(v) for v in value]
+        return ', '.join(item for item in rendered if item)
+    if isinstance(value, dict):
+        try:
+            return json.dumps(value, ensure_ascii=True, indent=2)
+        except Exception:
+            return str(value)
+    return str(value)
+
+
+def _html_value(value: Any) -> str:
+    display = _display_value(value)
+    if not display:
+        return ''
+    if re.match(r'^https?://', display):
+        return f'<a href="{display}" style="color:#3366cc;">{display}</a>'
+    if '\n' in display:
+        return f'<pre style="white-space:pre-wrap;font-family:inherit;font-size:11px;line-height:1.5;margin:0;">{display}</pre>'
+    return display
 
 
 def _sanitize_persona_name(name: str) -> str:
@@ -476,7 +530,7 @@ def html_competitive_comparison(competitors: List, startup_name: str) -> str:
 
     # Extract competitor names
     comp_names = []
-    for c in competitors[:6]:
+    for c in competitors:
         if isinstance(c, str):
             comp_names.append(c)
         elif isinstance(c, dict):
@@ -513,8 +567,6 @@ def html_competitive_comparison(competitors: List, startup_name: str) -> str:
                       or competitors[i].get('status', '')
                       or competitors[i].get('funding', ''))
         # Truncate long details for table readability
-        if len(detail) > 120:
-            detail = detail[:117] + '...'
         html += f'<tr style="background:{bg};">\n'
         html += f'<td style="padding:5px 8px;font-weight:600;white-space:nowrap;">{name}</td>\n'
         html += f'<td style="padding:5px 8px;color:#444;">{detail or "—"}</td>\n'
@@ -652,7 +704,7 @@ def _generate_suggestions(prediction: Dict) -> List[Dict]:
                 suggestions.append({'area': area, 'issue': f'{d.get("name", "").replace("_", " ").title()}: {score:.1f}/10', 'action': action})
                 break
 
-    return suggestions[:5]
+    return suggestions
 
 
 # ── Main Report Generator ──────────────────────────────────────
@@ -680,6 +732,7 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
     confidence = float(prediction.get('confidence', 0) or 0)
     data_quality = float(analysis.get('data_quality', 0) or 0)
     timestamp = datetime.now().strftime('%d %B %Y')
+    exec_summary_raw = str(analysis.get('exec_summary', '') or '')
     council_meta = prediction.get('council', {})
     council_meta = council_meta if isinstance(council_meta, dict) else {}
     # Type-safe data extraction — protect against unexpected types
@@ -765,6 +818,11 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
             except (ValueError, TypeError):
                 pass
     dim_items.sort(key=lambda x: x['score'], reverse=True)
+    risk_adjusted_dimensions = prediction.get('risk_adjusted_dimensions', [])
+    risk_adjusted_dimensions = [
+        d for d in risk_adjusted_dimensions
+        if isinstance(d, dict) and d.get('name')
+    ]
 
     # Get report sections from ReACT agent or parse narrative
     report_sections = analysis.get('report_sections', {})
@@ -784,6 +842,19 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
         finding for finding in risk_panel_findings
         if isinstance(finding, dict) and finding.get('status') == 'insufficient_evidence'
     ]
+    council_score = float(prediction.get('council_score', prediction.get('overall_score', score)) or score)
+    swarm_score_value = float(prediction.get('swarm_score', score) or score)
+    risk_panel_penalty = float(prediction.get('risk_panel_penalty', 0) or 0)
+    risk_panel_high_severity_count = int(prediction.get('risk_panel_high_severity_count', 0) or 0)
+    oasis = analysis.get('oasis', {})
+    oasis_timeline = oasis.get('timeline', []) if isinstance(oasis, dict) else []
+    oasis_trajectory = oasis.get('trajectory', 'unavailable') if isinstance(oasis, dict) else 'unavailable'
+    full_input_rows = []
+    if isinstance(extraction, dict):
+        for key, value in extraction.items():
+            rendered = _html_value(value)
+            if rendered:
+                full_input_rows.append((key, rendered))
 
     # Council reasoning
     council_reasoning = prediction.get('reasoning', '')
@@ -871,6 +942,7 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
   .fact-item {{ padding: 6px 0; border-bottom: 1px solid #f0f0f0; }}
   .fact-label {{ font-size: 10px; color: #888; text-transform: uppercase; }}
   .fact-value {{ font-size: 12px; color: #333; font-weight: 500; }}
+  .input-table td pre {{ margin: 0; }}
   .narrative {{ color: #333; line-height: 1.7; margin: 8px 0; }}
   .narrative p {{ margin-bottom: 10px; }}
   .charts {{ display: flex; gap: 20px; align-items: center; justify-content: center; flex-wrap: wrap; margin: 16px 0; }}
@@ -1000,6 +1072,18 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
     if faith_score is not None:
         html += f'<div style="text-align:center;"><div style="font-size:20pt;font-weight:700;color:#4488ff;">{faith_score:.0%}</div><div style="font-size:8pt;color:#888;">Faithfulness</div></div>\n'
 
+    html += '<div class="section-bar" style="margin-top: 16px;">How The Verdict Was Built</div>\n'
+    html += '<table class="keep-together">\n'
+    html += '<tr><th>Layer</th><th>Signal</th><th>Effect On Verdict</th></tr>\n'
+    html += f'<tr><td>Council</td><td>{council_score:.2f}/10</td><td>Primary calibrated scorecard</td></tr>\n'
+    html += f'<tr><td>Swarm</td><td>{swarm_score_value:.2f}/10 · {pos_pct:.0f}% HIT</td><td>Perspective overlay from {total_agents} agents</td></tr>\n'
+    html += f'<tr><td>Risk Panel</td><td>{risk_panel_penalty:.2f} penalty · {risk_panel_high_severity_count} high-severity findings</td><td>Deterministic downside adjustment</td></tr>\n'
+    html += f'<tr><td>OASIS</td><td>{oasis_trajectory if oasis_timeline else "No scenario adjustment"}</td><td>{"Trajectory simulation applied" if oasis_timeline else "No visible timeline returned"}</td></tr>\n'
+    html += f'<tr><td>Final</td><td>{score:.2f}/10 · {verdict}</td><td>Founder-facing blended verdict</td></tr>\n'
+    html += '</table>\n'
+    if signal_divergence:
+        html += f'<div class="narrative"><p>{signal_divergence}</p></div>\n'
+
     html += f'''
 
 <div class="keep-together">
@@ -1071,6 +1155,36 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
   </div>
 </div>
 
+<div class="grid-2 keep-together" style="margin-top: 8px;">
+  <div>
+    {"<div class='fact-item'><div class='fact-label'>Ask</div><div class='fact-value'>" + extraction.get("ask", "") + "</div></div>" if extraction.get("ask") else ""}
+    {"<div class='fact-item'><div class='fact-label'>Advantage</div><div class='fact-value'>" + extraction.get("advantage", "") + "</div></div>" if extraction.get("advantage") else ""}
+    {"<div class='fact-item'><div class='fact-label'>Founder-Reported Risk</div><div class='fact-value'>" + extraction.get("risk", "") + "</div></div>" if extraction.get("risk") else ""}
+    {"<div class='fact-item'><div class='fact-label'>Known Competitors</div><div class='fact-value'>" + ', '.join(extraction.get("known_competitors", [])) + "</div></div>" if extraction.get("known_competitors") else ""}
+  </div>
+  <div>
+    {"<div class='fact-item'><div class='fact-label'>Country</div><div class='fact-value'>" + extraction.get("country", "") + "</div></div>" if extraction.get("country") else ""}
+    {"<div class='fact-item'><div class='fact-label'>Keywords</div><div class='fact-value'>" + extraction.get("keywords", "") + "</div></div>" if extraction.get("keywords") else ""}
+    {"<div class='fact-item'><div class='fact-label'>Priority Areas</div><div class='fact-value'>" + extraction.get("industry_priority_areas", "") + "</div></div>" if extraction.get("industry_priority_areas") else ""}
+    {"<div class='fact-item'><div class='fact-label'>Extra Context</div><div class='fact-value'>" + extraction.get("extra_context", "") + "</div></div>" if extraction.get("extra_context") else ""}
+  </div>
+</div>
+
+'''
+
+    if full_input_rows:
+        html += '<div class="section-heading">Complete Submitted Input Payload</div>\n'
+        html += '<table class="input-table">\n<tr><th>Field</th><th>Submitted Value</th></tr>\n'
+        for key, rendered in full_input_rows:
+            html += f'<tr><td>{_humanize_field_name(key)}</td><td>{rendered}</td></tr>\n'
+        html += '</table>\n'
+
+    if exec_summary_raw:
+        html += '<div class="section-bar" style="margin-top: 16px;">Founder Narrative</div>\n'
+        html += f'<div class="narrative">{_to_paragraphs(_replace_em_dashes(exec_summary_raw))}</div>\n'
+
+    html += f'''
+
 <!-- PAGE 2: AGENT HEATMAP + DIVERGENCE -->
 <div class="page-break"></div>
 
@@ -1102,7 +1216,7 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
     # ── C3: Research Overview ──
     if research_summary:
         html += '\n<div class="section-bar">Research Overview</div>\n'
-        html += f'<div class="narrative"><p>{_sanitize_reasoning(_strip_markdown(research_summary[:500]))}</p></div>\n'
+        html += f'<div class="narrative">{_to_paragraphs(_sanitize_reasoning(_strip_markdown(research_summary)))}</div>\n'
         cited_count = len(cited_facts) if cited_facts else 0
         source_count = len(set(c.get('source_domain', '') for c in (cited_facts or []) if c.get('source_domain')))
         if cited_count:
@@ -1123,19 +1237,7 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
         html += '</div>\n'
 
     if market_analysis:
-        # Show first ~300 chars as summary, reference appendix for full text
-        summary_text = market_analysis
-        sentences = re.split(r'(?<=[.!?])\s+', summary_text)
-        short_summary = ''
-        for s in sentences:
-            if len(short_summary) + len(s) > 400:
-                break
-            short_summary = short_summary + ' ' + s if short_summary else s
-        if short_summary and len(short_summary) < len(market_analysis) - 50:
-            html += f'<div class="narrative"><p>{short_summary}</p></div>\n'
-            html += '<div class="appendix-ref">* Full market analysis in Appendix A</div>\n'
-        else:
-            html += f'<div class="narrative">{_to_paragraphs(market_analysis)}</div>\n'
+        html += f'<div class="narrative">{_to_paragraphs(market_analysis)}</div>\n'
     elif research_summary:
         html += f'<div class="narrative">{_to_paragraphs(research_summary)}</div>\n'
 
@@ -1144,7 +1246,7 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
         html += '<div class="section-bar keep-together">Top Similar Companies</div>\n<table class="keep-together">\n'
         html += '<tr><th>#</th><th>Company</th><th>Industry</th><th>Status</th><th>Funding</th></tr>\n'
 
-        for i, c in enumerate(competitors[:8]):
+        for i, c in enumerate(competitors):
             if isinstance(c, dict):
                 c_name = c.get('name', str(c))
                 c_industry = c.get('industry') or c.get('primary_industry') or c.get('type') or industry
@@ -1166,17 +1268,7 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
     # Competitive position summary (short version, full in appendix)
     if competitive_position:
         html += '<div class="section-bar">Competitive Position</div>\n'
-        sentences = re.split(r'(?<=[.!?])\s+', competitive_position)
-        short_comp = ''
-        for s in sentences:
-            if len(short_comp) + len(s) > 400:
-                break
-            short_comp = short_comp + ' ' + s if short_comp else s
-        if short_comp and len(short_comp) < len(competitive_position) - 50:
-            html += f'<div class="narrative"><p>{short_comp}</p></div>\n'
-            html += '<div class="appendix-ref">* Full competitive analysis in Appendix B</div>\n'
-        else:
-            html += f'<div class="narrative">{_to_paragraphs(competitive_position)}</div>\n'
+        html += f'<div class="narrative">{_to_paragraphs(competitive_position)}</div>\n'
 
     # ═══ COUNCIL DELIBERATION ═══
 
@@ -1185,9 +1277,25 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
 
     # B3: Show council reasoning if available
     if council_reasoning:
-        html += f'<div class="narrative" style="margin-bottom: 12px;">{_to_paragraphs(_sanitize_reasoning(council_reasoning[:800]))}</div>\n'
+        html += f'<div class="narrative" style="margin-bottom: 12px;">{_to_paragraphs(_sanitize_reasoning(council_reasoning))}</div>\n'
 
     html += svg_horizontal_bars(dim_items)
+
+    if risk_adjusted_dimensions:
+        html += '<div style="margin-top: 14px;">\n'
+        html += '<p style="font-size: 11px; color: #666; margin-bottom: 6px;">Risk-adjusted dimension overlay:</p>\n'
+        html += '<table>\n<tr><th>Dimension</th><th>Council</th><th>Risk Penalty</th><th>Adjusted</th></tr>\n'
+        for item in risk_adjusted_dimensions:
+            base_score = float(item.get('score', 0) or 0)
+            penalty = float(item.get('risk_penalty', 0) or 0)
+            adjusted = float(item.get('risk_adjusted_score', base_score) or base_score)
+            html += (
+                f'<tr><td>{str(item.get("name", "")).replace("_", " ").title()}</td>'
+                f'<td>{base_score:.1f}</td><td>{penalty:.2f}</td><td>{adjusted:.1f}</td></tr>\n'
+            )
+        html += '</table>\n'
+        html += '<div style="font-size: 9px; color: #777; margin-top: 4px;">Raw council dimensions remain unchanged; this overlay shows where deterministic risk review reduced confidence in a specific dimension.</div>\n'
+        html += '</div>\n'
 
     # Per-model score breakdown (if council used multiple models)
     if council_model_scores and isinstance(council_model_scores, dict) and len(council_model_scores) > 1:
@@ -1211,10 +1319,6 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
             html += '</tr>\n'
         html += '</table>\n</div>\n'
 
-    # Council reasoning (if available)
-    if council_reasoning:
-        html += f'<div class="narrative" style="margin-top: 12px; padding: 10px; background: #f8f9fa; border-left: 3px solid #001f3f;">{_to_paragraphs(council_reasoning)}</div>\n'
-
     if contested:
         html += '<div style="margin-top: 12px; padding: 10px; background: #fff3e0; border-left: 4px solid #f57c00;">\n'
         html += '<strong style="color: #f57c00;">Contested Dimensions</strong><br/>\n'
@@ -1231,12 +1335,12 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
         html += '<div style="display: flex; gap: 20px; margin-bottom: 16px;">\n'
         if themes_pos:
             html += '<div style="flex: 1;"><p style="color: #2e7d32; font-weight: bold; margin-bottom: 6px;">Positive Signals</p><ul style="font-size: 11px; line-height: 1.6;">\n'
-            for t in themes_pos[:5]:
+            for t in themes_pos:
                 html += f'<li>{_sanitize_reasoning(str(t))}</li>\n'
             html += '</ul></div>\n'
         if themes_neg:
             html += '<div style="flex: 1;"><p style="color: #d32f2f; font-weight: bold; margin-bottom: 6px;">Risk Signals</p><ul style="font-size: 11px; line-height: 1.6;">\n'
-            for t in themes_neg[:5]:
+            for t in themes_neg:
                 html += f'<li>{_sanitize_reasoning(str(t))}</li>\n'
             html += '</ul></div>\n'
         html += '</div>\n'
@@ -1351,13 +1455,13 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
 
             # Outlier agents
             html += '<table style="margin-top: 12px;">\n<tr><th>Agent</th><th>Zone</th><th>Score</th><th>Deviation</th><th>Position</th></tr>\n'
-            for o in outliers[:6]:
+            for o in outliers:
                 d_color = '#2e7d32' if o['direction'] == 'bullish' else '#d32f2f'
                 z_display = f'{o["z_score"]:+.1f} SD'
-                html += f'<tr><td>{o["persona"][:50]}</td><td>{o["zone"].title()}</td>'
+                html += f'<tr><td>{o["persona"]}</td><td>{o["zone"].title()}</td>'
                 html += f'<td style="font-weight:bold;">{o["overall"]:.1f}</td>'
                 html += f'<td style="color:{d_color};font-weight:bold;">{z_display}</td>'
-                html += f'<td style="font-size:10px;color:#555;">{_replace_em_dashes(_truncate(o["excerpt"], 180))}</td></tr>\n'
+                html += f'<td style="font-size:10px;color:#555;">{_replace_em_dashes(str(o["excerpt"]))}</td></tr>\n'
             html += '</table>\n'
 
     # ═══ INVESTMENT COMMITTEE DELIBERATION ═══
@@ -1396,7 +1500,7 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
                 html += f'    <span style="font-size: 10px;">{zone} - {score_str} {conv_icon}</span>\n'
                 html += f'  </div>\n'
                 if addresses:
-                    html += f'  <div style="font-size: 9px; color: #888; margin-bottom: 4px;">Responding to: {addresses[:40]}</div>\n'
+                    html += f'  <div style="font-size: 9px; color: #888; margin-bottom: 4px;">Responding to: {addresses}</div>\n'
                 html += f'  <div style="color: #333; font-size: 11px; line-height: 1.6;">{position_text}</div>\n'
                 html += f'</div>\n'
 
@@ -1438,13 +1542,13 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
 
                 if consensus_pts:
                     html += '<div style="margin-top: 8px;"><strong style="font-size: 11px; color: #2e7d32;">Committee agrees:</strong><ul style="margin: 4px 0 8px 16px; font-size: 11px; color: #333;">'
-                    for cp in consensus_pts[:4]:
+                    for cp in consensus_pts:
                         html += f'<li>{_replace_em_dashes(str(cp))}</li>'
                     html += '</ul></div>\n'
 
                 if tensions:
                     html += '<div><strong style="font-size: 11px; color: #f57c00;">Unresolved:</strong><ul style="margin: 4px 0 8px 16px; font-size: 11px; color: #333;">'
-                    for t in tensions[:4]:
+                    for t in tensions:
                         html += f'<li>{_replace_em_dashes(str(t))}</li>'
                     html += '</ul></div>\n'
 
@@ -1463,8 +1567,6 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
                 html += '</div>\n'
 
     # ═══ OASIS Market Simulation ═══
-    oasis = analysis.get('oasis', {})
-    oasis_timeline = oasis.get('timeline', []) if isinstance(oasis, dict) else []
     if oasis_timeline:
         month_count = len(oasis_timeline)
         month_label = "month" if month_count == 1 else "months"
@@ -1500,7 +1602,7 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
 
     if risks:
         html += '<div class="section-heading">Risk Assessment</div>\n'
-        for i, risk in enumerate(risks[:5]):
+        for i, risk in enumerate(risks):
             r_text = risk.get('risk', risk) if isinstance(risk, dict) else str(risk)
             r_text = _replace_em_dashes(str(r_text))
             severity = 'HIGH' if i < 2 else 'MEDIUM'
@@ -1516,14 +1618,14 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
     if risk_panel_material or risk_panel_gaps:
         html += '<div class="section-heading">Deterministic Risk Panel</div>\n'
         html += '<table>\n<tr><th>Domain</th><th>Status</th><th>Severity</th><th>Evidence</th><th>Mitigation</th></tr>\n'
-        for finding in (risk_panel_material[:6] + risk_panel_gaps[:2]):
+        for finding in (risk_panel_material + risk_panel_gaps):
             label = _replace_em_dashes(str(finding.get('label', finding.get('domain', 'Risk panel'))))
             status = str(finding.get('status', 'insufficient_evidence')).replace('_', ' ').upper()
             severity = str(finding.get('severity', 'medium')).upper()
             evidence_items = finding.get('evidence', []) if isinstance(finding.get('evidence', []), list) else []
             evidence_text = '<br>'.join(
                 f'- {_replace_em_dashes(str(item))}'
-                for item in evidence_items[:3]
+                for item in evidence_items
             ) or _replace_em_dashes(str(finding.get('summary', '')))
             mitigation = _replace_em_dashes(str(finding.get('mitigation', '')))
             html += (
@@ -1540,7 +1642,7 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
 
     if moves:
         html += '<div class="section-heading">Strategic Recommendations</div>\n'
-        for i, move in enumerate(moves[:5]):
+        for i, move in enumerate(moves):
             m_text = move.get('move', move.get('action', move)) if isinstance(move, dict) else str(move)
             m_text = _replace_em_dashes(str(m_text))
             html += f'<div class="move-card keep-together">\n'
@@ -1582,37 +1684,22 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
             critical = fact_check.get('critical_contradictions', [])
             if critical:
                 html += '<div style="margin-top:8px;padding:8px;background:rgba(231,76,60,0.1);border-radius:4px;">\n'
-                for c in critical[:5]:
-                    html += f'<div style="font-size:9pt;color:#e74c3c;">- {c[:200]}</div>\n'
+                for c in critical:
+                    html += f'<div style="font-size:9pt;color:#e74c3c;">- {c}</div>\n'
                 html += '</div>\n'
 
-    # ═══ APPENDIX: Full narratives ═══
-    has_appendix = False
-    if market_analysis and len(market_analysis) > 500:
-        html += '<div class="page-break"></div>\n'
-        html += '<div class="section-heading">Appendix A: Full Market Analysis</div>\n'
-        html += f'<div class="narrative">{_to_paragraphs(_replace_em_dashes(market_analysis))}</div>\n'
-        has_appendix = True
-
-    if competitive_position and len(competitive_position) > 500:
-        if not has_appendix:
-            html += '<div class="page-break"></div>\n'
-        html += '<div class="section-heading">Appendix B: Full Competitive Landscape</div>\n'
-        html += f'<div class="narrative">{_to_paragraphs(_replace_em_dashes(competitive_position))}</div>\n'
-        has_appendix = True
-
-    # ═══ Appendix D: Research Sources & Citations ═══
+    # ═══ Appendix: Research Sources & Citations ═══
     # Filter to only show cited facts with real sources (not "multi-model synthesis")
     real_citations = [c for c in (cited_facts or []) if isinstance(c, dict) and c.get('source_url') and c.get('source_domain', '') != 'multi-model synthesis']
     if not real_citations:
         real_citations = cited_facts or []  # fallback to all if no real sources
     if real_citations:
         html += '<div class="page-break"></div>\n'
-        html += '<div class="section-heading">Appendix D: Research Sources &amp; Citations</div>\n'
+        html += '<div class="section-heading">Appendix A: Research Sources &amp; Citations</div>\n'
         html += '<table>\n'
         html += '<tr style="background:#1a1a2e;color:#e0e0e0;"><th>Fact</th><th>Source</th><th>Confidence</th></tr>\n'
-        for cf in real_citations[:20]:
-            text = str(cf.get('text', ''))[:200] if isinstance(cf, dict) else str(cf)[:200]
+        for cf in real_citations:
+            text = str(cf.get('text', '')) if isinstance(cf, dict) else str(cf)
             source = cf.get('source_domain', '') if isinstance(cf, dict) else ''
             url = cf.get('source_url', '') if isinstance(cf, dict) else ''
             conf = cf.get('confidence', 'medium') if isinstance(cf, dict) else 'medium'
@@ -1621,7 +1708,7 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
             html += f'<tr><td>{text}</td><td>{source_cell}</td><td style="color:{conf_color};">{conf}</td></tr>\n'
         html += '</table>\n'
 
-    # ═══ Appendix E: All Research Sources (bibliography) ═══
+    # ═══ Appendix: All Research Sources (bibliography) ═══
     # Collect all unique URLs from cited_facts + research findings
     all_urls = {}
     for cf in (cited_facts or []):
@@ -1644,16 +1731,14 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
         for url, domain in all_urls.items():
             by_domain[domain or 'other'].append(url)
 
-        html += '\n<div class="section-heading">Appendix E: Research Sources</div>\n'
+        html += '\n<div class="section-heading">Appendix B: Research Sources</div>\n'
         html += '<p style="font-size: 10px; color: #666; margin-bottom: 10px;">All web sources consulted during research. Links are clickable in digital PDF.</p>\n'
         for domain in sorted(by_domain.keys()):
             urls = by_domain[domain]
             html += f'<p style="margin: 6px 0 2px; font-weight: bold; font-size: 10px; color: #001f3f;">{domain} ({len(urls)} source{"s" if len(urls) > 1 else ""})</p>\n'
             html += '<ul style="font-size: 9px; margin: 0; padding-left: 16px; line-height: 1.5;">\n'
-            for url in urls[:5]:  # Cap at 5 per domain
-                html += f'<li><a href="{url}" style="color: #3366cc; text-decoration: none;">{url[:80]}{"..." if len(url) > 80 else ""}</a></li>\n'
-            if len(urls) > 5:
-                html += f'<li style="color: #888;">... and {len(urls) - 5} more</li>\n'
+            for url in urls:
+                html += f'<li><a href="{url}" style="color: #3366cc; text-decoration: none;">{url}</a></li>\n'
             html += '</ul>\n'
 
     # Footer

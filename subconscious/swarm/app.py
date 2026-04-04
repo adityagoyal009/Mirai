@@ -1241,6 +1241,7 @@ async def bi_analyze(request: Request):
             "research_quality_score": final_prediction.get("research_quality_score"),
             "risk_panel_penalty": final_prediction.get("risk_panel_penalty"),
             "risk_panel_high_severity_count": final_prediction.get("risk_panel_high_severity_count"),
+            "risk_adjusted_dimensions": final_prediction.get("risk_adjusted_dimensions", []),
         })
         result["prediction"] = prediction_view
         result["final_verdict"] = final_prediction["final_verdict"]
@@ -1580,7 +1581,7 @@ import uuid as _uuid_mod
 import html as _html_mod
 
 _REPORTS_DIR = os.path.join(os.path.expanduser("~"), ".mirai", "shared_reports")
-_MAX_SHARED_REPORT_BYTES = int(os.environ.get("MIRAI_SHARED_REPORT_MAX_BYTES", "1000000"))
+_MAX_SHARED_REPORT_BYTES = int(os.environ.get("MIRAI_SHARED_REPORT_MAX_BYTES", "10000000"))
 os.makedirs(_REPORTS_DIR, exist_ok=True)
 
 

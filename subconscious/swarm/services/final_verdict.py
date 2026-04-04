@@ -106,6 +106,7 @@ def finalize_prediction(
     risk_panel_penalty = 0.0
     risk_panel_high_severity_count = 0
     risk_panel_dimension_penalties: Dict[str, float] = {}
+    risk_adjusted_dimensions: List[Dict[str, Any]] = []
 
     if isinstance(swarm, dict) and swarm:
         swarm_verdict = swarm.get("verdict", council_verdict)
@@ -246,6 +247,23 @@ def finalize_prediction(
                     f"Risk panel reported {insufficient_count} domains with insufficient evidence."
                 )
 
+        raw_dimensions = council_prediction.get("dimensions", [])
+        if isinstance(raw_dimensions, list):
+            for dimension in raw_dimensions:
+                if not isinstance(dimension, dict):
+                    continue
+                name = str(dimension.get("name", "") or "")
+                base_score = _coerce_float(dimension.get("score"), 0.0)
+                penalty = _coerce_float(risk_panel_dimension_penalties.get(name), 0.0)
+                adjusted_score = round(_clamp(base_score - penalty), 2) if base_score > 0 else 0.0
+                risk_adjusted_dimensions.append({
+                    "name": name,
+                    "score": round(base_score, 2),
+                    "risk_penalty": round(penalty, 2),
+                    "risk_adjusted_score": adjusted_score,
+                    "reasoning": dimension.get("reasoning", ""),
+                })
+
     return {
         "council_verdict": council_verdict,
         "council_confidence": council_confidence,
@@ -263,5 +281,6 @@ def finalize_prediction(
         "risk_panel_penalty": round(risk_panel_penalty, 2),
         "risk_panel_high_severity_count": risk_panel_high_severity_count,
         "risk_panel_dimension_penalties": risk_panel_dimension_penalties,
+        "risk_adjusted_dimensions": risk_adjusted_dimensions,
         "warnings": warnings,
     }

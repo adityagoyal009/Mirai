@@ -51,12 +51,12 @@ class ReportAgent:
         sections = {}
 
         configs = [
-            ("Executive Summary", 300, "Write a concise executive summary covering the company, verdict, key strengths and weaknesses. Lead with the verdict and score."),
-            ("Market Analysis", 500, "Analyze the target market: TAM, growth trends, regulatory landscape, timing. Cite specific data. If no market size data, say so."),
-            ("Competitive Landscape", 400, "Name each competitor, describe their position, explain where this startup fits. What's defensible?"),
-            ("Risk Assessment", 400, "Detail top 3-5 risks. For each: the risk, why it matters, severity (High/Medium/Low), specific mitigation."),
-            ("Strategic Recommendations", 400, "5 specific actionable recommendations with effort, impact, and timeline per move. Prioritize by urgency."),
-            ("Investment Verdict", 300, "Final investment thesis or anti-thesis. Should someone invest? At what terms? What milestones would change the verdict?"),
+            ("Executive Summary", 375, "Write a concise executive summary covering the company, verdict, key strengths and weaknesses. Lead with the verdict and score."),
+            ("Market Analysis", 650, "Analyze the target market: TAM, growth trends, regulatory landscape, timing. Cite specific data. If no market size data, say so."),
+            ("Competitive Landscape", 550, "Name each competitor, describe their position, explain where this startup fits. What's defensible?"),
+            ("Risk Assessment", 525, "Detail top 3-5 risks. For each: the risk, why it matters, severity (High/Medium/Low), specific mitigation."),
+            ("Strategic Recommendations", 500, "5 specific actionable recommendations with effort, impact, and timeline per move. Prioritize by urgency."),
+            ("Investment Verdict", 375, "Final investment thesis or anti-thesis. Should someone invest? At what terms? What milestones would change the verdict?"),
         ]
 
         # Generate all 6 sections in parallel (no inter-dependencies)
@@ -86,6 +86,10 @@ class ReportAgent:
         swarm = analysis.get('swarm', {})
         plan = analysis.get('plan', {})
         extraction = analysis.get('extraction', {})
+        oasis = analysis.get('oasis', {})
+        risk_panel = analysis.get('risk_panel', {})
+        founder_narrative = analysis.get('exec_summary', '')
+        risk_panel = analysis.get('risk_panel', {})
 
         lines = [
             f"COMPANY: {extraction.get('company', '?')}",
@@ -105,9 +109,46 @@ class ReportAgent:
             if isinstance(d, dict):
                 lines.append(f"  {d.get('name','?')}: {d.get('score','?')}/10")
 
+        risk_adjusted_dimensions = prediction.get('risk_adjusted_dimensions', [])
+        if risk_adjusted_dimensions:
+            lines.append("\nRISK-ADJUSTED DIMENSIONS:")
+            for d in risk_adjusted_dimensions:
+                if isinstance(d, dict):
+                    lines.append(
+                        f"  {d.get('name','?')}: raw={d.get('score','?')}/10, "
+                        f"penalty={d.get('risk_penalty', 0)}, adjusted={d.get('risk_adjusted_score','?')}/10"
+                    )
+
+        lines.extend([
+            "",
+            "VERDICT CONSTRUCTION:",
+            f"  Council score: {prediction.get('council_score', prediction.get('overall_score', '?'))}",
+            f"  Swarm score: {prediction.get('swarm_score', '?')}",
+            f"  Risk panel penalty: {prediction.get('risk_panel_penalty', 0)}",
+            f"  OASIS trajectory: {oasis.get('trajectory', 'unavailable') if isinstance(oasis, dict) else 'unavailable'}",
+            f"  Final score: {prediction.get('composite_score', prediction.get('overall_score', '?'))}",
+        ])
+
+        if isinstance(risk_panel, dict) and risk_panel.get('summary'):
+            lines.append(f"  Risk panel summary: {str(risk_panel.get('summary', ''))}")
+
+        if isinstance(oasis, dict):
+            timeline = oasis.get('timeline', [])
+            if isinstance(timeline, list) and timeline:
+                lines.append(f"  OASIS months simulated: {len(timeline)}")
+                for item in timeline:
+                    if isinstance(item, dict):
+                        lines.append(
+                            f"  OASIS: Month {item.get('month', '?')} - "
+                            f"{str(item.get('event', ''))}"
+                        )
+
+        if founder_narrative:
+            lines.append(f"\nFOUNDER NARRATIVE:\n{str(founder_narrative)}")
+
         comps = research.get('competitors', [])
         if comps:
-            lines.append("\nCOMPETITORS: " + ', '.join(str(c) for c in comps[:8]))
+            lines.append("\nCOMPETITORS: " + ', '.join(str(c) for c in comps))
 
         market_data = research.get('market_data', {})
         if isinstance(market_data, dict) and market_data:
@@ -130,22 +171,37 @@ class ReportAgent:
 
         summary = research.get('summary', '')
         if summary:
-            lines.append(f"\nRESEARCH: {summary[:800]}")
+            lines.append(f"\nRESEARCH: {summary}")
 
-        for fact in research.get('context_facts', [])[:5]:
-            lines.append(f"  FACT: {str(fact)[:200]}")
+        for fact in research.get('context_facts', []):
+            lines.append(f"  FACT: {str(fact)}")
 
         risks = plan.get('risks', [])
         if risks:
             lines.append("\nRISKS:")
-            for r in risks[:5]:
-                lines.append(f"  - {str(r.get('risk', r) if isinstance(r, dict) else r)[:200]}")
+            for r in risks:
+                lines.append(f"  - {str(r.get('risk', r) if isinstance(r, dict) else r)}")
 
         moves = plan.get('next_moves', plan.get('moves', []))
         if moves:
             lines.append("\nMOVES:")
-            for m in moves[:5]:
-                lines.append(f"  - {str(m.get('move', m.get('action', m)) if isinstance(m, dict) else m)[:200]}")
+            for m in moves:
+                lines.append(f"  - {str(m.get('move', m.get('action', m)) if isinstance(m, dict) else m)}")
+
+        panel_findings = risk_panel.get('findings', []) if isinstance(risk_panel, dict) else []
+        if panel_findings:
+            lines.append("\nDETERMINISTIC RISK PANEL:")
+            for finding in panel_findings:
+                if isinstance(finding, dict):
+                    evidence = finding.get('evidence', []) if isinstance(finding.get('evidence', []), list) else []
+                    evidence_preview = "; ".join(str(item) for item in evidence)
+                    lines.append(
+                        f"  - {finding.get('label', finding.get('domain', 'risk'))}: "
+                        f"{finding.get('status', '')} / {finding.get('severity', '')}. "
+                        f"{str(finding.get('summary', ''))}"
+                    )
+                    if evidence_preview:
+                        lines.append(f"    evidence: {evidence_preview}")
 
         agents = swarm.get('sample_agents', [])
         if agents:
@@ -153,12 +209,12 @@ class ReportAgent:
             hit = [a for a in agents if float(a.get('overall', 0)) >= 5.5]
             if miss:
                 lines.append(f"\nTOP MISS REASONS ({len(miss)} agents):")
-                for a in miss[:5]:
-                    lines.append(f"  - {str(a.get('reasoning',''))[:150]}")
+                for a in miss[:6]:
+                    lines.append(f"  - {str(a.get('reasoning',''))}")
             if hit:
                 lines.append(f"\nTOP HIT REASONS ({len(hit)} agents):")
-                for a in hit[:5]:
-                    lines.append(f"  - {str(a.get('reasoning',''))[:150]}")
+                for a in hit[:6]:
+                    lines.append(f"  - {str(a.get('reasoning',''))}")
 
         return "\n".join(lines)
 

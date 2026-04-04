@@ -528,9 +528,11 @@ CRITICAL RULES — FOLLOW EXACTLY
 7. Financial numbers (amounts, revenue) must use class="num" on <td> for right-alignment.
 8. Positive growth uses class="green-text", losses use class="red-text" on <td>.
 9. SVG charts must be self-contained, sized to fit, with the color scheme: navy=#0f2440, teal=#2563eb, green=#059669, orange=#f39c12, red=#dc2626.
-10. Keep total report to 12–15 pages. Compress prose; prefer tables.
+10. Do NOT compress away substantive founder-facing content. Long reports are acceptable when supported by the data.
 11. ANONYMIZATION: Council evaluators are labeled "Elder 1", "Elder 2", etc. NEVER reveal actual model names, providers, or AI company names (no "Claude", "GPT", "Llama", "Qwen", etc.). Use only the Elder labels provided. Swarm agents use their persona names only.
 12. In the Methodology appendix, describe the council as "10 frontier language models across 8 model families" — do NOT list model names.
+13. Use full field values in tables and narrative sections unless a chart or SVG label would visually break. If a chart needs a short label, show the full underlying value in nearby table text.
+14. If risk_panel or oasis data exists, include it explicitly in the report. Do not omit these sections.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 DATA FIELD REFERENCE:
@@ -550,7 +552,12 @@ DATA FIELD REFERENCE:
 - Score: prediction.composite_score
 - Verdict: prediction.verdict
 - Confidence: prediction.confidence
+- Council score: prediction.council_score
+- Swarm score: prediction.swarm_score
+- Risk panel penalty: prediction.risk_panel_penalty
+- Risk panel high severity count: prediction.risk_panel_high_severity_count
 - Dimensions array: prediction.dimensions (each has .name and .score)
+- Risk-adjusted dimensions: prediction.risk_adjusted_dimensions
 - Council models: prediction.council_models (array of "Elder N" labels)
 - Council scores: prediction.council_scores (object mapping "Elder N" -> overall score float)
 - Research sources: research.sources (array of {url, title} — use count for "Sources Cited" stat, cite in narrative where relevant)
@@ -573,6 +580,9 @@ DATA FIELD REFERENCE:
 - Risks: plan.risks (array, each has .risk, .severity)
 - Next moves: plan.next_moves (array, each has .action, .priority, .effort, .impact)
 - Validation experiments: plan.validation_experiments (array)
+- Founder narrative: exec_summary
+- Risk panel: risk_panel.summary, risk_panel.findings, risk_panel.dimension_penalties
+- OASIS: oasis.trajectory, oasis.start_sentiment, oasis.end_sentiment, oasis.timeline
 - Report sections (narrative text): report_sections.* (keys like market_analysis, competitive_analysis, etc.)
 - Strengths: report_sections.strengths OR extract from report_sections
 - Weaknesses: report_sections.weaknesses OR extract from report_sections
@@ -682,6 +692,18 @@ Structure:
     </div>
   </div>
 
+  <div class="section-header" style="margin-top:12px">How The Verdict Was Built</div>
+  <table>
+    <thead><tr><th>Layer</th><th>Signal</th><th>Effect On Verdict</th></tr></thead>
+    <tbody>
+      <tr><td class="bold">Council</td><td>[prediction.council_score]/10</td><td>Primary calibrated scorecard</td></tr>
+      <tr><td class="bold">Swarm</td><td>[prediction.swarm_score]/10 and [swarm.positive_pct]% positive</td><td>Perspective overlay from the swarm</td></tr>
+      <tr><td class="bold">Risk Panel</td><td>[prediction.risk_panel_penalty] penalty and [prediction.risk_panel_high_severity_count] high-severity findings</td><td>Deterministic downside adjustment</td></tr>
+      [If oasis exists:]<tr><td class="bold">OASIS</td><td>[oasis.trajectory]</td><td>Scenario trajectory adjustment</td></tr>
+      <tr><td class="bold">Final</td><td>[prediction.composite_score]/10 and [prediction.verdict]</td><td>Founder-facing blended verdict</td></tr>
+    </tbody>
+  </table>
+
   [FOOTER]
 </div>
 
@@ -701,7 +723,7 @@ Structure:
     <div class="kv-col">
       <div class="kv-row"><span class="kv-label">Company</span><span class="kv-value">[extraction.company]</span></div>
       <div class="kv-row"><span class="kv-label">Industry</span><span class="kv-value">[extraction.industry]</span></div>
-      <div class="kv-row"><span class="kv-label">Product</span><span class="kv-value">[extraction.product, truncated to ~80 chars]</span></div>
+      <div class="kv-row"><span class="kv-label">Product</span><span class="kv-value">[extraction.product, full value]</span></div>
       <div class="kv-row"><span class="kv-label">Entity Type</span><span class="kv-value">[extraction.entity_type or "Private Company"]</span></div>
       <div class="kv-row"><span class="kv-label">Business Status</span><span class="kv-value">[extraction.business_status]</span></div>
       [if website exists:] <div class="kv-row"><span class="kv-label">Website</span><span class="kv-value">[extraction.website]</span></div>
@@ -711,7 +733,7 @@ Structure:
       [if founded exists:] <div class="kv-row"><span class="kv-label">Year Founded</span><span class="kv-value">[founded]</span></div>
       [if hq exists:] <div class="kv-row"><span class="kv-label">HQ Location</span><span class="kv-value">[hq]</span></div>
       [if employees exists:] <div class="kv-row"><span class="kv-label">Employees</span><span class="kv-value">[employees]</span></div>
-      <div class="kv-row"><span class="kv-label">Target Market</span><span class="kv-value">[extraction.target_market, truncated]</span></div>
+      <div class="kv-row"><span class="kv-label">Target Market</span><span class="kv-value">[extraction.target_market, full value]</span></div>
       <div class="kv-row"><span class="kv-label">Business Model</span><span class="kv-value">[business_model]</span></div>
       <div class="kv-row"><span class="kv-label">Stage</span><span class="kv-value">[extraction.stage]</span></div>
     </div>
@@ -720,6 +742,18 @@ Structure:
   <!-- DESCRIPTION: 2-3 sentences from report_sections -->
   <div class="section-header">Description</div>
   <div class="narrative"><p>[2-3 sentence description from report_sections.company_overview or extraction data]</p></div>
+
+  [If exec_summary exists:]
+  <div class="section-header">Founder Narrative</div>
+  <div class="narrative">[Render exec_summary as real paragraphs. Do not compress it into a short teaser.]</div>
+
+  <div class="section-header">Complete Submitted Input Payload</div>
+  <table>
+    <thead><tr><th>Field</th><th>Submitted Value</th></tr></thead>
+    <tbody>
+      [For each non-empty key/value in extraction, render one row with the full value. Keep URLs clickable and wrap long text instead of truncating.]
+    </tbody>
+  </table>
 
   <!-- MOST RECENT FINANCING STATUS (like PitchBook) -->
   [If deal_history exists and has entries:]
@@ -879,7 +913,7 @@ Structure:
       <th>Year Founded</th><th class="right">Total Raised</th>
     </tr></thead>
     <tbody>
-      [For each competitor in research.competitor_details (up to 6), use REAL data:]
+      [For each competitor in research.competitor_details, use REAL data:]
       <tr>
         <td>[#]</td>
         <td class="bold">[name]</td>
@@ -985,7 +1019,7 @@ Structure:
     [if expiring:] <div class="stat-card"><div class="stat-value">[expiring]</div><div class="stat-label">Expiring (12mo)</div></div>
   </div>
   [If freedom_to_operate text exists:]
-  <div class="narrative"><p>[freedom_to_operate text, ≤200 chars]</p></div>
+  <div class="narrative"><p>[freedom_to_operate text, full value]</p></div>
 
   <!-- SCORE RADAR (SVG spider chart, PitchBook-style visual density) -->
   [If prediction.dimensions has data:]
@@ -1010,7 +1044,7 @@ Structure:
       <div style="margin-top:4px;font-size:7.5pt;color:#666">[prediction.confidence]% confidence</div>
     </div>
     <div class="verdict-details">
-      <p>[swarm.deliberation.recommendation OR report_sections.recommendation, 1 paragraph, ≤400 chars]</p>
+      <p>[swarm.deliberation.recommendation OR report_sections.recommendation, use the full available paragraph]</p>
       [If report_sections.strengths exists:]
       <div class="subsection-label mt8">Strengths</div>
       <ul class="strength-list">[3-5 strength bullet items from data]</ul>
@@ -1019,6 +1053,24 @@ Structure:
       <ul class="weakness-list">[3-5 weakness bullet items from data]</ul>
     </div>
   </div>
+
+  [If risk_panel.findings exists:]
+  <div class="section-header">Deterministic Risk Panel</div>
+  <table>
+    <thead><tr><th>Domain</th><th>Status</th><th>Severity</th><th>Evidence</th><th>Mitigation</th></tr></thead>
+    <tbody>
+      [For each finding in risk_panel.findings, render the full evidence and mitigation text.]
+    </tbody>
+  </table>
+
+  [If oasis.timeline exists:]
+  <div class="section-header">Market Trajectory Simulation</div>
+  <table>
+    <thead><tr><th>Month</th><th>Event</th><th>Sentiment</th><th>Change</th><th>Confidence</th></tr></thead>
+    <tbody>
+      [For each item in oasis.timeline, render the full event text and confidence band.]
+    </tbody>
+  </table>
 
   [FOOTER]
 </div>
@@ -1435,16 +1487,17 @@ def _review_report_html(body_html: str, analysis: Dict) -> str:
 
 
 def _trim_analysis(analysis: Dict) -> Dict:
-    """Aggressively trim analysis data for the HTML report generator.
+    """Trim analysis data for the HTML report generator without crushing the report.
 
     The HTML generator needs numbers, scores, and pre-written narrative sections.
     It does NOT need full agent reasoning, raw research text, or deliberation transcripts.
-    Target: <20K chars JSON to keep the prompt under 25K total.
+    Target: a generous payload that preserves the main report body and founder inputs.
     """
     trimmed = {}
 
     # Extraction — full (small, structured)
     trimmed['extraction'] = analysis.get('extraction', {})
+    trimmed['exec_summary'] = (analysis.get('exec_summary', '') or '')
 
     # Prediction — scores and verdict only
     pred = analysis.get('prediction', {})
@@ -1452,11 +1505,16 @@ def _trim_analysis(analysis: Dict) -> Dict:
         'verdict': pred.get('verdict', ''),
         'composite_score': pred.get('composite_score', 0),
         'confidence': pred.get('confidence', 0),
+        'council_score': pred.get('council_score', pred.get('overall_score', 0)),
+        'swarm_score': pred.get('swarm_score', 0),
+        'risk_panel_penalty': pred.get('risk_panel_penalty', 0),
+        'risk_panel_high_severity_count': pred.get('risk_panel_high_severity_count', 0),
         'dimensions': pred.get('dimensions', []),
+        'risk_adjusted_dimensions': pred.get('risk_adjusted_dimensions', []),
         'contested_dimensions': [
             {'dimension': c.get('dimension', ''), 'spread': c.get('spread', 0),
              'scores': {f"Elder {j+1}": v for j, (k, v) in enumerate(c.get('scores', {}).items())}}
-            for c in pred.get('contested_dimensions', [])[:5]
+            for c in pred.get('contested_dimensions', [])
         ],
         'council_models': [f"Elder {i+1}" for i in range(len(pred.get('council_models', [])))],
         'council_scores': {
@@ -1468,13 +1526,13 @@ def _trim_analysis(analysis: Dict) -> Dict:
     # Research — competitors list + market stats only (narrative is in report_sections)
     research = analysis.get('research', {})
     trimmed['research'] = {
-        'competitors': research.get('competitors', [])[:8],
+        'competitors': research.get('competitors', []),
         'competitor_details': [
             {k: v for k, v in c.items() if k != 'description'}
-            for c in research.get('competitor_details', [])[:6]
+            for c in research.get('competitor_details', [])
         ],
         'market_data': research.get('market_data', {}),
-        'trends': research.get('trends', [])[:5],
+        'trends': research.get('trends', []),
         'pricing_analysis': research.get('pricing_analysis', {}),
         'patent_landscape': {
             k: v for k, v in research.get('patent_landscape', {}).items()
@@ -1486,7 +1544,7 @@ def _trim_analysis(analysis: Dict) -> Dict:
                       'founded', 'employees', 'hq', 'total_raised', 'last_valuation',
                       'revenue', 'revenue_growth', 'ebitda')
         },
-        'sources': research.get('sources', [])[:30],
+        'sources': research.get('sources', []),
     }
 
     # Swarm — stats + trimmed agents (persona + scores only, NO full reasoning)
@@ -1497,8 +1555,8 @@ def _trim_analysis(analysis: Dict) -> Dict:
         'negative_pct': swarm.get('negative_pct', 0),
         'avg_confidence': swarm.get('avg_confidence', 0),
         'verdict': swarm.get('verdict', ''),
-        'key_themes_positive': swarm.get('key_themes_positive', [])[:5],
-        'key_themes_negative': swarm.get('key_themes_negative', [])[:5],
+        'key_themes_positive': swarm.get('key_themes_positive', []),
+        'key_themes_negative': swarm.get('key_themes_negative', []),
         'sample_agents': [
             {'persona': a.get('persona', ''), 'overall': a.get('overall', 0),
              'scores': a.get('scores', {}), 'zone': a.get('zone', ''),
@@ -1512,29 +1570,49 @@ def _trim_analysis(analysis: Dict) -> Dict:
                 {'persona': o.get('persona', ''), 'zone': o.get('zone', ''),
                  'overall': o.get('overall', 0), 'z_score': o.get('z_score', 0),
                  'reasoning_excerpt': o.get('reasoning_excerpt', '') or ''}
-                for o in swarm.get('divergence', {}).get('critical_outliers', [])[:5]
+                for o in swarm.get('divergence', {}).get('critical_outliers', [])
             ],
         },
         'deliberation': {
             'recommendation': swarm.get('deliberation', {}).get('synthesis', {}).get('recommendation', ''),
-            'consensus_points': swarm.get('deliberation', {}).get('synthesis', {}).get('consensus_points', [])[:3],
+            'consensus_points': swarm.get('deliberation', {}).get('synthesis', {}).get('consensus_points', []),
             'critical_risk': swarm.get('deliberation', {}).get('synthesis', {}).get('critical_risk', ''),
             'verdict_shifted': swarm.get('deliberation', {}).get('synthesis', {}).get('verdict_shifted', False),
         },
     }
+
+    risk_panel = analysis.get('risk_panel', {})
+    if isinstance(risk_panel, dict) and risk_panel:
+        trimmed['risk_panel'] = {
+            'summary': risk_panel.get('summary', ''),
+            'overall_penalty': risk_panel.get('overall_penalty', 0),
+            'dimension_penalties': risk_panel.get('dimension_penalties', {}),
+            'findings': [
+                {
+                    'label': finding.get('label', finding.get('domain', '')),
+                    'status': finding.get('status', ''),
+                    'severity': finding.get('severity', ''),
+                    'summary': finding.get('summary', ''),
+                    'mitigation': finding.get('mitigation', ''),
+                    'evidence': (finding.get('evidence', []) or []),
+                }
+                for finding in risk_panel.get('findings', [])
+                if isinstance(finding, dict)
+            ],
+        }
 
     # Plan — keep structured data (defensive: items may be strings or dicts)
     plan = analysis.get('plan', {})
     if not isinstance(plan, dict):
         plan = {}
     def _safe_risk(r):
-        if isinstance(r, str): return {'risk': r[:200], 'severity': ''}
-        if isinstance(r, dict): return {'risk': r.get('risk', '')[:200], 'severity': r.get('severity', '')}
-        return {'risk': str(r)[:200], 'severity': ''}
+        if isinstance(r, str): return {'risk': r, 'severity': ''}
+        if isinstance(r, dict): return {'risk': r.get('risk', ''), 'severity': r.get('severity', '')}
+        return {'risk': str(r), 'severity': ''}
     def _safe_move(m):
-        if isinstance(m, str): return {'action': m[:150], 'priority': '', 'effort': '', 'impact': ''}
-        if isinstance(m, dict): return {'action': m.get('action', '')[:150], 'priority': m.get('priority', ''), 'effort': m.get('effort', ''), 'impact': m.get('impact', '')}
-        return {'action': str(m)[:150], 'priority': '', 'effort': '', 'impact': ''}
+        if isinstance(m, str): return {'action': m, 'priority': '', 'effort': '', 'impact': ''}
+        if isinstance(m, dict): return {'action': m.get('action', ''), 'priority': m.get('priority', ''), 'effort': m.get('effort', ''), 'impact': m.get('impact', '')}
+        return {'action': str(m), 'priority': '', 'effort': '', 'impact': ''}
     def _safe_exp(e):
         if isinstance(e, str): return {'experiment': e, 'cost': '', 'timeline': ''}
         if isinstance(e, dict): return {'experiment': e.get('experiment', ''), 'cost': e.get('cost', ''), 'timeline': e.get('timeline', '')}
@@ -1546,16 +1624,16 @@ def _trim_analysis(analysis: Dict) -> Dict:
     if not isinstance(_moves, list): _moves = [_moves] if _moves else []
     if not isinstance(_exps, list): _exps = [_exps] if _exps else []
     trimmed['plan'] = {
-        'risks': [_safe_risk(r) for r in _risks[:5]],
-        'next_moves': [_safe_move(m) for m in _moves[:5]],
-        'validation_experiments': [_safe_exp(e) for e in _exps[:3]],
+        'risks': [_safe_risk(r) for r in _risks],
+        'next_moves': [_safe_move(m) for m in _moves],
+        'validation_experiments': [_safe_exp(e) for e in _exps],
     }
 
-    # Report sections — the pre-written narratives ARE the content for the PDF
-    # Keep them but cap each at 1500 chars (they're already summarized)
+    # Report sections — the pre-written narratives ARE the content for the PDF.
+    # Keep them generous so the renderer sees the real narrative, not a teaser.
     trimmed['report_sections'] = {}
     for key, val in analysis.get('report_sections', {}).items():
-        trimmed['report_sections'][key] = (val or '')[:1500]
+        trimmed['report_sections'][key] = (val or '')
 
     # Meta
     trimmed['data_quality'] = analysis.get('data_quality', 0)
@@ -1573,7 +1651,7 @@ def _trim_analysis(analysis: Dict) -> Dict:
             'flags': [
                 {k: (_elder_map.get(v, v) if k in ('flagged_by', 'target') else v)
                  for k, v in f.items()}
-                for f in peer_review.get('flags', [])[:5]
+                for f in peer_review.get('flags', [])
             ],
             'aggregate_rankings': {
                 _elder_map.get(k, k): v
@@ -1585,18 +1663,22 @@ def _trim_analysis(analysis: Dict) -> Dict:
         oasis = {}
     trimmed['oasis'] = {
         k: v for k, v in oasis.items()
-        if k in ('trajectory', 'final_sentiment', 'rounds', 'agent_count')
+        if k in (
+            'trajectory', 'final_sentiment', 'rounds', 'agent_count',
+            'start_sentiment', 'end_sentiment', 'startSentiment', 'endSentiment',
+            'timeline'
+        )
     }
 
     # Enhancements (Top 5 Fixes, Investor Match, Score Forecast, etc.)
     enhancements = analysis.get('enhancements', {})
     if isinstance(enhancements, dict) and enhancements:
         trimmed['enhancements'] = {
-            'top_fixes': enhancements.get('top_fixes', [])[:5],
-            'investor_matches': enhancements.get('investor_matches', [])[:5],
-            'score_forecast': enhancements.get('score_forecast', [])[:5],
-            'rewritten_exec_summary': (enhancements.get('rewritten_exec_summary', '') or '')[:2000],
-            'similar_funded': enhancements.get('similar_funded', [])[:5],
+            'top_fixes': enhancements.get('top_fixes', []),
+            'investor_matches': enhancements.get('investor_matches', []),
+            'score_forecast': enhancements.get('score_forecast', []),
+            'rewritten_exec_summary': (enhancements.get('rewritten_exec_summary', '') or ''),
+            'similar_funded': enhancements.get('similar_funded', []),
         }
 
     return trimmed
