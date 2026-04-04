@@ -161,6 +161,15 @@ class ExtractionResult:
     founder_years_in_industry: str = ""
     technical_founder: str = ""
     primary_risk_category: str = ""
+    advantage: str = ""
+    risk: str = ""
+    extra_context: str = ""
+    country: str = ""
+    keywords: str = ""
+    industry_priority_areas: str = ""
+    has_customers: str = ""
+    generating_revenue: str = ""
+    currently_fundraising: str = ""
     # Quality tracking
     fields_present: List[str] = field(default_factory=list)
     fields_missing: List[str] = field(default_factory=list)
@@ -1775,7 +1784,12 @@ class BusinessIntelEngine:
                     industry=extraction.industry if extraction else '',
                     product=extraction.product if extraction else '',
                     target_market=extraction.target_market if extraction else '',
+                    end_user=extraction.end_user if extraction else '',
+                    economic_buyer=extraction.economic_buyer if extraction else '',
+                    switching_trigger=extraction.switching_trigger if extraction else '',
+                    current_substitute=extraction.current_substitute if extraction else '',
                     stage=extraction.stage if extraction else '',
+                    persona_context=extraction.to_dict() if extraction and hasattr(extraction, "to_dict") else None,
                 )
                 logger.info(
                     f"[BI:{analysis_id}] Swarm complete — "

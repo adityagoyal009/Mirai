@@ -421,18 +421,14 @@ def _handle_full_analysis(msg: dict):
                     company=extraction.company if hasattr(extraction, 'company') else '',
                     industry=extraction.industry if hasattr(extraction, 'industry') else '',
                     product=extraction.product if hasattr(extraction, 'product') else '',
-                    target_market=" | ".join(
-                        part for part in [
-                            extraction.target_market if hasattr(extraction, "target_market") else "",
-                            f"End user: {extraction.end_user}" if hasattr(extraction, "end_user") and extraction.end_user else "",
-                            f"Economic buyer: {extraction.economic_buyer}" if hasattr(extraction, "economic_buyer") and extraction.economic_buyer else "",
-                            f"Switching trigger: {extraction.switching_trigger}" if hasattr(extraction, "switching_trigger") and extraction.switching_trigger else "",
-                            f"Current substitute: {extraction.current_substitute}" if hasattr(extraction, "current_substitute") and extraction.current_substitute else "",
-                        ]
-                        if part
-                    ),
+                    target_market=extraction.target_market if hasattr(extraction, "target_market") else '',
+                    end_user=extraction.end_user if hasattr(extraction, "end_user") else '',
+                    economic_buyer=extraction.economic_buyer if hasattr(extraction, "economic_buyer") else '',
+                    switching_trigger=extraction.switching_trigger if hasattr(extraction, "switching_trigger") else '',
+                    current_substitute=extraction.current_substitute if hasattr(extraction, "current_substitute") else '',
                     stage=stage or (extraction.stage if hasattr(extraction, 'stage') else ''),
                     research_data=research if isinstance(research, dict) else None,
+                    persona_context=structured if isinstance(structured, dict) else (extraction.to_dict() if hasattr(extraction, "to_dict") else None),
                 )
 
                 raw = swarm_result.to_dict()
@@ -1045,7 +1041,12 @@ def _handle_start_swarm(msg: dict):
                 industry=msg.get('industry', ''),
                 product=msg.get('product', ''),
                 target_market=msg.get('target_market', ''),
+                end_user=msg.get('end_user', ''),
+                economic_buyer=msg.get('economic_buyer', ''),
+                switching_trigger=msg.get('switching_trigger', ''),
+                current_substitute=msg.get('current_substitute', ''),
                 stage=msg.get('stage', ''),
+                persona_context=msg.get('structuredFields') if isinstance(msg.get('structuredFields'), dict) else msg,
             )
 
             raw = result.to_dict()

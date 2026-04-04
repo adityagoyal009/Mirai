@@ -466,7 +466,12 @@ def run_backtest(agents_per_run: int = 50, limit: int = 0) -> Dict[str, Any]:
                 industry=startup.get('industry', ''),
                 product=startup.get('product', ''),
                 target_market=startup.get('target_market', ''),
+                end_user=startup.get('end_user', ''),
+                economic_buyer=startup.get('economic_buyer', ''),
+                switching_trigger=startup.get('switching_trigger', ''),
+                current_substitute=startup.get('current_substitute', ''),
                 stage=startup.get('stage', ''),
+                persona_context=startup,
             )
 
             company_result = _build_company_result(

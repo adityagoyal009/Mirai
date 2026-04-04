@@ -54,7 +54,9 @@ Mirai takes a startup’s structured submission, preserves the buyer / proof / p
 
 ### Phase 3: Swarm
 - The production swarm uses **50 agents**.
-- Persona selection is context-aware: `industry`, `product`, `target_market`, and `stage`.
+- Persona selection is driven by first-class intake context, especially `industry`, `product`, `target_market`, `end_user`, `economic_buyer`, `switching_trigger`, `current_substitute`, and `stage`.
+- The `customer` lane is intentionally the most sector-biased lane, while investor selection stays stage-first.
+- Detailed routing rules live in [docs/PERSONA_ROUTING.md](/home/aditya/Downloads/mirai/docs/PERSONA_ROUTING.md).
 - Swarm output includes not just aggregate sentiment, but also `top_fixes` and `investor_matches`.
 
 ### Phase 4: OASIS

@@ -52,6 +52,9 @@ interface StructuredFields {
   founder_years_in_industry: string;
   technical_founder: string;
   primary_risk_category: string;
+  advantage: string;
+  risk: string;
+  extra_context: string;
   country: string;
   keywords: string;
   industry_priority_areas: string;
@@ -238,6 +241,9 @@ function buildStructuredFields(submission: SubmissionRecord): StructuredFields {
     founder_years_in_industry: submission.founderYearsInIndustry,
     technical_founder: submission.technicalFounder,
     primary_risk_category: submission.primaryRiskCategory,
+    advantage: submission.advantage,
+    risk: submission.risk,
+    extra_context: submission.extraContext,
     country: submission.country,
     keywords: submission.keywords,
     industry_priority_areas: submission.industryPriorityAreas,

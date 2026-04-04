@@ -243,8 +243,13 @@ class SwarmPredictor:
                 industry: str = "",
                 product: str = "",
                 target_market: str = "",
+                end_user: str = "",
+                economic_buyer: str = "",
+                switching_trigger: str = "",
+                current_substitute: str = "",
                 stage: str = "",
-                research_data: dict = None) -> SwarmResult:
+                research_data: dict = None,
+                persona_context: dict = None) -> SwarmResult:
         """Run swarm prediction with hybrid wave execution.
         on_agent_complete: optional callback(SwarmAgent) fired for each completed agent.
         on_agent_start: optional callback(agent_id, persona_name) fired before each agent's LLM call.
@@ -260,7 +265,12 @@ class SwarmPredictor:
             industry,
             product,
             target_market,
+            end_user,
+            economic_buyer,
+            switching_trigger,
+            current_substitute,
             stage,
+            json.dumps(persona_context or {}, sort_keys=True, default=str)[:512],
             str(agent_count),
         ])
         _seed = int(hashlib.sha256(seed_source.encode("utf-8")).hexdigest()[:8], 16)
@@ -302,7 +312,10 @@ class SwarmPredictor:
         # Select zone-appropriate personas
         all_personas = self._persona_engine.select_personas_by_zone(
             count=wave1_count, industry=industry, product=product,
-            target_market=target_market, stage=stage,
+            target_market=target_market, end_user=end_user,
+            economic_buyer=economic_buyer, switching_trigger=switching_trigger,
+            current_substitute=current_substitute, persona_context=persona_context,
+            stage=stage,
         )
         wave1_personas = []
         for i, p in enumerate(all_personas):
@@ -406,7 +419,12 @@ class SwarmPredictor:
                         industry=industry,
                         product=product,
                         target_market=target_market,
+                        end_user=end_user,
+                        economic_buyer=economic_buyer,
+                        switching_trigger=switching_trigger,
+                        current_substitute=current_substitute,
                         stage=stage,
+                        persona_context=persona_context,
                     ))
                 for future in as_completed(futures):
                     batch_results = future.result()
@@ -709,7 +727,10 @@ class SwarmPredictor:
                    research_context: str, model_cfg: dict,
                    start_id: int, exclude_personas: str = "",
                    company: str = "", industry: str = "", product: str = "",
-                   target_market: str = "", stage: str = "") -> List[SwarmAgent]:
+                   target_market: str = "", end_user: str = "",
+                   economic_buyer: str = "", switching_trigger: str = "",
+                   current_substitute: str = "", stage: str = "",
+                   persona_context: dict = None) -> List[SwarmAgent]:
         try:
             llm = LLMClient(model=model_cfg['model'])
             # Generate real persona briefs for this batch via PersonaEngine
@@ -719,7 +740,11 @@ class SwarmPredictor:
             try:
                 batch_personas = self._persona_engine._generate_personas(
                     count=batch_size, zone="wildcard", startup_industry=industry,
-                    product=product, target_market=target_market, stage=stage,
+                    product=product, target_market=target_market,
+                    end_user=end_user, economic_buyer=economic_buyer,
+                    switching_trigger=switching_trigger,
+                    current_substitute=current_substitute, persona_context=persona_context,
+                    stage=stage,
                 )
                 persona_lines = []
                 for j, p in enumerate(batch_personas):

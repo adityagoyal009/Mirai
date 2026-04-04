@@ -151,7 +151,10 @@ It is not the source of truth for the website submission lifecycle.
 ### Phase 3: Swarm
 
 - [subconscious/swarm/services/swarm_predictor.py](/home/aditya/Downloads/mirai/subconscious/swarm/services/swarm_predictor.py) runs a fixed **50-agent** panel.
-- Persona selection is aware of industry, product, target market, and stage.
+- Persona selection uses a layered router fed by the founder intake contract:
+  `industry`, `product`, `target_market`, `end_user`, `economic_buyer`, `switching_trigger`, `current_substitute`, `stage`, plus structured business-model, traction, pricing, implementation, and risk fields.
+- The `customer` lane is intentionally the most sector-specific lane. Investor selection is stage-first, then sector/context-refined.
+- Detailed routing and field influence are documented in [docs/PERSONA_ROUTING.md](/home/aditya/Downloads/mirai/docs/PERSONA_ROUTING.md).
 - Swarm output includes:
   - aggregate sentiment and score distribution
   - divergence and deliberation metadata

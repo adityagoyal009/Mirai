@@ -15,7 +15,7 @@ import os
 import random
 import re
 import linecache
-from typing import ClassVar, List, Dict, Optional, Tuple
+from typing import Any, ClassVar, List, Dict, Optional, Tuple
 from dataclasses import dataclass
 
 from ..utils.logger import get_logger
@@ -666,13 +666,13 @@ INDUSTRY_ROLE_EXCLUSIONS = {
     "cleantech": ["Crypto VC", "Gaming", "Media", "Real Estate VC"],
     "healthtech": ["Crypto VC", "Real Estate VC", "Farmer/Rancher"],
     "fintech": ["Bio VC", "Farmer/Rancher", "Emergency Room"],
-    "ai": [],
+    "ai": ["Bio VC"],
     "saas": ["Crypto VC", "Bio VC", "Farmer/Rancher"],
     "biotech": ["Crypto VC", "Real Estate VC", "Stand-Up Comedian"],
-    "edtech": ["Crypto VC", "Short Seller", "Forensic Accountant"],
+    "edtech": ["Bio VC", "Crypto VC", "Short Seller", "Forensic Accountant"],
     "cybersecurity": ["Farmer/Rancher", "NGO Worker", "Crypto VC"],
     "marketplace": ["Bio VC", "Farmer/Rancher"],
-    "hardware": ["Crypto VC"],
+    "hardware": ["Bio VC", "Crypto VC"],
 }
 
 STAGE_ROLE_PRIORITIES = {
@@ -704,6 +704,27 @@ STAGE_ROLE_PRIORITIES = {
         "operator": ["CTO (early stage)", "CTO (scaling stage)", "Chief Product Officer",
                       "VP Engineering (product)", "VP Sales (enterprise)"],
     },
+    "series b": {
+        "investor": ["Series-B VC", "Growth Equity VC", "Late-Stage VC",
+                      "Corporate VC (strategic)", "Venture Debt Provider"],
+        "operator": ["CTO (scaling stage)", "CFO (venture-backed)",
+                      "Chief Revenue Officer", "VP Sales (enterprise)",
+                      "VP Customer Success"],
+    },
+    "series c": {
+        "investor": ["Late-Stage VC", "Growth Equity VC", "PE Partner (growth equity)",
+                      "Venture Debt Provider", "Big Tech Corp Dev (could acquire)"],
+        "operator": ["CTO (scaling stage)", "CFO (venture-backed)",
+                      "Chief Revenue Officer", "COO (operations-heavy)",
+                      "VP People/HR"],
+    },
+    "growth": {
+        "investor": ["Late-Stage VC", "Growth Equity VC", "PE Partner (growth equity)",
+                      "Venture Debt Provider", "Big Tech Corp Dev (could acquire)"],
+        "operator": ["CTO (scaling stage)", "CFO (venture-backed)",
+                      "Chief Revenue Officer", "COO (operations-heavy)",
+                      "VP People/HR"],
+    },
 }
 
 STAGE_ROLE_EXCLUSIONS = {
@@ -714,7 +735,9 @@ STAGE_ROLE_EXCLUSIONS = {
                       "Revenue-Based Financing Provider", "LP Evaluating Fund Allocation",
                       "Investment Banker (tech M&A)", "Hedge Fund Analyst (long/short)",
                       "Retail Investor (sophisticated)", "Retail Investor (first-time)",
-                      "Family Office (single family)", "Family Office (multi-family)"],
+                      "Family Office (single family)", "Family Office (multi-family)",
+                      "Corporate VC (strategic)", "Corporate VC (financial return)",
+                      "Big Tech Corp Dev (could acquire)", "Crypto VC"],
         "operator": ["CTO (scaling stage)", "CFO (venture-backed)", "Chief Revenue Officer",
                      "VP Sales (enterprise)", "VP Sales (PLG/self-serve)", "VP Customer Success",
                      "Head of Partnerships"],
@@ -726,16 +749,41 @@ STAGE_ROLE_EXCLUSIONS = {
                       "Revenue-Based Financing Provider", "LP Evaluating Fund Allocation",
                       "Investment Banker (tech M&A)", "Hedge Fund Analyst (long/short)",
                       "Retail Investor (sophisticated)", "Retail Investor (first-time)",
-                      "Family Office (single family)", "Family Office (multi-family)"],
+                      "Family Office (single family)", "Family Office (multi-family)",
+                      "Corporate VC (strategic)", "Corporate VC (financial return)",
+                      "Big Tech Corp Dev (could acquire)", "Crypto VC"],
         "operator": ["CTO (scaling stage)", "CFO (venture-backed)", "Chief Revenue Officer",
                      "VP Sales (enterprise)", "VP Sales (PLG/self-serve)", "VP Customer Success"],
     },
     "seed": {
-        "investor": ["Late-Stage VC", "PE Partner (buyout)", "PE Partner (growth equity)",
+        "investor": ["Series-B VC", "Growth Equity VC", "Late-Stage VC",
+                      "PE Partner (buyout)", "PE Partner (growth equity)",
                       "Sovereign Wealth Fund Manager", "Endowment Fund Manager",
                       "Venture Debt Provider", "Revenue-Based Financing Provider",
                       "LP Evaluating Fund Allocation", "Investment Banker (tech M&A)",
-                      "Retail Investor (first-time)"],
+                      "Retail Investor (first-time)", "Big Tech Corp Dev (could acquire)"],
+    },
+    "series a": {
+        "investor": ["Pre-Seed VC", "Angel Investor (solo)", "Angel Investor (syndicate lead)",
+                      "Super Angel", "Micro VC ($1-5M fund)", "Retail Investor (first-time)"],
+    },
+    "series b": {
+        "investor": ["Pre-Seed VC", "Seed VC", "Angel Investor (solo)",
+                      "Angel Investor (syndicate lead)", "Super Angel",
+                      "Micro VC ($1-5M fund)", "Accelerator Partner (YC-style)",
+                      "Accelerator Partner (corporate)", "Retail Investor (first-time)"],
+    },
+    "series c": {
+        "investor": ["Pre-Seed VC", "Seed VC", "Angel Investor (solo)",
+                      "Angel Investor (syndicate lead)", "Super Angel",
+                      "Micro VC ($1-5M fund)", "Accelerator Partner (YC-style)",
+                      "Accelerator Partner (corporate)", "Retail Investor (first-time)"],
+    },
+    "growth": {
+        "investor": ["Pre-Seed VC", "Seed VC", "Angel Investor (solo)",
+                      "Angel Investor (syndicate lead)", "Super Angel",
+                      "Micro VC ($1-5M fund)", "Accelerator Partner (YC-style)",
+                      "Accelerator Partner (corporate)", "Retail Investor (first-time)"],
     },
 }
 
@@ -817,6 +865,361 @@ CONTEXT_ROLE_HINTS = {
         "wildcard": ["Small-Town Mayor (dealing with this problem)",
                       "Municipal Budget Analyst", "Local News Reporter (community impact)"],
     },
+    "oil_gas": {
+        "keywords": ["oil", "gas", "refinery", "refineries", "petrochemical", "pipeline",
+                     "upstream", "midstream", "downstream", "drilling", "energy producer"],
+        "specialization": "oil and gas operations, refinery procurement, plant reliability, emissions compliance, and safety-critical industrial deployments",
+        "investor": ["Deep Tech VC", "Corporate VC (strategic)", "Seed VC",
+                      "Micro VC ($1-5M fund)", "Impact Investor (climate)"],
+        "customer": ["VP Operations (buyer)", "Facilities Manager",
+                      "Supply Chain Director", "Department Head (budget holder)",
+                      "Systems Integrator", "Existing Customer of Incumbent"],
+        "operator": ["COO (operations-heavy)", "Supply Chain Operations Lead",
+                      "CTO (early stage)", "Engineering Manager"],
+        "analyst": ["Macro Economist", "Industry Analyst (Gartner)",
+                     "Market Strategist (McKinsey)"],
+        "contrarian": ["Environmental Compliance Officer", "Government Policy Advisor",
+                        "Risk Analyst (operational)", "Insurance Underwriter"],
+        "wildcard": ["Retired Plant Manager",
+                      "Industrial Distributor (channel view)",
+                      "Retired Executive (from this industry)"],
+    },
+    "utilities": {
+        "keywords": ["utility", "utilities", "grid", "substation", "transmission",
+                     "distribution", "wastewater", "water utility", "electric co-op", "power plant"],
+        "specialization": "electric, gas, and water utility procurement, public-infrastructure budgeting, reliability standards, and long approval cycles",
+        "investor": ["Impact Investor (climate)", "Seed VC", "Corporate VC (strategic)",
+                      "Deep Tech VC"],
+        "customer": ["VP Operations (buyer)", "Facilities Manager",
+                      "Department Head (budget holder)", "Enterprise Procurement Manager",
+                      "Systems Integrator"],
+        "operator": ["COO (operations-heavy)", "Supply Chain Operations Lead",
+                      "Head of Partnerships", "VP Customer Success"],
+        "analyst": ["ESG Analyst", "Macro Economist", "Think Tank Fellow"],
+        "contrarian": ["Government Policy Advisor", "Environmental Compliance Officer",
+                        "Regulatory Expert (federal)", "Risk Analyst (operational)"],
+        "wildcard": ["Small-Town Mayor (dealing with this problem)",
+                      "Municipal Budget Analyst", "Retired Plant Manager"],
+    },
+    "hospitals": {
+        "keywords": ["hospital", "hospitals", "health system", "clinic", "clinician",
+                     "physician", "nurse", "ehr", "patient", "provider network"],
+        "specialization": "hospital procurement, clinical workflow adoption, compliance-heavy selling, and operational realities inside health systems",
+        "investor": ["Bio VC", "Deep Tech VC", "Impact Investor (social)", "Seed VC"],
+        "customer": ["Department Head (budget holder)", "Line Manager (end user)",
+                      "Enterprise Procurement Manager", "Enterprise Chief Data Officer",
+                      "VP Operations (buyer)"],
+        "operator": ["Chief Product Officer", "VP Customer Success",
+                      "COO (operations-heavy)", "CTO (scaling stage)"],
+        "analyst": ["Academic Researcher (CS/AI)", "Professor of Entrepreneurship",
+                     "ESG Analyst", "Industry Analyst (Gartner)"],
+        "contrarian": ["Regulatory Expert (federal)", "Data Privacy Officer",
+                        "Insurance Underwriter", "Consumer Rights Advocate"],
+        "wildcard": ["Parent Evaluating For Family",
+                      "NGO Worker (in the field)",
+                      "Retired Executive (from this industry)"],
+    },
+    "logistics": {
+        "keywords": ["logistics", "fleet", "freight", "warehouse", "shipping",
+                     "last mile", "dispatch", "3pl", "trucking", "carrier"],
+        "specialization": "fleet operations, warehouse workflows, shipping procurement, and logistics buyers balancing margin, reliability, and labor constraints",
+        "investor": ["Seed VC", "Series-A VC", "Corporate VC (strategic)",
+                      "Micro VC ($1-5M fund)"],
+        "customer": ["Supply Chain Director", "VP Operations (buyer)",
+                      "Department Head (budget holder)", "Systems Integrator",
+                      "Existing Customer of Incumbent"],
+        "operator": ["COO (operations-heavy)", "Supply Chain Operations Lead",
+                      "VP Sales (enterprise)", "Head of Partnerships"],
+        "analyst": ["Market Strategist (McKinsey)", "Macro Economist",
+                     "Industry Analyst (CB Insights)"],
+        "contrarian": ["Risk Analyst (operational)", "Competitor Product Manager",
+                        "Insurance Underwriter", "Platform Risk Analyst"],
+        "wildcard": ["Industrial Distributor (channel view)",
+                      "Retired Executive (from this industry)",
+                      "Local News Reporter (community impact)"],
+    },
+    "school_districts": {
+        "keywords": ["school district", "school districts", "district office", "k-12", "k12",
+                     "superintendent", "principal", "classroom", "teacher", "student information system"],
+        "specialization": "school district budgeting, superintendent-led approval chains, classroom adoption, and procurement constrained by academic calendars",
+        "investor": ["Impact Investor (social)", "Seed VC", "Angel Investor (solo)"],
+        "customer": ["Department Head (budget holder)", "Line Manager (end user)",
+                      "Enterprise Procurement Manager", "IT Consultant (recommender)"],
+        "operator": ["VP Customer Success", "Head of Partnerships",
+                      "CMO (B2C/DTC)", "Product Manager (B2B SaaS)"],
+        "analyst": ["Professor of Entrepreneurship", "Academic Researcher (economics)",
+                     "Think Tank Fellow", "UX Researcher"],
+        "contrarian": ["Government Policy Advisor", "Data Privacy Officer",
+                        "Consumer Rights Advocate", "Regulatory Expert (federal)"],
+        "wildcard": ["Science Teacher (STEM education)",
+                      "Parent Evaluating For Family",
+                      "Municipal Budget Analyst"],
+    },
+}
+
+CONTEXT_ROLE_EXCLUSIONS = {
+    "enterprise_b2b": {
+        "investor": ["Bio VC", "Impact Investor (climate)", "Impact Investor (social)"],
+        "customer": ["Target Consumer (power user)", "Target Consumer (price-sensitive)",
+                      "Non-Target Consumer (mainstream)", "Gen-Z Early Adopter",
+                      "Target Customer (SMB 10-50 employees)", "Target Customer (Micro <10)"],
+    },
+    "industrial_manufacturing": {
+        "customer": ["Target Consumer (power user)", "Target Consumer (price-sensitive)",
+                      "Non-Target Consumer (mainstream)", "Gen-Z Early Adopter",
+                      "Target Customer (Micro <10)"],
+    },
+    "public_sector": {
+        "investor": ["Crypto VC", "Retail Investor (sophisticated)", "Retail Investor (first-time)",
+                      "Big Tech Corp Dev (could acquire)", "Corporate VC (financial return)",
+                      "Hedge Fund Analyst (long/short)"],
+        "customer": ["Target Consumer (power user)", "Target Consumer (price-sensitive)",
+                      "Non-Target Consumer (mainstream)", "Gen-Z Early Adopter",
+                      "Target Customer (SMB 10-50 employees)", "Target Customer (Micro <10)"],
+    },
+    "oil_gas": {
+        "customer": ["Target Consumer (power user)", "Target Consumer (price-sensitive)",
+                      "Non-Target Consumer (mainstream)", "Gen-Z Early Adopter",
+                      "Target Customer (SMB 10-50 employees)", "Target Customer (Micro <10)"],
+    },
+    "utilities": {
+        "customer": ["Target Consumer (power user)", "Target Consumer (price-sensitive)",
+                      "Non-Target Consumer (mainstream)", "Gen-Z Early Adopter",
+                      "Target Customer (SMB 10-50 employees)", "Target Customer (Micro <10)"],
+    },
+    "hospitals": {
+        "investor": ["Crypto VC", "Retail Investor (sophisticated)", "Retail Investor (first-time)"],
+        "customer": ["Target Consumer (power user)", "Target Consumer (price-sensitive)",
+                      "Non-Target Consumer (mainstream)", "Gen-Z Early Adopter",
+                      "Target Customer (SMB 10-50 employees)", "Target Customer (Micro <10)"],
+    },
+    "logistics": {
+        "customer": ["Target Consumer (power user)", "Target Consumer (price-sensitive)",
+                      "Non-Target Consumer (mainstream)", "Gen-Z Early Adopter",
+                      "Target Customer (SMB 10-50 employees)", "Target Customer (Micro <10)"],
+    },
+    "school_districts": {
+        "investor": ["Bio VC", "Crypto VC", "Retail Investor (sophisticated)",
+                      "Retail Investor (first-time)", "Big Tech Corp Dev (could acquire)",
+                      "Corporate VC (financial return)", "Corporate VC (strategic)",
+                      "Hedge Fund Analyst (long/short)", "Deep Tech VC"],
+        "customer": ["Target Consumer (power user)", "Target Consumer (price-sensitive)",
+                      "Non-Target Consumer (mainstream)", "Gen-Z Early Adopter",
+                      "Target Customer (SMB 10-50 employees)", "Target Customer (Micro <10)"],
+    },
+    "individual_buyer": {
+        "customer": ["Target Customer (F500 Enterprise)", "Target Customer (Mid-Market)",
+                      "Target Customer (SMB 10-50 employees)", "Target Customer (Micro <10)",
+                      "Enterprise Procurement Manager", "Enterprise IT Director",
+                      "Enterprise CISO", "Enterprise Chief Data Officer",
+                      "VP Operations (buyer)", "VP Finance (buyer)", "Department Head (budget holder)",
+                      "Line Manager (end user)", "Supply Chain Director", "Facilities Manager",
+                      "Systems Integrator", "Channel Partner (reseller)", "IT Consultant (recommender)"],
+        "operator": ["VP Sales (enterprise)", "COO (operations-heavy)", "Supply Chain Operations Lead",
+                      "Head of Partnerships"],
+    },
+    "low_touch_self_serve": {
+        "customer": ["Target Customer (F500 Enterprise)", "Enterprise Procurement Manager",
+                      "Enterprise IT Director", "Enterprise CISO", "Enterprise Chief Data Officer",
+                      "VP Operations (buyer)", "VP Finance (buyer)", "Department Head (budget holder)",
+                      "Supply Chain Director", "Facilities Manager", "Systems Integrator"],
+        "operator": ["VP Sales (enterprise)", "COO (operations-heavy)", "Supply Chain Operations Lead"],
+    },
+}
+
+STRUCTURED_CONTEXT_HINTS = {
+    "procurement_heavy": {
+        "specialization": "multi-stakeholder buying, procurement checkpoints, budget approval, and long enterprise sales cycles",
+        "investor": ["Series-A VC", "Seed VC", "Corporate VC (strategic)", "Micro VC ($1-5M fund)"],
+        "customer": ["Enterprise Procurement Manager", "Department Head (budget holder)",
+                      "VP Finance (buyer)", "VP Operations (buyer)", "Enterprise IT Director"],
+        "operator": ["VP Sales (enterprise)", "Chief Revenue Officer",
+                      "VP Customer Success", "COO (operations-heavy)"],
+        "analyst": ["Industry Analyst (Gartner)", "Industry Analyst (Forrester)",
+                     "Market Strategist (McKinsey)"],
+        "contrarian": ["Data Privacy Officer", "Regulatory Expert (federal)",
+                        "Antitrust Attorney"],
+        "wildcard": ["Municipal Budget Analyst", "Retired Executive (from this industry)"],
+    },
+    "individual_buyer": {
+        "specialization": "individual or household purchasing, consumer willingness to pay, retention behavior, and direct user value without a formal procurement process",
+        "investor": ["Pre-Seed VC", "Seed VC", "Series-A VC", "Angel Investor (solo)", "Angel Investor (syndicate lead)"],
+        "customer": ["Target Consumer (power user)", "Target Consumer (price-sensitive)",
+                      "Non-Target Consumer (mainstream)", "Gen-Z Early Adopter"],
+        "operator": ["CMO (B2C/DTC)", "Head of Growth", "Chief Product Officer", "VP Sales (PLG/self-serve)"],
+        "analyst": ["Behavioral Economist", "UX Researcher", "Industry Analyst (CB Insights)"],
+        "contrarian": ["Consumer Rights Advocate", "Competitor Product Manager", "Platform Risk Analyst"],
+        "wildcard": ["Gen-Z Early Adopter", "Parent Evaluating For Family",
+                      "Tech-Savvy Retiree (early adopter)"],
+    },
+    "plg_motion": {
+        "specialization": "bottoms-up adoption, self-serve onboarding, product-led growth, and usage-driven expansion",
+        "investor": ["Pre-Seed VC", "Seed VC", "Series-A VC", "Angel Investor (solo)"],
+        "customer": ["Target Customer (SMB 10-50 employees)", "Target Customer (Micro <10)",
+                      "Line Manager (end user)", "Target Consumer (power user)"],
+        "operator": ["Head of Growth", "VP Sales (PLG/self-serve)",
+                      "Product Manager (B2B SaaS)", "VP Customer Success"],
+        "analyst": ["UX Researcher", "Industry Analyst (CB Insights)", "Behavioral Economist"],
+        "contrarian": ["Competitor Product Manager", "Platform Risk Analyst",
+                        "Consumer Rights Advocate"],
+        "wildcard": ["Tech-Savvy Retiree (early adopter)", "High School Student (interested in the field)"],
+    },
+    "low_touch_self_serve": {
+        "specialization": "fast onboarding, minimal implementation overhead, self-serve or app-led activation, and lightweight buying decisions",
+        "investor": ["Pre-Seed VC", "Seed VC", "Series-A VC", "Angel Investor (solo)"],
+        "customer": ["Target Consumer (power user)", "Target Customer (Micro <10)",
+                      "Target Customer (SMB 10-50 employees)", "Line Manager (end user)"],
+        "operator": ["Head of Growth", "VP Sales (PLG/self-serve)",
+                      "Chief Product Officer", "Product Manager (B2B SaaS)"],
+        "analyst": ["UX Researcher", "Behavioral Economist", "Industry Analyst (CB Insights)"],
+        "contrarian": ["Consumer Rights Advocate", "Competitor Product Manager", "Platform Risk Analyst"],
+        "wildcard": ["Tech-Savvy Retiree (early adopter)", "Gen-Z Early Adopter"],
+    },
+    "channel_motion": {
+        "specialization": "partner-led distribution, reseller economics, channel conflict, and implementation intermediaries",
+        "investor": ["Seed VC", "Series-A VC", "Corporate VC (strategic)"],
+        "customer": ["Channel Partner (reseller)", "Systems Integrator", "IT Consultant (recommender)"],
+        "operator": ["Head of Partnerships", "VP Customer Success", "Chief Revenue Officer"],
+        "analyst": ["Market Strategist (BCG)", "Industry Analyst (Forrester)"],
+        "contrarian": ["Competitor Product Manager", "Antitrust Attorney"],
+        "wildcard": ["Industrial Distributor (channel view)", "Local News Reporter (community impact)"],
+    },
+    "high_touch_implementation": {
+        "specialization": "integration-heavy deployments, implementation services, onboarding friction, and time-to-value risk",
+        "investor": ["Series-A VC", "Seed VC", "Corporate VC (strategic)"],
+        "customer": ["Systems Integrator", "Enterprise IT Director",
+                      "Enterprise Procurement Manager", "Department Head (budget holder)"],
+        "operator": ["CTO (scaling stage)", "VP Customer Success",
+                      "COO (operations-heavy)", "Head of Partnerships"],
+        "analyst": ["Industry Analyst (Gartner)", "Market Strategist (McKinsey)"],
+        "contrarian": ["Platform Risk Analyst", "Data Privacy Officer", "Risk Analyst (operational)"],
+        "wildcard": ["Retired Executive (from this industry)", "Industrial Distributor (channel view)"],
+    },
+    "manual_substitute": {
+        "specialization": "manual workflows, spreadsheets, services-heavy substitutes, and change-management friction",
+        "investor": ["Pre-Seed VC", "Seed VC", "Angel Investor (solo)"],
+        "customer": ["Line Manager (end user)", "VP Operations (buyer)",
+                      "Department Head (budget holder)", "Target Customer (Mid-Market)"],
+        "operator": ["Product Manager (B2B SaaS)", "Engineering Manager",
+                      "First-Time Founder (technical)"],
+        "analyst": ["Behavioral Economist", "UX Researcher"],
+        "contrarian": ["Risk Analyst (operational)", "Competitor Product Manager"],
+        "wildcard": ["Retired Executive (from this industry)", "Local News Reporter (community impact)"],
+    },
+    "incumbent_substitute": {
+        "specialization": "incumbent displacement, switching cost, competitive replacement, and vendor lock-in dynamics",
+        "investor": ["Series-A VC", "Seed VC", "Corporate VC (strategic)"],
+        "customer": ["Existing Customer of Incumbent", "Customer Who Churned From Competitor",
+                      "Enterprise Procurement Manager"],
+        "operator": ["Chief Product Officer", "VP Customer Success", "Head of Growth"],
+        "analyst": ["Industry Analyst (Gartner)", "Industry Analyst (Forrester)"],
+        "contrarian": ["Competitor CEO (incumbent)", "Competitor Product Manager", "Antitrust Attorney"],
+        "wildcard": ["Retired Executive (from this industry)", "Tech-Savvy Retiree (early adopter)"],
+    },
+    "technical_founder": {
+        "specialization": "technical founder-led execution, product velocity, architecture credibility, and founder-build risk",
+        "investor": ["Deep Tech VC", "Pre-Seed VC", "Seed VC"],
+        "customer": ["Enterprise IT Director", "Systems Integrator", "Line Manager (end user)"],
+        "operator": ["CTO (early stage)", "Engineering Manager", "VP Engineering (platform)"],
+        "analyst": ["Academic Researcher (CS/AI)", "Technology Futurist"],
+        "contrarian": ["Open Source Maintainer (competing project)", "Big Tech PM (could build this)"],
+        "wildcard": ["Tech-Savvy Retiree (early adopter)", "Philosopher of Technology"],
+    },
+    "domain_expert_founder": {
+        "specialization": "founder-market fit, domain credibility, lived pain, and insider knowledge of buyer workflows",
+        "investor": ["Angel Investor (solo)", "Seed VC", "Series-A VC"],
+        "customer": ["Department Head (budget holder)", "Existing Customer of Incumbent"],
+        "operator": ["Serial Entrepreneur (3+ companies)", "Venture-Backed Founder (adjacent space)",
+                      "COO (operations-heavy)"],
+        "analyst": ["Professor of Entrepreneurship", "Market Strategist (McKinsey)"],
+        "contrarian": ["Competitor CEO (incumbent)", "Risk Analyst (operational)"],
+        "wildcard": ["Retired Executive (from this industry)", "NGO Worker (in the field)"],
+    },
+    "pilot_traction": {
+        "specialization": "pilot-stage validation, LOIs, design partners, and early implementation evidence",
+        "investor": ["Accelerator Partner (YC-style)", "Seed VC", "Angel Investor (solo)", "Micro VC ($1-5M fund)"],
+        "customer": ["Existing Customer of Incumbent", "Customer Who Churned From Competitor",
+                      "Target Customer (Mid-Market)"],
+        "operator": ["VP Customer Success", "Product Manager (B2B SaaS)", "Head of Partnerships"],
+        "analyst": ["Industry Analyst (CB Insights)", "UX Researcher"],
+        "contrarian": ["Risk Analyst (operational)", "Competitor Product Manager"],
+        "wildcard": ["Retired Executive (from this industry)", "Local News Reporter (community impact)"],
+    },
+    "revenue_traction": {
+        "specialization": "paid conversion, revenue quality, customer retention, and commercial execution beyond pilots",
+        "investor": ["Series-A VC", "Seed VC", "Revenue-Based Financing Provider", "Family Office (single family)"],
+        "customer": ["VP Finance (buyer)", "Enterprise Procurement Manager", "Existing Customer of Incumbent"],
+        "operator": ["CFO (venture-backed)", "Chief Revenue Officer", "VP Customer Success"],
+        "analyst": ["Equity Research Analyst (sell-side)", "Industry Analyst (Gartner)"],
+        "contrarian": ["Forensic Accountant", "Risk Analyst (operational)"],
+        "wildcard": ["Retired Executive (from this industry)", "Municipal Budget Analyst"],
+    },
+    "regulatory_risk": {
+        "specialization": "compliance exposure, auditability, legal review, and regulation-driven adoption risk",
+        "investor": ["Impact Investor (social)", "Seed VC", "Series-A VC"],
+        "customer": ["Enterprise Procurement Manager", "Enterprise CISO", "Department Head (budget holder)"],
+        "operator": ["COO (operations-heavy)", "VP Customer Success"],
+        "analyst": ["ESG Analyst", "Think Tank Fellow"],
+        "contrarian": ["Regulatory Expert (federal)", "Data Privacy Officer",
+                        "Insurance Underwriter", "Patent Attorney (IP litigation)"],
+        "wildcard": ["Municipal Budget Analyst", "Parent Evaluating For Family"],
+    },
+    "gtm_risk": {
+        "specialization": "customer acquisition risk, sales execution, messaging fit, and distribution fragility",
+        "investor": ["Seed VC", "Series-A VC", "Angel Investor (solo)"],
+        "customer": ["IT Consultant (recommender)", "Channel Partner (reseller)", "Target Customer (Mid-Market)"],
+        "operator": ["VP Sales (enterprise)", "VP Sales (PLG/self-serve)", "Head of Growth", "Head of Partnerships"],
+        "analyst": ["Behavioral Economist", "Industry Analyst (CB Insights)", "UX Researcher"],
+        "contrarian": ["Competitor CEO (incumbent)", "Competitor Product Manager"],
+        "wildcard": ["Local News Reporter (community impact)", "Retired Executive (from this industry)"],
+    },
+    "technical_risk": {
+        "specialization": "technical execution risk, architecture depth, reliability concerns, and build-vs-buy tradeoffs",
+        "investor": ["Deep Tech VC", "Seed VC", "Corporate VC (strategic)"],
+        "customer": ["Enterprise IT Director", "Systems Integrator"],
+        "operator": ["CTO (early stage)", "CTO (scaling stage)", "Engineering Manager", "VP Engineering (platform)"],
+        "analyst": ["Academic Researcher (CS/AI)", "Technology Futurist"],
+        "contrarian": ["Cybersecurity Expert", "Platform Risk Analyst",
+                        "Open Source Maintainer (competing project)"],
+        "wildcard": ["Philosopher of Technology", "Tech-Savvy Retiree (early adopter)"],
+    },
+    "competition_risk": {
+        "specialization": "moat durability, incumbent response, category crowding, and replaceability",
+        "investor": ["Series-A VC", "Corporate VC (strategic)", "Seed VC"],
+        "customer": ["Existing Customer of Incumbent", "Customer Who Churned From Competitor"],
+        "operator": ["Chief Product Officer", "Head of Growth"],
+        "analyst": ["Industry Analyst (Gartner)", "Industry Analyst (CB Insights)", "Market Strategist (BCG)"],
+        "contrarian": ["Competitor CEO (incumbent)", "Competitor CEO (well-funded startup)",
+                        "Big Tech PM (could build this)", "Short Seller (activist)"],
+        "wildcard": ["Retired Executive (from this industry)", "Local News Reporter (community impact)"],
+    },
+    "workflow_trigger": {
+        "specialization": "broken workflows, fragmented systems, operational friction, and process bottlenecks that trigger adoption",
+        "investor": ["Seed VC", "Series-A VC", "Angel Investor (solo)"],
+        "customer": ["Line Manager (end user)", "Department Head (budget holder)", "VP Operations (buyer)"],
+        "operator": ["Product Manager (B2B SaaS)", "COO (operations-heavy)", "VP Customer Success"],
+        "analyst": ["UX Researcher", "Behavioral Economist"],
+        "contrarian": ["Risk Analyst (operational)", "Competitor Product Manager"],
+        "wildcard": ["Retired Executive (from this industry)", "Tech-Savvy Retiree (early adopter)"],
+    },
+    "cost_savings_trigger": {
+        "specialization": "efficiency budgets, labor replacement, margin pressure, and ROI-driven purchasing",
+        "investor": ["Seed VC", "Series-A VC", "Angel Investor (solo)"],
+        "customer": ["VP Finance (buyer)", "VP Operations (buyer)", "Department Head (budget holder)"],
+        "operator": ["CFO (venture-backed)", "COO (operations-heavy)", "Chief Revenue Officer"],
+        "analyst": ["Behavioral Economist", "Macro Economist"],
+        "contrarian": ["Risk Analyst (operational)", "Forensic Accountant"],
+        "wildcard": ["Municipal Budget Analyst", "Retired Executive (from this industry)"],
+    },
+    "compliance_trigger": {
+        "specialization": "audit deadlines, compliance pain, security or safety mandates, and externally forced buying behavior",
+        "investor": ["Impact Investor (social)", "Seed VC", "Series-A VC"],
+        "customer": ["Enterprise Procurement Manager", "Enterprise CISO", "VP Operations (buyer)"],
+        "operator": ["COO (operations-heavy)", "VP Customer Success"],
+        "analyst": ["ESG Analyst", "Think Tank Fellow"],
+        "contrarian": ["Regulatory Expert (federal)", "Data Privacy Officer", "Insurance Underwriter"],
+        "wildcard": ["Municipal Budget Analyst", "Parent Evaluating For Family"],
+    },
 }
 
 _CONTEXT_STOPWORDS = {
@@ -826,6 +1229,27 @@ _CONTEXT_STOPWORDS = {
     "company", "companies", "customer", "customers", "buyers", "teams", "team",
     "solution", "solutions", "platform", "platforms", "software", "industry",
 }
+
+_B2B_HEAVY_CONTEXT_KEYS = {
+    "industrial_manufacturing",
+    "enterprise_b2b",
+    "smb_b2b",
+    "public_sector",
+    "oil_gas",
+    "utilities",
+    "hospitals",
+    "logistics",
+    "school_districts",
+}
+
+_CONSUMER_HEAVY_CONTEXT_KEYS = {
+    "individual_buyer",
+    "low_touch_self_serve",
+}
+
+
+def _context_hint_registry() -> Dict[str, Dict[str, Any]]:
+    return {**CONTEXT_ROLE_HINTS, **STRUCTURED_CONTEXT_HINTS}
 
 # Geographic regions for target market weighting
 GEO_REGIONS = {
@@ -1057,6 +1481,272 @@ class PersonaEngine:
         return stage_map.get(s, s)
 
     @staticmethod
+    def _context_fragments(industry: str = "", product: str = "",
+                           target_market: str = "", end_user: str = "",
+                           economic_buyer: str = "", switching_trigger: str = "",
+                           current_substitute: str = "") -> List[str]:
+        return [
+            fragment.strip()
+            for fragment in [
+                industry or "",
+                product or "",
+                target_market or "",
+                end_user or "",
+                economic_buyer or "",
+                switching_trigger or "",
+                current_substitute or "",
+            ]
+            if fragment and fragment.strip()
+        ]
+
+    @staticmethod
+    def _context_value(persona_context: Optional[Dict[str, Any]], key: str) -> str:
+        if not persona_context:
+            return ""
+        value = persona_context.get(key, "")
+        if isinstance(value, list):
+            return ", ".join(str(item).strip() for item in value if str(item).strip())
+        return str(value).strip() if value is not None else ""
+
+    @staticmethod
+    def _parse_intish(value: str) -> int:
+        if not value:
+            return 0
+        match = re.search(r'-?\d+', value.replace(',', ''))
+        return int(match.group(0)) if match else 0
+
+    @classmethod
+    def _structured_context_keys(cls, persona_context: Optional[Dict[str, Any]] = None) -> List[str]:
+        if not persona_context:
+            return []
+
+        target_market = cls._context_value(persona_context, "target_market").lower()
+        end_user = cls._context_value(persona_context, "end_user").lower()
+        sales_motion = cls._context_value(persona_context, "sales_motion").lower()
+        pricing_model = cls._context_value(persona_context, "pricing_model").lower()
+        typical_contract_size = cls._context_value(persona_context, "typical_contract_size").lower()
+        implementation_complexity = cls._context_value(persona_context, "implementation_complexity").lower()
+        time_to_value = cls._context_value(persona_context, "time_to_value").lower()
+        current_substitute = cls._context_value(persona_context, "current_substitute").lower()
+        switching_trigger = cls._context_value(persona_context, "switching_trigger").lower()
+        economic_buyer = cls._context_value(persona_context, "economic_buyer").lower()
+        founder_problem_fit = cls._context_value(persona_context, "founder_problem_fit")
+        founder_years = cls._parse_intish(cls._context_value(persona_context, "founder_years_in_industry"))
+        technical_founder = cls._context_value(persona_context, "technical_founder").lower()
+        primary_risk_category = cls._context_value(persona_context, "primary_risk_category").lower()
+        risk_text = cls._context_value(persona_context, "risk").lower()
+        traction = cls._context_value(persona_context, "traction").lower()
+        has_customers = cls._context_value(persona_context, "has_customers").lower()
+        generating_revenue = cls._context_value(persona_context, "generating_revenue").lower()
+        loi_count = cls._parse_intish(cls._context_value(persona_context, "loi_count"))
+        pilot_count = cls._parse_intish(cls._context_value(persona_context, "pilot_count"))
+        paid_customers = cls._parse_intish(cls._context_value(persona_context, "paid_customer_count"))
+        active_customers = cls._parse_intish(cls._context_value(persona_context, "active_customer_count"))
+        monthly_revenue = cls._parse_intish(cls._context_value(persona_context, "monthly_revenue_value"))
+        revenue = cls._context_value(persona_context, "revenue").lower()
+        business_model = cls._context_value(persona_context, "business_model").lower()
+        stage = cls._context_value(persona_context, "stage").lower()
+
+        keys: List[str] = []
+        audience_profile = " ".join(
+            part for part in [target_market, end_user, economic_buyer, business_model]
+            if part
+        )
+
+        individual_buyer_terms = (
+            "individual", "consumer", "parent", "student", "family",
+            "household", "shopper", "gamer", "creator", "freelancer",
+            "patient", "member", "subscriber"
+        )
+        if any(term in audience_profile for term in individual_buyer_terms):
+            keys.append("individual_buyer")
+
+        if any(term in sales_motion for term in ("plg", "product-led", "product led", "self-serve", "self serve", "inbound")):
+            keys.append("plg_motion")
+        if (
+            any(term in sales_motion for term in ("plg", "product-led", "product led", "self-serve", "self serve", "inbound", "app store"))
+            or any(term in pricing_model for term in ("monthly", "subscription", "self-serve", "self serve", "usage"))
+        ) and (
+            any(term in implementation_complexity for term in ("low", "simple", "minimal", "none"))
+            or any(term in time_to_value for term in ("same day", "same-day", "same week", "immediate", "instantly", "minutes", "days"))
+            or any(term in typical_contract_size for term in ("per month", "/month", "monthly", "<$100", "$15", "$20", "$29", "$49", "$99"))
+        ):
+            keys.append("low_touch_self_serve")
+        if any(term in sales_motion for term in ("channel", "partner", "reseller", "distribution")):
+            keys.append("channel_motion")
+
+        procurement_terms = (
+            "procurement", "cio", "cfo", "finance", "legal", "operations", "compliance",
+            "administrator", "district", "budget", "budget owner", "it leader"
+        )
+        if any(term in economic_buyer for term in procurement_terms) or \
+           any(term in sales_motion for term in ("enterprise", "top-down", "top down", "outbound")) or \
+           any(term in pricing_model for term in ("custom", "annual", "contract")) or \
+           any(term in typical_contract_size for term in ("acv", "$25", "$50", "$100", "annual", "enterprise")):
+            keys.append("procurement_heavy")
+
+        if any(term in implementation_complexity for term in ("medium", "high", "complex")) or \
+           any(term in time_to_value for term in ("month", "months", "quarter", "integration", "implementation")):
+            keys.append("high_touch_implementation")
+
+        if current_substitute:
+            if any(term in current_substitute for term in ("spreadsheet", "excel", "manual", "consultant", "email", "none")):
+                keys.append("manual_substitute")
+            else:
+                keys.append("incumbent_substitute")
+
+        if technical_founder in {"yes", "true", "technical"}:
+            keys.append("technical_founder")
+        if founder_problem_fit or founder_years >= 5:
+            keys.append("domain_expert_founder")
+
+        if pilot_count > 0 or loi_count > 0 or "pilot" in traction or "loi" in traction or has_customers == "yes":
+            keys.append("pilot_traction")
+        if generating_revenue == "yes" or paid_customers > 0 or active_customers > 0 or monthly_revenue > 0 or revenue:
+            keys.append("revenue_traction")
+
+        risk_bucket = f"{primary_risk_category} {risk_text}"
+        if any(term in risk_bucket for term in ("regulat", "compliance", "privacy", "security", "legal")):
+            keys.append("regulatory_risk")
+        if any(term in risk_bucket for term in ("go-to-market", "gtm", "distribution", "sales", "customer acquisition", "adoption")):
+            keys.append("gtm_risk")
+        if any(term in risk_bucket for term in ("technical", "product", "engineering", "security", "platform")):
+            keys.append("technical_risk")
+        if any(term in risk_bucket for term in ("competition", "competitive", "moat", "incumbent")):
+            keys.append("competition_risk")
+
+        if any(term in switching_trigger for term in ("workflow", "manual", "process", "fragment", "integration", "delay", "slow")):
+            keys.append("workflow_trigger")
+        if any(term in switching_trigger for term in ("cost", "labor", "efficiency", "margin", "save", "downtime")):
+            keys.append("cost_savings_trigger")
+        if any(term in switching_trigger for term in ("audit", "compliance", "regulat", "security", "privacy", "safety", "mandate")):
+            keys.append("compliance_trigger")
+
+        if "marketplace" in business_model and stage in {"pre-seed", "seed"}:
+            keys.append("gtm_risk")
+
+        return cls._dedupe_preserve_order(keys)
+
+    @classmethod
+    def _routing_brief_lines(cls, persona_context: Optional[Dict[str, Any]] = None) -> List[str]:
+        if not persona_context:
+            return []
+
+        lines: List[str] = []
+        country = cls._context_value(persona_context, "country")
+        location = cls._context_value(persona_context, "location")
+        website_url = cls._context_value(persona_context, "website_url")
+        year_founded = cls._context_value(persona_context, "year_founded")
+        business_model = cls._context_value(persona_context, "business_model")
+        pricing_model = cls._context_value(persona_context, "pricing_model")
+        starting_price = cls._context_value(persona_context, "starting_price")
+        sales_motion = cls._context_value(persona_context, "sales_motion")
+        typical_contract_size = cls._context_value(persona_context, "typical_contract_size")
+        implementation_complexity = cls._context_value(persona_context, "implementation_complexity")
+        time_to_value = cls._context_value(persona_context, "time_to_value")
+        traction = cls._context_value(persona_context, "traction")
+        loi_count = cls._context_value(persona_context, "loi_count")
+        pilot_count = cls._context_value(persona_context, "pilot_count")
+        active_customers = cls._context_value(persona_context, "active_customer_count")
+        paid_customers = cls._context_value(persona_context, "paid_customer_count")
+        monthly_revenue = cls._context_value(persona_context, "monthly_revenue_value")
+        growth_rate = cls._context_value(persona_context, "growth_rate")
+        revenue = cls._context_value(persona_context, "revenue")
+        funding = cls._context_value(persona_context, "funding")
+        advantage = cls._context_value(persona_context, "advantage")
+        ask = cls._context_value(persona_context, "ask")
+        team = cls._context_value(persona_context, "team")
+        founder_fit = cls._context_value(persona_context, "founder_problem_fit")
+        founder_years = cls._context_value(persona_context, "founder_years_in_industry")
+        primary_risk = cls._context_value(persona_context, "primary_risk_category")
+        risk = cls._context_value(persona_context, "risk")
+        currently_fundraising = cls._context_value(persona_context, "currently_fundraising")
+        has_customers = cls._context_value(persona_context, "has_customers")
+        generating_revenue = cls._context_value(persona_context, "generating_revenue")
+        keywords = cls._context_value(persona_context, "keywords")
+        priority_areas = cls._context_value(persona_context, "industry_priority_areas")
+        extra_context = cls._context_value(persona_context, "extra_context")
+        demo_url = cls._context_value(persona_context, "demo_url")
+        customer_proof_url = cls._context_value(persona_context, "customer_proof_url")
+        pilot_docs_url = cls._context_value(persona_context, "pilot_docs_url")
+        known_competitors = cls._context_value(persona_context, "known_competitors")
+
+        if country or location:
+            lines.append(f"Company geography: {', '.join([part for part in [location, country] if part])}.")
+        if website_url or year_founded:
+            age_bits = " / ".join(part for part in [website_url, year_founded] if part)
+            lines.append(f"Company baseline: {age_bits}.")
+        if business_model:
+            lines.append(f"Business model: {business_model}.")
+        if pricing_model or starting_price:
+            pricing_bits = " / ".join(part for part in [pricing_model, starting_price] if part)
+            lines.append(f"Pricing posture: {pricing_bits}.")
+        if sales_motion or typical_contract_size:
+            motion_bits = " / ".join(part for part in [sales_motion, typical_contract_size] if part)
+            lines.append(f"Commercial motion: {motion_bits}.")
+        if implementation_complexity or time_to_value:
+            delivery_bits = " / ".join(part for part in [implementation_complexity, time_to_value] if part)
+            lines.append(f"Delivery motion: {delivery_bits}.")
+        if traction:
+            lines.append(f"Founder-reported traction: {traction}.")
+        traction_bits = " / ".join(
+            part for part in [
+                f"LOIs {loi_count}" if loi_count else "",
+                f"pilots {pilot_count}" if pilot_count else "",
+                f"active customers {active_customers}" if active_customers else "",
+                f"paid customers {paid_customers}" if paid_customers else "",
+                f"monthly revenue {monthly_revenue}" if monthly_revenue else "",
+                f"growth {growth_rate}" if growth_rate else "",
+                revenue,
+            ]
+            if part
+        )
+        if traction_bits or has_customers or generating_revenue:
+            lines.append(
+                f"Commercial proof: {' / '.join(part for part in [traction_bits, f'has customers={has_customers}' if has_customers else '', f'generating revenue={generating_revenue}' if generating_revenue else ''] if part)}."
+            )
+        if funding or currently_fundraising:
+            lines.append(
+                f"Capital context: {' / '.join(part for part in [funding, f'currently fundraising={currently_fundraising}' if currently_fundraising else ''] if part)}."
+            )
+        if team:
+            lines.append(f"Team profile: {team[:220]}.")
+        if founder_fit or founder_years:
+            founder_bits = " / ".join(
+                part for part in [
+                    founder_fit[:180] if founder_fit else "",
+                    f"{founder_years} years in industry" if founder_years else "",
+                ]
+                if part
+            )
+            if founder_bits:
+                lines.append(f"Founder credibility: {founder_bits}.")
+        if advantage:
+            lines.append(f"Claimed advantage or moat: {advantage[:220]}.")
+        if ask:
+            lines.append(f"Pressure-test request: {ask[:220]}.")
+        if primary_risk or risk:
+            risk_bits = " / ".join(part for part in [primary_risk, risk[:220] if risk else ""] if part)
+            lines.append(f"Risk emphasis: {risk_bits}.")
+        if known_competitors:
+            lines.append(f"Named competitors: {known_competitors[:220]}.")
+        if priority_areas:
+            lines.append(f"Priority areas named by founder: {priority_areas}.")
+        if keywords:
+            lines.append(f"Keywords supplied by founder: {keywords}.")
+        evidence_links = [label for label, value in [
+            ("demo", demo_url),
+            ("customer proof", customer_proof_url),
+            ("pilot docs", pilot_docs_url),
+        ] if value]
+        if evidence_links:
+            lines.append(f"Evidence artifacts available: {', '.join(evidence_links)}.")
+        if extra_context:
+            lines.append(f"Additional founder context: {extra_context[:260]}.")
+
+        return lines[:14]
+
+    @staticmethod
     def _dedupe_preserve_order(values: List[str]) -> List[str]:
         seen = set()
         ordered = []
@@ -1068,19 +1758,48 @@ class PersonaEngine:
 
     @classmethod
     def _matching_context_keys(cls, industry: str = "", product: str = "",
-                               target_market: str = "") -> List[str]:
-        text = " ".join([industry or "", product or "", target_market or ""]).lower()
+                               target_market: str = "", end_user: str = "",
+                               economic_buyer: str = "", switching_trigger: str = "",
+                               current_substitute: str = "",
+                               persona_context: Optional[Dict[str, Any]] = None) -> List[str]:
+        text = " ".join(cls._context_fragments(
+            industry=industry,
+            product=product,
+            target_market=target_market,
+            end_user=end_user,
+            economic_buyer=economic_buyer,
+            switching_trigger=switching_trigger,
+            current_substitute=current_substitute,
+        )).lower()
         matches = []
-        for key, spec in CONTEXT_ROLE_HINTS.items():
+        for key, spec in _context_hint_registry().items():
             if any(keyword in text for keyword in spec.get("keywords", [])):
                 matches.append(key)
+        matches.extend(cls._structured_context_keys(persona_context))
         return cls._dedupe_preserve_order(matches)
 
     @classmethod
     def _context_keywords(cls, industry: str = "", product: str = "",
-                          target_market: str = "", stage: str = "") -> List[str]:
+                          target_market: str = "", end_user: str = "",
+                          economic_buyer: str = "", switching_trigger: str = "",
+                          current_substitute: str = "", stage: str = "",
+                          persona_context: Optional[Dict[str, Any]] = None) -> List[str]:
         terms = []
-        raw_text = " ".join([industry or "", product or "", target_market or ""])
+        raw_parts = cls._context_fragments(
+            industry=industry,
+            product=product,
+            target_market=target_market,
+            end_user=end_user,
+            economic_buyer=economic_buyer,
+            switching_trigger=switching_trigger,
+            current_substitute=current_substitute,
+        ) + cls._routing_brief_lines(persona_context)
+        if persona_context:
+            raw_parts.extend([
+                cls._context_value(persona_context, "keywords"),
+                cls._context_value(persona_context, "industry_priority_areas"),
+            ])
+        raw_text = " ".join(part for part in raw_parts if part)
         for token in re.split(r'[^a-z0-9]+', raw_text.lower()):
             if len(token) >= 4 and token not in _CONTEXT_STOPWORDS:
                 terms.append(token)
@@ -1088,9 +1807,18 @@ class PersonaEngine:
         if industry_key:
             terms.append(industry_key)
             terms.extend([kw for kw in INDUSTRY_KEYWORDS.get(industry_key, []) if len(kw) >= 4])
-        for key in cls._matching_context_keys(industry, product, target_market):
+        for key in cls._matching_context_keys(
+            industry=industry,
+            product=product,
+            target_market=target_market,
+            end_user=end_user,
+            economic_buyer=economic_buyer,
+            switching_trigger=switching_trigger,
+            current_substitute=current_substitute,
+            persona_context=persona_context,
+        ):
             terms.extend(re.split(r'[^a-z0-9]+', key.lower()))
-            for keyword in CONTEXT_ROLE_HINTS.get(key, {}).get("keywords", []):
+            for keyword in _context_hint_registry().get(key, {}).get("keywords", []):
                 terms.extend(re.split(r'[^a-z0-9]+', keyword.lower()))
         normalized_stage = cls._normalize_stage(stage)
         if normalized_stage:
@@ -1101,32 +1829,72 @@ class PersonaEngine:
 
     @classmethod
     def _context_specialization(cls, industry: str = "", product: str = "",
-                                target_market: str = "") -> str:
+                                target_market: str = "", end_user: str = "",
+                                economic_buyer: str = "", switching_trigger: str = "",
+                                current_substitute: str = "",
+                                persona_context: Optional[Dict[str, Any]] = None) -> str:
         specializations = [
-            CONTEXT_ROLE_HINTS[key]["specialization"]
-            for key in cls._matching_context_keys(industry, product, target_market)
-            if CONTEXT_ROLE_HINTS.get(key, {}).get("specialization")
+            _context_hint_registry()[key]["specialization"]
+            for key in cls._matching_context_keys(
+                industry=industry,
+                product=product,
+                target_market=target_market,
+                end_user=end_user,
+                economic_buyer=economic_buyer,
+                switching_trigger=switching_trigger,
+                current_substitute=current_substitute,
+                persona_context=persona_context,
+            )
+            if _context_hint_registry().get(key, {}).get("specialization")
         ]
         return "; ".join(cls._dedupe_preserve_order(specializations))
 
     @classmethod
     def _compose_priority_roles(cls, zone: str, industry: str = "", product: str = "",
-                                target_market: str = "", stage: str = "") -> List[str]:
+                                target_market: str = "", end_user: str = "",
+                                economic_buyer: str = "", switching_trigger: str = "",
+                                current_substitute: str = "", stage: str = "",
+                                persona_context: Optional[Dict[str, Any]] = None) -> List[str]:
         roles: List[str] = []
         normalized_stage = cls._normalize_stage(stage)
         roles.extend(STAGE_ROLE_PRIORITIES.get(normalized_stage, {}).get(zone, []))
-        for key in cls._matching_context_keys(industry, product, target_market):
-            roles.extend(CONTEXT_ROLE_HINTS.get(key, {}).get(zone, []))
+        for key in cls._matching_context_keys(
+            industry=industry,
+            product=product,
+            target_market=target_market,
+            end_user=end_user,
+            economic_buyer=economic_buyer,
+            switching_trigger=switching_trigger,
+            current_substitute=current_substitute,
+            persona_context=persona_context,
+        ):
+            roles.extend(_context_hint_registry().get(key, {}).get(zone, []))
         industry_key = cls._match_industry_key(industry)
         if industry_key:
             roles.extend(INDUSTRY_ROLE_PRIORITY.get(industry_key, {}).get(zone, []))
         zone_roles = set(ZONE_ROLES.get(zone, []))
-        return [role for role in cls._dedupe_preserve_order(roles) if role in zone_roles]
+        deduped = [role for role in cls._dedupe_preserve_order(roles) if role in zone_roles]
+        return cls._filter_roles_for_context(
+            zone=zone,
+            roles=deduped,
+            industry=industry,
+            product=product,
+            target_market=target_market,
+            end_user=end_user,
+            economic_buyer=economic_buyer,
+            switching_trigger=switching_trigger,
+            current_substitute=current_substitute,
+            persona_context=persona_context,
+            stage=stage,
+        )
 
     @classmethod
     def _filter_roles_for_context(cls, zone: str, roles: List[str], industry: str = "",
                                   product: str = "", target_market: str = "",
-                                  stage: str = "") -> List[str]:
+                                  end_user: str = "", economic_buyer: str = "",
+                                  switching_trigger: str = "", current_substitute: str = "",
+                                  stage: str = "",
+                                  persona_context: Optional[Dict[str, Any]] = None) -> List[str]:
         available = list(roles)
         normalized_stage = cls._normalize_stage(stage)
         stage_exclusions = STAGE_ROLE_EXCLUSIONS.get(normalized_stage, {}).get(zone, [])
@@ -1137,6 +1905,20 @@ class PersonaEngine:
             exclusions = INDUSTRY_ROLE_EXCLUSIONS.get(ind_key, [])
             if exclusions:
                 available = [r for r in available if not any(ex.lower() in r.lower() for ex in exclusions)]
+        context_keys = cls._matching_context_keys(
+            industry=industry,
+            product=product,
+            target_market=target_market,
+            end_user=end_user,
+            economic_buyer=economic_buyer,
+            switching_trigger=switching_trigger,
+            current_substitute=current_substitute,
+            persona_context=persona_context,
+        )
+        for key in context_keys:
+            zone_exclusions = CONTEXT_ROLE_EXCLUSIONS.get(key, {}).get(zone, [])
+            if zone_exclusions:
+                available = [r for r in available if r not in zone_exclusions]
         return available or list(roles)
 
     @staticmethod
@@ -1153,10 +1935,19 @@ class PersonaEngine:
         return any(term in text for term in strong_terms)
 
     @classmethod
-    def _pick_geography(cls, zone: str, target_market: str = "") -> str:
-        if not target_market:
-            return random.choice(GEOGRAPHIC_LENS)
+    def _pick_geography(cls, zone: str, target_market: str = "",
+                        persona_context: Optional[Dict[str, Any]] = None) -> str:
         region = cls._match_geo_region(target_market)
+        if not region and persona_context:
+            region = cls._match_geo_region(" ".join(
+                part for part in [
+                    cls._context_value(persona_context, "country"),
+                    cls._context_value(persona_context, "location"),
+                ]
+                if part
+            ))
+        if not target_market and not region:
+            return random.choice(GEOGRAPHIC_LENS)
         region_geos = GEO_REGIONS.get(region, []) if region else []
         weight = GEO_ZONE_WEIGHT.get(zone, 0.35)
         if zone == "wildcard" and region_geos:
@@ -1167,12 +1958,23 @@ class PersonaEngine:
 
     @classmethod
     def _tune_distribution_for_context(cls, distribution: Dict[str, int], industry: str = "",
-                                       product: str = "", target_market: str = "") -> Dict[str, int]:
+                                       product: str = "", target_market: str = "",
+                                       end_user: str = "", economic_buyer: str = "",
+                                       switching_trigger: str = "", current_substitute: str = "",
+                                       persona_context: Optional[Dict[str, Any]] = None) -> Dict[str, int]:
         tuned = dict(distribution)
-        context_keys = set(cls._matching_context_keys(industry, product, target_market))
-        b2b_context = context_keys.intersection({
-            "industrial_manufacturing", "enterprise_b2b", "smb_b2b", "public_sector"
-        })
+        context_keys = set(cls._matching_context_keys(
+            industry=industry,
+            product=product,
+            target_market=target_market,
+            end_user=end_user,
+            economic_buyer=economic_buyer,
+            switching_trigger=switching_trigger,
+            current_substitute=current_substitute,
+            persona_context=persona_context,
+        ))
+        b2b_context = context_keys.intersection(_B2B_HEAVY_CONTEXT_KEYS)
+        consumer_context = context_keys.intersection(_CONSUMER_HEAVY_CONTEXT_KEYS)
         if tuned.get("wildcard", 0) > 2 and b2b_context:
             total_agents = sum(tuned.values())
             wildcard_cap = 2 if total_agents <= 25 else 3 if total_agents <= 50 else 4
@@ -1183,6 +1985,36 @@ class PersonaEngine:
                 for idx in range(shift):
                     zone = receivers[idx % len(receivers)]
                     tuned[zone] = tuned.get(zone, 0) + 1
+        if consumer_context and not b2b_context:
+            if tuned.get("investor", 0) > 1:
+                tuned["investor"] -= 1
+                tuned["customer"] = tuned.get("customer", 0) + 1
+            if tuned.get("analyst", 0) > 1:
+                tuned["analyst"] -= 1
+                tuned["wildcard"] = tuned.get("wildcard", 0) + 1
+            if "low_touch_self_serve" in context_keys and tuned.get("operator", 0) > 1:
+                tuned["operator"] -= 1
+                tuned["customer"] = tuned.get("customer", 0) + 1
+        if "high_touch_implementation" in context_keys or "regulatory_risk" in context_keys or "compliance_trigger" in context_keys:
+            if tuned.get("wildcard", 0) > 2:
+                tuned["wildcard"] -= 1
+                tuned["contrarian"] = tuned.get("contrarian", 0) + 1
+            tuned["operator"] = tuned.get("operator", 0) + 1
+            if tuned.get("customer", 0) > 1:
+                tuned["customer"] -= 1
+        if "plg_motion" in context_keys:
+            if tuned.get("analyst", 0) > 1:
+                tuned["analyst"] -= 1
+                tuned["customer"] = tuned.get("customer", 0) + 1
+            tuned["operator"] = tuned.get("operator", 0) + 1
+        if "channel_motion" in context_keys:
+            if tuned.get("wildcard", 0) > 1:
+                tuned["wildcard"] -= 1
+                tuned["customer"] = tuned.get("customer", 0) + 1
+            tuned["operator"] = tuned.get("operator", 0) + 1
+        if "revenue_traction" in context_keys and tuned.get("wildcard", 0) > 1:
+            tuned["wildcard"] -= 1
+            tuned["investor"] = tuned.get("investor", 0) + 1
         return tuned
 
     def _count_lines(self, filepath: str = _PERSONAS_FILE) -> int:
@@ -1240,13 +2072,24 @@ class PersonaEngine:
 
     def select_personas(self, count: int, industry: str = "",
                         product: str = "", target_market: str = "",
+                        end_user: str = "", economic_buyer: str = "",
+                        switching_trigger: str = "", current_substitute: str = "",
+                        persona_context: Optional[Dict[str, Any]] = None,
                         stage: str = "", keywords: List[str] = None,
                         zone: str = "wildcard") -> List[Persona]:
         if keywords is None:
             keywords = []
         search_terms = self._dedupe_preserve_order(
             list(keywords) + self._context_keywords(
-                industry=industry, product=product, target_market=target_market, stage=stage
+                industry=industry,
+                product=product,
+                target_market=target_market,
+                end_user=end_user,
+                economic_buyer=economic_buyer,
+                switching_trigger=switching_trigger,
+                current_substitute=current_substitute,
+                persona_context=persona_context,
+                stage=stage,
             )
         )
         search_terms.extend([
@@ -1255,7 +2098,16 @@ class PersonaEngine:
             "customer", "consumer", "product", "market", "sales",
         ])
         search_terms = self._dedupe_preserve_order(search_terms)
-        context_specialization = self._context_specialization(industry, product, target_market)
+        context_specialization = self._context_specialization(
+            industry=industry,
+            product=product,
+            target_market=target_market,
+            end_user=end_user,
+            economic_buyer=economic_buyer,
+            switching_trigger=switching_trigger,
+            current_substitute=current_substitute,
+            persona_context=persona_context,
+        )
 
         personas: List[Persona] = []
         total_dataset = self._persona_count + self._personahub_count + self._personahub_elite_count
@@ -1286,7 +2138,12 @@ class PersonaEngine:
                         personas.append(Persona(
                             name=desc[:80],
                             prompt=self._dataset_persona_to_prompt(
-                                full_desc, zone=zone, domain_specialization=context_specialization
+                                full_desc, zone=zone, domain_specialization=context_specialization,
+                                target_market=target_market, end_user=end_user,
+                                economic_buyer=economic_buyer,
+                                switching_trigger=switching_trigger,
+                                current_substitute=current_substitute, stage=stage,
+                                persona_context=persona_context,
                             ),
                             source="personahub_elite",
                             labels=data.get('labels', []),
@@ -1314,7 +2171,12 @@ class PersonaEngine:
                         personas.append(Persona(
                             name=desc[:80],
                             prompt=self._dataset_persona_to_prompt(
-                                desc, zone=zone, domain_specialization=context_specialization
+                                desc, zone=zone, domain_specialization=context_specialization,
+                                target_market=target_market, end_user=end_user,
+                                economic_buyer=economic_buyer,
+                                switching_trigger=switching_trigger,
+                                current_substitute=current_substitute, stage=stage,
+                                persona_context=persona_context,
                             ),
                             source="personahub",
                             labels=data.get('labels', []),
@@ -1334,7 +2196,12 @@ class PersonaEngine:
                             personas.append(Persona(
                                 name=desc[:80],
                                 prompt=self._dataset_persona_to_prompt(
-                                    desc, zone=zone, domain_specialization=context_specialization
+                                    desc, zone=zone, domain_specialization=context_specialization,
+                                    target_market=target_market, end_user=end_user,
+                                    economic_buyer=economic_buyer,
+                                    switching_trigger=switching_trigger,
+                                    current_substitute=current_substitute, stage=stage,
+                                    persona_context=persona_context,
                                 ),
                                 source="dataset",
                                 labels=data.get('labels', []),
@@ -1355,7 +2222,12 @@ class PersonaEngine:
                         personas.append(Persona(
                             name=desc[:80],
                             prompt=self._dataset_persona_to_prompt(
-                                desc, zone=zone, domain_specialization=context_specialization
+                                desc, zone=zone, domain_specialization=context_specialization,
+                                target_market=target_market, end_user=end_user,
+                                economic_buyer=economic_buyer,
+                                switching_trigger=switching_trigger,
+                                current_substitute=current_substitute, stage=stage,
+                                persona_context=persona_context,
                             ),
                             source="dataset",
                             labels=data.get('labels', []),
@@ -1365,18 +2237,30 @@ class PersonaEngine:
 
             personas.extend(self._generate_personas(
                 generated_count, zone=zone, startup_industry=industry,
-                product=product, target_market=target_market, stage=stage,
+                product=product, target_market=target_market,
+                end_user=end_user, economic_buyer=economic_buyer,
+                switching_trigger=switching_trigger,
+                current_substitute=current_substitute, persona_context=persona_context,
+                stage=stage,
             ))
         else:
             personas = self._generate_personas(
                 count, zone=zone, startup_industry=industry,
-                product=product, target_market=target_market, stage=stage,
+                product=product, target_market=target_market,
+                end_user=end_user, economic_buyer=economic_buyer,
+                switching_trigger=switching_trigger,
+                current_substitute=current_substitute, persona_context=persona_context,
+                stage=stage,
             )
 
         while len(personas) < count:
             personas.extend(self._generate_personas(
                 count - len(personas), zone=zone, startup_industry=industry,
-                product=product, target_market=target_market, stage=stage,
+                product=product, target_market=target_market,
+                end_user=end_user, economic_buyer=economic_buyer,
+                switching_trigger=switching_trigger,
+                current_substitute=current_substitute, persona_context=persona_context,
+                stage=stage,
             ))
         personas = personas[:count]
         random.shuffle(personas)
@@ -1414,13 +2298,30 @@ class PersonaEngine:
 
     @staticmethod
     def _dataset_persona_to_prompt(persona_text: str, zone: str = "wildcard",
-                                   domain_specialization: str = "") -> str:
+                                   domain_specialization: str = "", target_market: str = "",
+                                   end_user: str = "", economic_buyer: str = "",
+                                   switching_trigger: str = "",
+                                   current_substitute: str = "", stage: str = "",
+                                   persona_context: Optional[Dict[str, Any]] = None) -> str:
         zone_pressure = PersonaEngine.ZONE_PROMPTS.get(zone, PersonaEngine.ZONE_PROMPTS.get("wildcard", ""))
-        specialization = (
-            f"\n\nYour domain specialization: {domain_specialization}."
-            if domain_specialization else ""
-        )
-        return f"You are: {persona_text}{specialization}\n\n{zone_pressure}"
+        context_lines = []
+        if domain_specialization:
+            context_lines.append(f"Your domain specialization: {domain_specialization}.")
+        if target_market:
+            context_lines.append(f"You regularly work with this target market: {target_market}.")
+        if end_user:
+            context_lines.append(f"The day-to-day end user in the buying process is: {end_user}.")
+        if economic_buyer:
+            context_lines.append(f"The economic buyer or budget owner is: {economic_buyer}.")
+        if current_substitute:
+            context_lines.append(f"Buyers usually compare this against: {current_substitute}.")
+        if switching_trigger:
+            context_lines.append(f"Buyers switch when this trigger becomes acute: {switching_trigger}.")
+        if stage:
+            context_lines.append(f"Calibrate your expectations for a {stage} startup, not a later-stage company.")
+        context_lines.extend(PersonaEngine._routing_brief_lines(persona_context))
+        context_block = "\n\n" + "\n".join(context_lines) if context_lines else ""
+        return f"You are: {persona_text}{context_block}\n\n{zone_pressure}"
 
     # Zone-specific evaluation pressure
     ZONE_PROMPTS = {
@@ -1485,7 +2386,10 @@ class PersonaEngine:
     @staticmethod
     def _generate_personas(count: int, zone: str = "wildcard", startup_industry: str = "",
                            product: str = "", priority_roles: Optional[List[str]] = None,
-                           target_market: str = "", stage: str = "",
+                           target_market: str = "", end_user: str = "",
+                           economic_buyer: str = "", switching_trigger: str = "",
+                           current_substitute: str = "", persona_context: Optional[Dict[str, Any]] = None,
+                           stage: str = "",
                            exclude_roles: Optional[set] = None) -> List[Persona]:
         """Generate personas with behavioral depth across 11 dimensions.
         priority_roles: if provided, 60% of slots use these roles (industry-curated)."""
@@ -1495,13 +2399,31 @@ class PersonaEngine:
         focus_industry = startup_industry if startup_industry else random.choice(INDUSTRY_FOCUS)
         context_priority_roles = PersonaEngine._compose_priority_roles(
             zone=zone, industry=startup_industry, product=product,
-            target_market=target_market, stage=stage,
+            target_market=target_market, end_user=end_user,
+            economic_buyer=economic_buyer, switching_trigger=switching_trigger,
+            current_substitute=current_substitute, persona_context=persona_context,
+            stage=stage,
         )
         merged_priority_roles = PersonaEngine._dedupe_preserve_order(
             list(priority_roles or []) + context_priority_roles
         )
+        context_keys = set(PersonaEngine._matching_context_keys(
+            industry=startup_industry,
+            product=product,
+            target_market=target_market,
+            end_user=end_user,
+            economic_buyer=economic_buyer,
+            switching_trigger=switching_trigger,
+            current_substitute=current_substitute,
+            persona_context=persona_context,
+        ))
+        has_strong_context = bool(context_keys.intersection(_B2B_HEAVY_CONTEXT_KEYS))
         context_specialization = PersonaEngine._context_specialization(
-            startup_industry, product, target_market
+            startup_industry, product, target_market,
+            end_user=end_user, economic_buyer=economic_buyer,
+            switching_trigger=switching_trigger,
+            current_substitute=current_substitute,
+            persona_context=persona_context,
         )
 
         # Zone-specific pools
@@ -1514,7 +2436,10 @@ class PersonaEngine:
         if merged_priority_roles and zone == "wildcard":
             priority_cutoff = count
         elif merged_priority_roles:
-            priority_share = 0.8 if (context_priority_roles or target_market or product) else 0.6
+            if has_strong_context and zone in {"investor", "customer", "operator", "analyst", "contrarian"}:
+                priority_share = 0.9
+            else:
+                priority_share = 0.8 if (context_priority_roles or target_market or product) else 0.6
             priority_cutoff = max(1, min(count, int(count * priority_share + 0.999)))
         else:
             priority_cutoff = 0
@@ -1535,6 +2460,11 @@ class PersonaEngine:
                     industry=startup_industry,
                     product=product,
                     target_market=target_market,
+                    end_user=end_user,
+                    economic_buyer=economic_buyer,
+                    switching_trigger=switching_trigger,
+                    current_substitute=current_substitute,
+                    persona_context=persona_context,
                     stage=stage,
                 )
                 preferred_random = [r for r in context_priority_roles if r in available]
@@ -1552,6 +2482,11 @@ class PersonaEngine:
                 industry=startup_industry,
                 product=product,
                 target_market=target_market,
+                end_user=end_user,
+                economic_buyer=economic_buyer,
+                switching_trigger=switching_trigger,
+                current_substitute=current_substitute,
+                persona_context=persona_context,
                 stage=stage,
             )
             while role_group in used_roles and attempts < 5 and len(all_available) > len(used_roles):
@@ -1561,7 +2496,7 @@ class PersonaEngine:
             used_roles.add(role_group)
             mbti = random.choice(MBTI_TYPES)
             risk = random.choice(RISK_PROFILES)
-            geo = PersonaEngine._pick_geography(zone, target_market)
+            geo = PersonaEngine._pick_geography(zone, target_market, persona_context=persona_context)
 
             # Experience with role compatibility
             min_exp_idx = ROLE_MIN_EXPERIENCE.get(role, 0)
@@ -1637,8 +2572,18 @@ class PersonaEngine:
                 parts.append(f"\nYour domain specialization is {context_specialization}.")
             if target_market and zone in {"customer", "operator", "investor", "analyst", "contrarian"}:
                 parts.append(f"\nYou regularly work with or evaluate buyers in this target market: {target_market}.")
+            if end_user and zone in {"customer", "operator", "investor", "analyst", "contrarian"}:
+                parts.append(f"\nThe day-to-day end user in this buying process is: {end_user}.")
+            if economic_buyer and zone in {"customer", "operator", "investor", "analyst", "contrarian"}:
+                parts.append(f"\nThe economic buyer or budget owner is: {economic_buyer}.")
+            if current_substitute and zone in {"customer", "operator", "investor", "analyst", "contrarian"}:
+                parts.append(f"\nBuyers currently rely on this substitute or incumbent: {current_substitute}.")
+            if switching_trigger and zone in {"customer", "operator", "investor", "analyst", "contrarian"}:
+                parts.append(f"\nA buyer is most likely to switch when this trigger becomes urgent: {switching_trigger}.")
             if stage:
                 parts.append(f"\nYou calibrate your expectations for a {stage} startup, not a later-stage company.")
+            for note in PersonaEngine._routing_brief_lines(persona_context):
+                parts.append(f"\n{note}")
 
             # New dimensions (12-16)
             if zone == "investor":
@@ -1705,6 +2650,9 @@ class PersonaEngine:
 
     def select_personas_by_zone(self, count: int, industry: str = "",
                                  product: str = "", target_market: str = "",
+                                 end_user: str = "", economic_buyer: str = "",
+                                 switching_trigger: str = "", current_substitute: str = "",
+                                 persona_context: Optional[Dict[str, Any]] = None,
                                  stage: str = "", exclude_roles: Optional[set] = None) -> List[Persona]:
         # Check for industry-adaptive distribution first
         ind_lower = industry.lower() if industry else ""
@@ -1738,7 +2686,10 @@ class PersonaEngine:
                         break
             distribution = scaled
         distribution = self._tune_distribution_for_context(
-            distribution, industry=industry, product=product, target_market=target_market
+            distribution, industry=industry, product=product, target_market=target_market,
+            end_user=end_user, economic_buyer=economic_buyer,
+            switching_trigger=switching_trigger, current_substitute=current_substitute,
+            persona_context=persona_context,
         )
 
         # Look up industry-specific priority roles
@@ -1749,16 +2700,26 @@ class PersonaEngine:
 
         all_personas: List[Persona] = []
         _used = set(exclude_roles) if exclude_roles else set()
-        context_keys = set(self._matching_context_keys(industry, product, target_market))
-        strict_wildcards = bool(context_keys.intersection({
-            "industrial_manufacturing", "enterprise_b2b", "smb_b2b", "public_sector"
-        }))
+        context_keys = set(self._matching_context_keys(
+            industry=industry,
+            product=product,
+            target_market=target_market,
+            end_user=end_user,
+            economic_buyer=economic_buyer,
+            switching_trigger=switching_trigger,
+            current_substitute=current_substitute,
+            persona_context=persona_context,
+        ))
+        strict_wildcards = bool(context_keys.intersection(_B2B_HEAVY_CONTEXT_KEYS))
 
         for zone, zone_count in distribution.items():
             if zone == "wildcard":
                 wildcard_priority = self._compose_priority_roles(
                     zone="wildcard", industry=industry, product=product,
-                    target_market=target_market, stage=stage,
+                    target_market=target_market, end_user=end_user,
+                    economic_buyer=economic_buyer, switching_trigger=switching_trigger,
+                    current_substitute=current_substitute, persona_context=persona_context,
+                    stage=stage,
                 )
                 if wildcard_priority and strict_wildcards:
                     generated_wild_count = zone_count
@@ -1768,7 +2729,10 @@ class PersonaEngine:
                     generated_wild = self._generate_personas(
                         generated_wild_count, zone="wildcard", startup_industry=industry,
                         product=product, priority_roles=wildcard_priority,
-                        target_market=target_market, stage=stage,
+                        target_market=target_market, end_user=end_user,
+                        economic_buyer=economic_buyer, switching_trigger=switching_trigger,
+                        current_substitute=current_substitute, persona_context=persona_context,
+                        stage=stage,
                         exclude_roles=_used,
                     )
                     for p in generated_wild:
@@ -1777,10 +2741,17 @@ class PersonaEngine:
                 remaining_wildcards = zone_count - generated_wild_count
                 wild = self.select_personas(
                     remaining_wildcards, industry, product,
-                    target_market=target_market, stage=stage,
+                    target_market=target_market, end_user=end_user,
+                    economic_buyer=economic_buyer, switching_trigger=switching_trigger,
+                    current_substitute=current_substitute, persona_context=persona_context,
+                    stage=stage,
                     keywords=self._context_keywords(
                         industry=industry, product=product,
-                        target_market=target_market, stage=stage,
+                        target_market=target_market, end_user=end_user,
+                        economic_buyer=economic_buyer,
+                        switching_trigger=switching_trigger,
+                        current_substitute=current_substitute, persona_context=persona_context,
+                        stage=stage,
                     ),
                     zone="wildcard",
                 )
@@ -1789,16 +2760,34 @@ class PersonaEngine:
                     _used.add(p.name.split('(')[0].strip() if '(' in p.name else p.name)
                 all_personas.extend(wild)
             else:
-                zone_priority = self._dedupe_preserve_order(
+                zone_priority = self._filter_roles_for_context(
+                    zone=zone,
+                    roles=self._dedupe_preserve_order(
                     self._compose_priority_roles(
                         zone=zone, industry=industry, product=product,
-                        target_market=target_market, stage=stage,
+                        target_market=target_market, end_user=end_user,
+                        economic_buyer=economic_buyer, switching_trigger=switching_trigger,
+                        current_substitute=current_substitute, persona_context=persona_context,
+                        stage=stage,
                     ) + list(industry_priorities.get(zone, []))
+                    ),
+                    industry=industry,
+                    product=product,
+                    target_market=target_market,
+                    end_user=end_user,
+                    economic_buyer=economic_buyer,
+                    switching_trigger=switching_trigger,
+                    current_substitute=current_substitute,
+                    persona_context=persona_context,
+                    stage=stage,
                 )
                 zone_personas = self._generate_personas(
                     zone_count, zone=zone, startup_industry=industry,
                     product=product, priority_roles=zone_priority,
-                    target_market=target_market, stage=stage,
+                    target_market=target_market, end_user=end_user,
+                    economic_buyer=economic_buyer, switching_trigger=switching_trigger,
+                    current_substitute=current_substitute, persona_context=persona_context,
+                    stage=stage,
                     exclude_roles=_used,
                 )
                 for p in zone_personas:

@@ -958,6 +958,15 @@ async def bi_analyze(request: Request):
                     founder_years_in_industry=structured_fields.get("founder_years_in_industry", ""),
                     technical_founder=structured_fields.get("technical_founder", ""),
                     primary_risk_category=structured_fields.get("primary_risk_category", ""),
+                    advantage=structured_fields.get("advantage", ""),
+                    risk=structured_fields.get("risk", ""),
+                    extra_context=structured_fields.get("extra_context", ""),
+                    country=structured_fields.get("country", ""),
+                    keywords=structured_fields.get("keywords", ""),
+                    industry_priority_areas=structured_fields.get("industry_priority_areas", ""),
+                    has_customers=structured_fields.get("has_customers", ""),
+                    generating_revenue=structured_fields.get("generating_revenue", ""),
+                    currently_fundraising=structured_fields.get("currently_fundraising", ""),
                 )
                 extraction = bi._compute_data_quality(extraction)
                 logger.info(f"[BI-REST] Structured passthrough: company={extraction.company}, "
@@ -1113,18 +1122,14 @@ async def bi_analyze(request: Request):
                     company=extraction.company,
                     industry=extraction.industry,
                     product=extraction.product,
-                    target_market=" | ".join(
-                        part for part in [
-                            extraction.target_market,
-                            f"End user: {extraction.end_user}" if extraction.end_user else "",
-                            f"Economic buyer: {extraction.economic_buyer}" if extraction.economic_buyer else "",
-                            f"Switching trigger: {extraction.switching_trigger}" if extraction.switching_trigger else "",
-                            f"Current substitute: {extraction.current_substitute}" if extraction.current_substitute else "",
-                        ]
-                        if part
-                    ),
+                    target_market=extraction.target_market,
+                    end_user=extraction.end_user,
+                    economic_buyer=extraction.economic_buyer,
+                    switching_trigger=extraction.switching_trigger,
+                    current_substitute=extraction.current_substitute,
                     stage=stage,
                     research_data=research if isinstance(research, dict) else None,
+                    persona_context=structured_fields if isinstance(structured_fields, dict) else (extraction.to_dict() if hasattr(extraction, "to_dict") else None),
                 )
                 logger.info(f"[BI-REST] Swarm: {swarm_result.positive_pct}% positive, "
                            f"{swarm_result.negative_pct}% negative")
