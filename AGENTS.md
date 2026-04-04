@@ -210,3 +210,24 @@ The goal: Be helpful without being annoying. Check in a few times a day, do usef
 ## Make It Yours
 
 This is a starting point. Add your own conventions, style, and rules as you figure out what works.
+
+## Drift Audit
+
+Mirai has a few high-drift surfaces where the write path, queue path, admin path, and report path can silently fall out of sync.
+
+After changing any of these, run an audit before calling the work done:
+
+- founder intake fields
+- submission storage / Prisma schema
+- `execSummary` or `structuredFields` construction
+- admin submission payloads or admin queue UI
+- founder dashboard submission payloads
+- backend analysis response shape
+- admin analytics / audit metadata
+
+Audit process:
+
+1. Read [`docs/INTAKE_AUDIT.md`](docs/INTAKE_AUDIT.md)
+2. Run `bash scripts/intake-audit.sh` with either no args or the field names you changed
+3. Check both write-path and read-path surfaces, not just the submit API
+4. Update memory/docs if you learned about a new drift-prone surface
