@@ -9,6 +9,7 @@ Calls distributed round-robin across all logged-in models.
 """
 
 import json
+import os
 import hashlib
 import time
 import random
@@ -131,6 +132,21 @@ class SwarmResult:
 
 DELIBERATION_WEIGHT = 1.0  # Equal weight for all agents
 VALID_COUNTS = [50]  # 50 agents — the only supported production swarm size
+SERIOUS_B2B_CONTEXT_KEYS = {
+    "industrial_manufacturing",
+    "enterprise_b2b",
+    "smb_b2b",
+    "public_sector",
+    "oil_gas",
+    "utilities",
+    "hospitals",
+    "logistics",
+    "school_districts",
+}
+CONSUMER_CONTEXT_KEYS = {
+    "individual_buyer",
+    "low_touch_self_serve",
+}
 
 
 def normalize_stage(raw_stage: str) -> str:
@@ -234,6 +250,32 @@ class SwarmPredictor:
             f"Given this research, evaluate this startup independently from your unique perspective."
         )
 
+    def _context_keys(self, industry: str = "", product: str = "", target_market: str = "",
+                      end_user: str = "", economic_buyer: str = "", switching_trigger: str = "",
+                      current_substitute: str = "", persona_context: dict = None) -> set:
+        return set(self._persona_engine._matching_context_keys(
+            industry=industry,
+            product=product,
+            target_market=target_market,
+            end_user=end_user,
+            economic_buyer=economic_buyer,
+            switching_trigger=switching_trigger,
+            current_substitute=current_substitute,
+            persona_context=persona_context,
+        ))
+
+    @staticmethod
+    def _is_serious_b2b_context(context_keys: set) -> bool:
+        return bool(context_keys.intersection(SERIOUS_B2B_CONTEXT_KEYS)) and not bool(
+            context_keys.intersection(CONSUMER_CONTEXT_KEYS)
+        )
+
+    @staticmethod
+    def _agent_weight_for_context(zone: str, serious_b2b_context: bool) -> float:
+        if zone == "wildcard":
+            return 0.2 if serious_b2b_context else 0.6
+        return 1.0
+
     def predict(self, exec_summary: str, research_context: str,
                 agent_count: int = 50,
                 on_agent_complete=None,
@@ -304,6 +346,18 @@ class SwarmPredictor:
                     target_market = line.split(':', 1)[-1].strip() if ':' in line else ""
                     break
 
+        context_keys = self._context_keys(
+            industry=industry,
+            product=product,
+            target_market=target_market,
+            end_user=end_user,
+            economic_buyer=economic_buyer,
+            switching_trigger=switching_trigger,
+            current_substitute=current_substitute,
+            persona_context=persona_context,
+        )
+        serious_b2b_context = self._is_serious_b2b_context(context_keys)
+
         all_model_labels = [m['label'] for m in tier1_models] + [m['label'] for m in tier2_models]
         logger.info(f"[Swarm] Starting {agent_count} agents "
                     f"(wave1={wave1_count} via {len(tier1_models)} tier1, "
@@ -343,6 +397,7 @@ class SwarmPredictor:
             for future in as_completed(futures):
                 result = future.result()
                 if result:
+                    result.weight = self._agent_weight_for_context(result.zone, serious_b2b_context)
                     all_agents.append(result)
                     if on_agent_complete:
                         on_agent_complete(result)
@@ -351,7 +406,6 @@ class SwarmPredictor:
 
         # Log all agent actions to JSONL
         try:
-            import os, json
             from datetime import datetime
             log_dir = os.path.join(os.path.expanduser('~'), '.mirai', 'logs')
             os.makedirs(log_dir, exist_ok=True)
@@ -430,6 +484,8 @@ class SwarmPredictor:
                     batch_results = future.result()
                     if not batch_results:
                         batches_failed += 1
+                    for agent in batch_results:
+                        agent.weight = self._agent_weight_for_context(agent.zone, serious_b2b_context)
                     all_agents.extend(batch_results)
                     if on_agent_complete:
                         for agent in batch_results:
@@ -654,8 +710,10 @@ class SwarmPredictor:
                     f"{'This is a ' + stage + ' startup. ' if stage else ''}"
                     f"Judge RELATIVE to what is expected at the {stage or 'current'} stage, not against later-stage companies.\n"
                     f"{self._get_stage_calibration(stage)}\n"
-                    "Use the FULL 0-10 range with precision. A 4.2 is different from a 4.8.\n"
-                    "Your OVERALL score is your CONVICTION LEVEL — not an average of the other scores. "
+                    "Use the FULL 0-10 range with precision. A 4.2 is different from a 4.8. "
+                    "Scores in the 5.0-7.0 range are healthy when the evidence is mixed.\n"
+                    "Your OVERALL score is your stage-relative judgment after weighing the tradeoffs — "
+                    "not a forced yes/no vote and not a simple average of the other scores. "
                     "A startup can have strong market_timing (8.0) but weak team_execution_signals (2.5) and still get overall 3.0 if the team gap is fatal.\n"
                     "Base your assessment ONLY on the research data provided. "
                     "If you reference a fact not in the data, prefix with [UNVERIFIED].\n"
@@ -772,8 +830,8 @@ class SwarmPredictor:
                     f"{'This is a ' + stage + ' startup. ' if stage else ''}"
                     f"Judge RELATIVE to what is expected at the {stage or 'current'} stage.\n"
                     f"{self._get_stage_calibration(stage)} "
-                    "Use decimals (3.5, 6.2, 7.8). Use the FULL 0-10 range.\n"
-                    "OVERALL is CONVICTION, not average of other scores.\n\n"
+                    "Use decimals (3.5, 6.2, 7.8). Use the FULL 0-10 range, and use 5.0-7.0 freely when the evidence is mixed.\n"
+                    "OVERALL is a stage-relative judgment after weighing the tradeoffs, not a forced yes/no vote and not an average of other scores.\n\n"
                     "For each agent, generate:\n"
                     "- persona: their name from above\n"
                     "- zone: one of investor/customer/operator/analyst/contrarian/wildcard\n"
@@ -799,7 +857,8 @@ class SwarmPredictor:
                     "IMPORTANT: Each agent must use terminology specific to their role.\n"
                     f"{'This is a ' + stage + ' startup. ' if stage else ''}"
                     f"Judge RELATIVE to what is expected at the {stage or 'current'} stage.\n"
-                    "Score 0.0-10.0 with decimals (3.5, 6.2, 7.8). OVERALL = conviction, not average.\n"
+                    "Score 0.0-10.0 with decimals (3.5, 6.2, 7.8). Use 5.0-7.0 freely when the evidence is mixed. "
+                    "OVERALL = stage-relative judgment, not a forced yes/no vote and not an average.\n"
                     f"{self._get_stage_calibration(stage)} Use the FULL range.\n\n"
                     "For each agent, generate:\n"
                     "- persona: specific role (not generic)\n"

@@ -1282,6 +1282,13 @@ LANE_DIRECTIVE = (
     "Stay in your lane - your unique perspective is more valuable than generic startup advice."
 )
 
+SCORING_DISCIPLINE_DIRECTIVE = (
+    "\n\nSCORING DISCIPLINE: Use your role, background, mandate, and past experience to decide "
+    "what to stress-test first, not as an automatic reason to score higher or lower. "
+    "Anchor scores to the evidence in THIS company. "
+    "Scores in the 5.0-7.0 range are valid when the evidence is mixed or still developing."
+)
+
 # Zone-specific evaluation angles — forces domain-specific vocabulary in reasoning
 ZONE_EVAL_ANGLES = {
     "investor": (
@@ -2321,48 +2328,48 @@ class PersonaEngine:
             context_lines.append(f"Calibrate your expectations for a {stage} startup, not a later-stage company.")
         context_lines.extend(PersonaEngine._routing_brief_lines(persona_context))
         context_block = "\n\n" + "\n".join(context_lines) if context_lines else ""
-        return f"You are: {persona_text}{context_block}\n\n{zone_pressure}"
+        return f"You are: {persona_text}{context_block}\n\n{zone_pressure}{SCORING_DISCIPLINE_DIRECTIVE}"
 
     # Zone-specific evaluation pressure
     ZONE_PROMPTS = {
         "investor": (
-            "You are deciding whether to invest YOUR OWN MONEY in this startup. "
-            "Score 8+ ONLY if you would write a check today. Score 3 or below if you see "
-            "red flags that would make you walk away. Be decisive - VCs don't give 5/10 scores, "
-            "they either fund or pass. What's your conviction level?"
+            "You are evaluating stage-appropriate investability from your seat. "
+            "Use 8.0-10.0 only for exceptional companies at this stage, 6.0-7.9 for credible "
+            "opportunities with real promise but open questions, 4.0-5.9 for mixed or average "
+            "cases, and 0.0-3.9 for structurally weak cases. "
+            "Your mandate affects fit and check-size logic, but do not force a binary fund/pass mindset."
         ),
         "customer": (
-            "You are a potential BUYER of this product. Would you pay for it? "
-            "Would you switch from your current solution? Score based on your actual "
-            "purchase intent: 8+ means you'd sign today, 3 or below means you'd never use it. "
-            "Think about price, switching cost, and whether this solves a real pain you have."
+            "You are a potential buyer or end user evaluating real purchase pull. "
+            "Use 8.0-10.0 for strong adoption intent, 6.0-7.9 when the pain is real but blockers "
+            "remain, 4.0-5.9 for mild interest or unclear switching value, and 0.0-3.9 when you "
+            "would not adopt. Think about price, switching cost, implementation effort, and urgency."
         ),
         "operator": (
-            "You would be BUILDING and RUNNING this company. Score based on execution feasibility. "
-            "What breaks first at scale? Can this team actually ship? Score 8+ only if you'd quit "
-            "your job to join. Score 3 or below if you see fundamental execution problems. "
-            "Be specific about what would fail."
+            "You would be building and running this company. Score execution feasibility and scaling "
+            "readiness, not whether you would personally join. Use 8.0-10.0 for unusually strong "
+            "execution setups, 6.0-7.9 for viable but imperfect execution paths, 4.0-5.9 for mixed "
+            "operational readiness, and 0.0-3.9 for fundamental execution problems."
         ),
         "analyst": (
-            "You are writing a PUBLISHED REPORT on this company for institutional investors. "
-            "Compare this to the top 3 companies in the space. Score relative to market leaders, "
-            "not in isolation. Score 8+ only for clear category leaders. Score 3 or below for "
-            "companies with no defensible position. Your reputation depends on accuracy."
+            "You are writing a published report for institutional readers. Compare the company to "
+            "relevant peers and stage-appropriate benchmarks, not only to category leaders. Use "
+            "8.0-10.0 for unusually strong category position, 6.0-7.9 for solid but imperfect "
+            "positioning, 4.0-5.9 for mixed positioning, and 0.0-3.9 for weak or indefensible position."
         ),
         "contrarian": (
-            "Your job is to find the FATAL FLAW. What will kill this company in 18 months? "
-            "Identify the biggest risks and failure modes using evidence from the data. "
-            "Score based on how SURVIVABLE the risks are: 8+ if risks are manageable, "
-            "3 or below if you see an existential threat. Your value is in the risk analysis, "
-            "not in default pessimism. "
+            "Your job is to identify the most important failure modes using evidence from the data. "
+            "Score based on how survivable the risks are: 8.0-10.0 if risks are manageable, "
+            "6.0-7.9 if serious risks exist but are addressable, 4.0-5.9 for mixed survivability, "
+            "and 0.0-3.9 only when you see fundamental or existential failure paths. "
+            "Your value is in risk analysis, not default pessimism. "
             "Look for: regulatory risk, competitive moats that don't exist, unit economics that "
             "don't work, team gaps, timing problems. Be the person who saved investors from Juicero."
         ),
         "wildcard": (
-            "React from your unique life experience. Don't try to be balanced or professional. "
-            "Would this startup matter to someone like you? Score based on gut feeling - "
-            "high if it excites you, low if it feels like a solution looking for a problem. "
-            "The most valuable feedback is the unexpected kind."
+            "React from your unique life experience, but keep your score tied to practical human value. "
+            "Use gut reaction to surface edge cases and unexpected failure modes, not to overwhelm the "
+            "evidence. Mid-range scores are normal when the value feels plausible but unproven."
         ),
     }
 
@@ -2521,9 +2528,6 @@ class PersonaEngine:
             net_label, net_desc = random.choice(NETWORK_STRENGTH)
             speed_label, speed_desc = random.choice(DECISION_SPEED)
 
-            # MBTI behavioral description
-            mbti_desc = MBTI_BEHAVIORAL.get(mbti, "")
-
             # Geographic behavioral note
             geo_desc = GEO_BEHAVIORAL.get(geo, "")
 
@@ -2550,14 +2554,22 @@ class PersonaEngine:
             if geo_desc:
                 parts.append(f"\nYour geographic lens: {geo_desc}")
 
-            if mbti_desc:
-                parts.append(f"\nYour evaluation style: {mbti_desc}")
+            parts.append(
+                f"\nYour working style is informed by {mbti}. "
+                "Let it shape what you notice and how you explain it, but keep your score anchored to the evidence."
+            )
 
-            parts.append(f"\nYour risk profile: {risk}.")
+            parts.append(
+                f"\nYour diligence posture: {risk}. "
+                "Use this to decide what to scrutinize first, not as an automatic score multiplier."
+            )
             parts.append(f"\nYour natural bias: you are {bias_text}.")
 
             if backstory:
-                parts.append(f'\nYour experience: "{backstory}"')
+                parts.append(
+                    f'\nA past experience that shapes your questions: "{backstory}" '
+                    "Treat it as context for what to stress-test, not as proof this company is the same."
+                )
 
             # Inject dataset personality for human texture
             personality = PersonaEngine._match_dataset_personality(zone, focus_industry, role)
@@ -2588,12 +2600,16 @@ class PersonaEngine:
             # New dimensions (12-16)
             if zone == "investor":
                 parts.append(f"\nYour investment style: {thesis_desc}")
-                parts.append(f"\nYour failure scar tissue: {scar_desc}")
+                parts.append(
+                    f"\nA lesson from prior wins/losses shapes your diligence: {scar_desc} "
+                    "Use it to test evidence, not to pre-judge this company."
+                )
             parts.append(f"\nYour technical depth: {tech_desc}")
             parts.append(f"\nYour network: {net_desc}")
             parts.append(f"\nYour decision speed: {speed_desc}")
 
             parts.append(f"\n{zone_pressure}")
+            parts.append(SCORING_DISCIPLINE_DIRECTIVE)
             parts.append(LANE_DIRECTIVE)
 
             prompt = "\n".join(parts)

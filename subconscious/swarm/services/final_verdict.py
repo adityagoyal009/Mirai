@@ -70,7 +70,9 @@ def _swarm_numeric_score(swarm: Dict[str, Any], fallback: float) -> float:
 
     positive_pct = _coerce_float(swarm.get("positive_pct"), 50.0)
     vote_pull = max(-1.0, min(1.0, (positive_pct - 50.0) / 50.0))
-    blended = (median_overall * 0.6) + (avg_overall * 0.4) + (vote_pull * 0.5)
+    # Keep swarm numeric output relatively conservative; its highest value is often
+    # objection discovery and lane-specific reasoning, not precise score calibration.
+    blended = (median_overall * 0.7) + (avg_overall * 0.3) + (vote_pull * 0.25)
     return round(_clamp(blended), 2)
 
 
@@ -106,8 +108,10 @@ def finalize_prediction(
         swarm_score = _swarm_numeric_score(swarm, council_score)
 
         std_overall = _coerce_float(swarm.get("std_overall"), 0.0)
-        council_weight = max(council_confidence, 0.15)
-        swarm_weight = max(swarm_confidence, 0.15) * (1.0 - min(std_overall, 3.0) / 8.0)
+        # Numeric score should lean on the more calibrated council layer, with swarm
+        # serving as a secondary adjustment whose impact shrinks when disagreement rises.
+        council_weight = 0.78 * max(council_confidence, 0.4)
+        swarm_weight = 0.22 * max(swarm_confidence, 0.25) * max(0.2, 1.0 - min(std_overall, 3.0) / 4.5)
 
         if (council_weight + swarm_weight) > 0:
             final_score = round(
