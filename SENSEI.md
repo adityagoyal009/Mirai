@@ -124,8 +124,8 @@ Frontend (Phaser game + React overlay)
       ├── Mentor selection menu (React)
       └── Chat interface (React)
 
-Backend (Flask + WebSocket)
-  └── /ws/sensei
+Backend (FastAPI + native WebSocket)
+  └── /ws/sensei in subconscious/swarm/app.py
       ├── Research cache lookup (from Mirai)
       ├── PersonaEngine (16-dimension mentor generation)
       ├── MentorSession (multi-turn LLM chat)
@@ -144,7 +144,7 @@ LLM (via Mirai Gateway :19789)
 |-----------|-----------|
 | Game engine | Phaser 3.87 (pixel-art, 800x600) |
 | UI overlays | React 19 + TypeScript |
-| Backend | Flask + flask-sock (WebSocket) |
+| Backend | FastAPI + native WebSocket |
 | LLM | Claude Opus 4.6 via Mirai Gateway |
 | Persona engine | 16-dimension trait generator (shared with Mirai) |
 | Research | Cached from Mirai analysis or exec summary fallback |
@@ -167,8 +167,8 @@ subconscious/swarm/services/
 ├── mentor_session.py     — MentorSession class (multi-turn chat)
 └── (persona_engine.py)   — Shared 16-dimension persona generator
 
-subconscious/swarm/api/
-└── sensei_ws.py          — WebSocket handler at /ws/sensei
+subconscious/swarm/
+└── app.py                — FastAPI route for /ws/sensei + session orchestration
 ```
 
 ## WebSocket Protocol

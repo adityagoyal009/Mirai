@@ -60,6 +60,24 @@ interface StructuredFields {
   currently_fundraising: string;
 }
 
+interface AnalysisAdminSummary {
+  analysis_id?: string;
+  duration_s?: number;
+  renderer_requested?: string;
+  renderer_used?: string;
+  report_generation_status?: string;
+  report_generation_error?: string;
+  report_sections_count?: number;
+  warning_count?: number;
+  warnings?: string[];
+  enhancement_keys?: string[];
+  enhancement_count?: number;
+  has_llm_preview?: boolean;
+  llm_preview_status?: string;
+  llm_preview_error?: string;
+  audit_path?: string;
+}
+
 interface QueueJob {
   submissionId: number;
   execSummary: string;
@@ -470,7 +488,12 @@ class AnalysisQueue {
           data: {
             event: "analysis_started",
             submissionId,
-            meta: JSON.stringify({ automated: true, queueRemaining: this.queue.length }),
+            meta: JSON.stringify({
+              automated: true,
+              queueRemaining: this.queue.length,
+              company: structuredFields.company,
+              industry: structuredFields.industry,
+            }),
           },
         });
       }
@@ -482,6 +505,7 @@ class AnalysisQueue {
         body: JSON.stringify({
           exec_summary: execSummary,
           structured_fields: structuredFields || null,
+          submission_id: submissionId,
           depth: "deep",
           agent_count: 50,
           simulate_market: true,
@@ -541,6 +565,11 @@ class AnalysisQueue {
         throw new Error(`Job ${jobId} timed out after ${FETCH_TIMEOUT_MS / 60000} minutes`);
       }
 
+      const adminSummary: AnalysisAdminSummary =
+        analysis.admin_summary && typeof analysis.admin_summary === "object"
+          ? analysis.admin_summary
+          : {};
+
       // Check if analysis needs more info
       if (analysis.status === "needs_more_info") {
         await prisma.submission.update({
@@ -554,13 +583,63 @@ class AnalysisQueue {
           data: {
             event: "analysis_needs_info",
             submissionId,
-            meta: JSON.stringify({ fields_missing: analysis.fields_missing }),
+            meta: JSON.stringify({
+              company: analysis.extraction?.company || structuredFields.company,
+              industry: analysis.extraction?.industry || structuredFields.industry,
+              fields_missing: analysis.fields_missing,
+              analysis_id: analysis.analysis_id || analysis.id || adminSummary.analysis_id || "",
+              audit_path:
+                typeof adminSummary.audit_path === "string" ? adminSummary.audit_path : "",
+            }),
           },
         });
         return;
       }
 
       // Extract score and verdict
+      const warningList = Array.isArray(adminSummary.warnings)
+        ? adminSummary.warnings.filter((warning: unknown): warning is string => typeof warning === "string")
+        : [];
+      const enhancementKeys = Array.isArray(adminSummary.enhancement_keys)
+        ? adminSummary.enhancement_keys.filter((key: unknown): key is string => typeof key === "string")
+        : [];
+      const analysisId =
+        analysis.analysis_id ||
+        analysis.id ||
+        adminSummary.analysis_id ||
+        "";
+      const durationS =
+        typeof adminSummary.duration_s === "number" && Number.isFinite(adminSummary.duration_s)
+          ? adminSummary.duration_s
+          : null;
+      const rendererUsed =
+        typeof adminSummary.renderer_used === "string" && adminSummary.renderer_used
+          ? adminSummary.renderer_used
+          : "legacy";
+      const rendererRequested =
+        typeof adminSummary.renderer_requested === "string" && adminSummary.renderer_requested
+          ? adminSummary.renderer_requested
+          : "legacy";
+      const reportGenerationStatus =
+        typeof adminSummary.report_generation_status === "string" && adminSummary.report_generation_status
+          ? adminSummary.report_generation_status
+          : "unknown";
+      const reportGenerationError =
+        typeof adminSummary.report_generation_error === "string"
+          ? adminSummary.report_generation_error
+          : "";
+      const llmPreviewStatus =
+        typeof adminSummary.llm_preview_status === "string" && adminSummary.llm_preview_status
+          ? adminSummary.llm_preview_status
+          : "not_requested";
+      const llmPreviewError =
+        typeof adminSummary.llm_preview_error === "string"
+          ? adminSummary.llm_preview_error
+          : "";
+      const auditPath =
+        typeof adminSummary.audit_path === "string"
+          ? adminSummary.audit_path
+          : "";
       const council = analysis.council || {};
       const score =
         analysis.prediction?.composite_score ??
@@ -619,13 +698,59 @@ class AnalysisQueue {
           submissionId,
           meta: JSON.stringify({
             automated: true,
+            company: analysis.extraction?.company || "",
+            industry: analysis.extraction?.industry || "",
             score,
             verdict,
             has_report: Boolean(reportUrl),
-            analysis_id: analysis.analysis_id,
+            analysis_id: analysisId,
+            duration_s: durationS,
+            renderer_requested: rendererRequested,
+            renderer_used: rendererUsed,
+            report_generation_status: reportGenerationStatus,
+            report_generation_error: reportGenerationError,
+            report_sections_count:
+              typeof adminSummary.report_sections_count === "number" && Number.isFinite(adminSummary.report_sections_count)
+                ? adminSummary.report_sections_count
+                : 0,
+            warning_count: warningList.length,
+            warnings: warningList,
+            enhancement_keys: enhancementKeys,
+            enhancement_count:
+              typeof adminSummary.enhancement_count === "number" && Number.isFinite(adminSummary.enhancement_count)
+                ? adminSummary.enhancement_count
+                : enhancementKeys.length,
+            has_llm_preview: Boolean(adminSummary.has_llm_preview),
+            llm_preview_status: llmPreviewStatus,
+            llm_preview_error: llmPreviewError,
+            audit_path: auditPath,
           }),
         },
       });
+
+      if (
+        warningList.length > 0 ||
+        reportGenerationStatus !== "success" ||
+        !reportUrl
+      ) {
+        await prisma.event.create({
+          data: {
+            event: "analysis_degraded",
+            submissionId,
+            meta: JSON.stringify({
+              company: analysis.extraction?.company || "",
+              industry: analysis.extraction?.industry || "",
+              verdict,
+              score,
+              renderer_used: rendererUsed,
+              report_generation_status: reportGenerationStatus,
+              warning_count: warningList.length,
+              top_warning: warningList[0] || reportGenerationError || (!reportUrl ? "Report share unavailable" : ""),
+              audit_path: auditPath,
+            }),
+          },
+        });
+      }
 
       console.log(
         `[queue] Completed submission ${submissionId}: score=${score}, verdict=${verdict}`
@@ -665,7 +790,12 @@ class AnalysisQueue {
           data: {
             event: "analysis_failed",
             submissionId,
-            meta: JSON.stringify({ error: errMsg, attempts: retries + 1 }),
+            meta: JSON.stringify({
+              company: structuredFields.company,
+              industry: structuredFields.industry,
+              error: errMsg,
+              attempts: retries + 1,
+            }),
           },
         })
         .catch(() => {});

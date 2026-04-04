@@ -1,6 +1,6 @@
 /**
  * Sensei (先生) — WebSocket client for mentor sessions.
- * Connects to /ws/sensei on the Flask backend.
+ * Connects to /ws/sensei on the FastAPI backend.
  */
 
 export interface MentorInfo {

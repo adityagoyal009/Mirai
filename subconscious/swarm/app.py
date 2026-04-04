@@ -21,7 +21,7 @@ import time
 import uuid
 import urllib.parse
 from contextlib import asynccontextmanager
-from typing import Dict
+from typing import Any, Dict
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -798,6 +798,37 @@ def _cleanup_old_jobs():
             del _job_results[k]
 
 
+def _coerce_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return False
+
+
+def _normalize_report_renderer(value: Any) -> str:
+    candidate = str(value or "legacy").strip().lower()
+    return candidate if candidate in {"legacy", "llm"} else "legacy"
+
+
+def _finalize_audit_run(audit, *, extraction=None, warnings=None,
+                        verdict: str = "", score: float = 0.0, confidence: float = 0.0) -> str:
+    if not audit:
+        return ""
+    try:
+        if extraction is not None:
+            audit._data["company"] = getattr(extraction, "company", "") or audit._data.get("company", "")
+            audit._data["industry"] = getattr(extraction, "industry", "") or audit._data.get("industry", "")
+        if warnings:
+            audit._data["warnings"] = warnings[:10]
+        return audit.end_run(verdict=verdict, score=score, confidence=confidence)
+    except Exception as exc:
+        logger.warning(f"[BI-REST] Audit finalization failed (non-fatal): {exc}")
+        return ""
+
+
 @app.get("/api/bi/job/{job_id}")
 async def bi_job_status(job_id: str, request: Request):
     """Poll for async analysis result."""
@@ -826,6 +857,9 @@ async def bi_analyze(request: Request):
     agent_count = body.get("agent_count", 50)
     simulate_market = body.get("simulate_market", True)
     async_mode = body.get("async", True)  # default async for website
+    report_renderer = _normalize_report_renderer(body.get("report_renderer", "legacy"))
+    generate_llm_preview = _coerce_bool(body.get("generate_llm_preview", False))
+    submission_id = body.get("submission_id")
     if not exec_summary:
         return JSONResponse({"error": "Missing exec_summary"}, status_code=400)
 
@@ -838,70 +872,164 @@ async def bi_analyze(request: Request):
         import threading
         from .services.business_intel import BusinessIntelEngine, ExtractionResult
         from .services.swarm_predictor import SwarmPredictor
+        from .utils.audit_log import AuditLog
 
         bi = BusinessIntelEngine()
+        analysis_id = f"bi_{uuid.uuid4().hex[:12]}"
+        audit = AuditLog.start_run("pending", "", agent_count=agent_count)
+        audit._data["analysis_id"] = analysis_id
+        if submission_id is not None:
+            audit._data["submission_id"] = submission_id
+        analysis_started_at = time.time()
+        warnings: list[str] = []
+        enhancements: Dict[str, Any] = {}
+        report_sections: Dict[str, str] = {}
+        report_generation_status = "not_started"
+        report_generation_error = ""
+        renderer_used = "legacy"
+        llm_preview_status = "not_requested"
+        llm_preview_error = ""
+        llm_preview_generated = False
+        audit_path = ""
+        extraction = None
+        final_verdict_value = ""
+        final_confidence_value = 0.0
+        final_score_value = 0.0
+
+        def _fatal_pipeline_error(stage_name: str, exc: Exception):
+            nonlocal audit_path
+            logger.error(f"[BI-REST] {stage_name} failed — stopping pipeline: {exc}")
+            warnings.append(f"{stage_name} failed: {exc}")
+            audit.log_step(stage_name, success=False, error=str(exc))
+            audit_path = _finalize_audit_run(
+                audit,
+                extraction=extraction,
+                warnings=warnings,
+                verdict=final_verdict_value,
+                score=final_score_value,
+                confidence=final_confidence_value,
+            )
+            raise RuntimeError(f"{stage_name} failed: {exc}") from exc
 
         # Phase 0: Extract & Validate
         # Use structured fields passthrough when available (skips lossy LLM extraction)
-        if structured_fields and isinstance(structured_fields, dict) and structured_fields.get("company"):
-            extraction = ExtractionResult(
-                company=structured_fields.get("company", ""),
-                industry=structured_fields.get("industry", ""),
-                product=structured_fields.get("product", ""),
-                target_market=structured_fields.get("target_market", ""),
-                end_user=structured_fields.get("end_user", ""),
-                economic_buyer=structured_fields.get("economic_buyer", ""),
-                switching_trigger=structured_fields.get("switching_trigger", ""),
-                business_model=structured_fields.get("business_model", ""),
-                stage=structured_fields.get("stage", ""),
-                traction=structured_fields.get("traction", ""),
-                loi_count=structured_fields.get("loi_count", ""),
-                pilot_count=structured_fields.get("pilot_count", ""),
-                active_customer_count=structured_fields.get("active_customer_count", ""),
-                paid_customer_count=structured_fields.get("paid_customer_count", ""),
-                monthly_revenue_value=structured_fields.get("monthly_revenue_value", ""),
-                growth_rate=structured_fields.get("growth_rate", ""),
-                ask=structured_fields.get("ask", ""),
-                claims=[],
-                key_differentiators=[],
-                website_url=structured_fields.get("website_url", ""),
-                year_founded=structured_fields.get("year_founded", ""),
-                location=structured_fields.get("location", ""),
-                revenue=structured_fields.get("revenue", ""),
-                known_competitors=structured_fields.get("known_competitors", []),
-                funding=structured_fields.get("funding", ""),
-                team=structured_fields.get("team", ""),
-                pricing=structured_fields.get("pricing", ""),
-                pricing_model=structured_fields.get("pricing_model", ""),
-                starting_price=structured_fields.get("starting_price", ""),
-                sales_motion=structured_fields.get("sales_motion", ""),
-                typical_contract_size=structured_fields.get("typical_contract_size", ""),
-                implementation_complexity=structured_fields.get("implementation_complexity", ""),
-                time_to_value=structured_fields.get("time_to_value", ""),
-                current_substitute=structured_fields.get("current_substitute", ""),
-                demo_url=structured_fields.get("demo_url", ""),
-                customer_proof_url=structured_fields.get("customer_proof_url", ""),
-                pilot_docs_url=structured_fields.get("pilot_docs_url", ""),
-                founder_problem_fit=structured_fields.get("founder_problem_fit", ""),
-                founder_years_in_industry=structured_fields.get("founder_years_in_industry", ""),
-                technical_founder=structured_fields.get("technical_founder", ""),
-                primary_risk_category=structured_fields.get("primary_risk_category", ""),
+        extraction_started_at = time.time()
+        try:
+            if structured_fields and isinstance(structured_fields, dict) and structured_fields.get("company"):
+                extraction = ExtractionResult(
+                    company=structured_fields.get("company", ""),
+                    industry=structured_fields.get("industry", ""),
+                    product=structured_fields.get("product", ""),
+                    target_market=structured_fields.get("target_market", ""),
+                    end_user=structured_fields.get("end_user", ""),
+                    economic_buyer=structured_fields.get("economic_buyer", ""),
+                    switching_trigger=structured_fields.get("switching_trigger", ""),
+                    business_model=structured_fields.get("business_model", ""),
+                    stage=structured_fields.get("stage", ""),
+                    traction=structured_fields.get("traction", ""),
+                    loi_count=structured_fields.get("loi_count", ""),
+                    pilot_count=structured_fields.get("pilot_count", ""),
+                    active_customer_count=structured_fields.get("active_customer_count", ""),
+                    paid_customer_count=structured_fields.get("paid_customer_count", ""),
+                    monthly_revenue_value=structured_fields.get("monthly_revenue_value", ""),
+                    growth_rate=structured_fields.get("growth_rate", ""),
+                    ask=structured_fields.get("ask", ""),
+                    claims=[],
+                    key_differentiators=[],
+                    website_url=structured_fields.get("website_url", ""),
+                    year_founded=structured_fields.get("year_founded", ""),
+                    location=structured_fields.get("location", ""),
+                    revenue=structured_fields.get("revenue", ""),
+                    known_competitors=structured_fields.get("known_competitors", []),
+                    funding=structured_fields.get("funding", ""),
+                    team=structured_fields.get("team", ""),
+                    pricing=structured_fields.get("pricing", ""),
+                    pricing_model=structured_fields.get("pricing_model", ""),
+                    starting_price=structured_fields.get("starting_price", ""),
+                    sales_motion=structured_fields.get("sales_motion", ""),
+                    typical_contract_size=structured_fields.get("typical_contract_size", ""),
+                    implementation_complexity=structured_fields.get("implementation_complexity", ""),
+                    time_to_value=structured_fields.get("time_to_value", ""),
+                    current_substitute=structured_fields.get("current_substitute", ""),
+                    demo_url=structured_fields.get("demo_url", ""),
+                    customer_proof_url=structured_fields.get("customer_proof_url", ""),
+                    pilot_docs_url=structured_fields.get("pilot_docs_url", ""),
+                    founder_problem_fit=structured_fields.get("founder_problem_fit", ""),
+                    founder_years_in_industry=structured_fields.get("founder_years_in_industry", ""),
+                    technical_founder=structured_fields.get("technical_founder", ""),
+                    primary_risk_category=structured_fields.get("primary_risk_category", ""),
+                )
+                extraction = bi._compute_data_quality(extraction)
+                logger.info(f"[BI-REST] Structured passthrough: company={extraction.company}, "
+                           f"data_quality={extraction.data_quality}")
+            else:
+                extraction = bi.extract_and_validate(exec_summary)
+        except Exception as e:
+            _fatal_pipeline_error("extraction", e)
+
+        audit._data["company"] = getattr(extraction, "company", "")
+        audit._data["industry"] = getattr(extraction, "industry", "")
+        audit.log_step(
+            "extraction",
+            model="structured_passthrough" if structured_fields else "claude-opus-4-6",
+            prompt=exec_summary[:500],
+            parsed=extraction.to_dict() if hasattr(extraction, "to_dict") else {},
+            latency_s=time.time() - extraction_started_at,
+            metadata={
+                "data_quality": getattr(extraction, "data_quality", 0),
+                "fields_present": getattr(extraction, "fields_present", []),
+                "fields_missing": getattr(extraction, "fields_missing", []),
+                "source": "structured_fields" if structured_fields else "llm_extraction",
+            },
+        )
+
+        try:
+            analytics.track_analysis_start(
+                company=getattr(extraction, "company", ""),
+                industry=getattr(extraction, "industry", ""),
+                agent_count=agent_count,
+                source="api_bi_analyze",
             )
-            extraction = bi._compute_data_quality(extraction)
-            logger.info(f"[BI-REST] Structured passthrough: company={extraction.company}, "
-                       f"data_quality={extraction.data_quality}")
-        else:
-            extraction = bi.extract_and_validate(exec_summary)
+        except Exception as analytics_err:
+            logger.debug(f"[BI-REST] Analytics start tracking failed (non-fatal): {analytics_err}")
 
         critical_missing = [f for f in ["company", "industry", "product"]
                            if f in extraction.fields_missing]
         if critical_missing:
+            audit_path = _finalize_audit_run(
+                audit,
+                extraction=extraction,
+                warnings=warnings,
+                verdict="needs_more_info",
+                score=0.0,
+                confidence=0.0,
+            )
             return {
                 "status": "needs_more_info",
+                "id": analysis_id,
+                "analysis_id": analysis_id,
                 "data_quality": extraction.data_quality,
                 "fields_missing": extraction.fields_missing,
                 "missing_critical": critical_missing,
                 "message": f"Cannot produce a reliable analysis — missing: {', '.join(critical_missing)}.",
+                "admin_summary": {
+                    "analysis_id": analysis_id,
+                    "submission_id": submission_id,
+                    "duration_s": round(time.time() - analysis_started_at, 1),
+                    "renderer_requested": report_renderer,
+                    "renderer_used": "legacy",
+                    "report_generation_status": "skipped",
+                    "report_generation_error": "",
+                    "report_sections_count": 0,
+                    "warning_count": 0,
+                    "warnings": [],
+                    "enhancement_keys": [],
+                    "enhancement_count": 0,
+                    "has_llm_preview": False,
+                    "llm_preview_status": "not_requested",
+                    "llm_preview_error": "",
+                    "audit_path": audit_path,
+                },
             }
 
         stage = extraction.stage or ""
@@ -947,8 +1075,7 @@ async def bi_analyze(request: Request):
                 f"{len(research.get('competitors', []))} competitors, {len(research.get('sources', []))} sources"
             )
         except Exception as e:
-            logger.error(f"[BI-REST] Live research failed — stopping pipeline: {e}")
-            raise RuntimeError(f"Research failed: {e}") from e
+            _fatal_pipeline_error("research", e)
 
         # Wait for blind scoring to fully finish before council/swarm
         # No timeout — blind scoring has its own per-model timeouts (7 min Claude, 3 min others).
@@ -959,12 +1086,15 @@ async def bi_analyze(request: Request):
                 logger.info(f"[BI-REST] Blind scores ready: {len(_blind_scores[0])} models")
 
         # Phase 2: Council prediction (with blind scores from parallel thread)
-        prediction = bi.predict(
-            exec_summary, research, use_council=use_council,
-            industry=extraction.industry, stage=stage,
-            data_quality=extraction.data_quality,
-            blind_scores_cache=_blind_scores[0],
-        )
+        try:
+            prediction = bi.predict(
+                exec_summary, research, use_council=use_council,
+                industry=extraction.industry, stage=stage,
+                data_quality=extraction.data_quality,
+                blind_scores_cache=_blind_scores[0],
+            )
+        except Exception as e:
+            _fatal_pipeline_error("council_prediction", e)
 
         # Phase 2b: Swarm prediction
         swarm_result = None
@@ -1012,7 +1142,8 @@ async def bi_analyze(request: Request):
         # Build result (matches dashboard structure)
         result = {
             "status": "complete",
-            "id": f"bi_{uuid.uuid4().hex[:12]}",
+            "id": analysis_id,
+            "analysis_id": analysis_id,
             "exec_summary": exec_summary,
             "extraction": extraction.to_dict() if hasattr(extraction, 'to_dict') else {},
             "research": research,
@@ -1055,11 +1186,14 @@ async def bi_analyze(request: Request):
         if not isinstance(prediction_view, dict):
             prediction_view = prediction.to_dict() if hasattr(prediction, "to_dict") else {}
 
-        final_prediction = finalize_prediction(
-            prediction_view,
-            swarm=result.get("swarm") if isinstance(result.get("swarm"), dict) else None,
-            oasis=result.get("oasis") if isinstance(result.get("oasis"), dict) else None,
-        )
+        try:
+            final_prediction = finalize_prediction(
+                prediction_view,
+                swarm=result.get("swarm") if isinstance(result.get("swarm"), dict) else None,
+                oasis=result.get("oasis") if isinstance(result.get("oasis"), dict) else None,
+            )
+        except Exception as e:
+            _fatal_pipeline_error("final_verdict", e)
         prediction_view.update({
             "verdict": final_prediction["final_verdict"],
             "confidence": final_prediction["final_confidence"],
@@ -1074,36 +1208,237 @@ async def bi_analyze(request: Request):
         result["prediction"] = prediction_view
         result["final_verdict"] = final_prediction["final_verdict"]
         result["final_confidence"] = final_prediction["final_confidence"]
+        final_verdict_value = final_prediction["final_verdict"]
+        final_confidence_value = final_prediction["final_confidence"]
+        final_score_value = final_prediction["composite_score"]
+        if final_prediction["verdict_blended"]:
+            audit.log_verdict_blend(
+                council_verdict=final_prediction["council_verdict"],
+                council_confidence=final_prediction["council_confidence"],
+                swarm_verdict=final_prediction["swarm_verdict"],
+                swarm_confidence=final_prediction["swarm_confidence"],
+                blended_score=final_score_value,
+                final_verdict=final_verdict_value,
+                final_confidence=final_confidence_value,
+            )
         if final_prediction["warnings"]:
-            result["warnings"] = final_prediction["warnings"]
+            warnings.extend(final_prediction["warnings"])
         logger.info(
             f"[BI-REST] Final verdict: {final_prediction['final_verdict']} "
             f"(score={final_prediction['composite_score']}, confidence={final_prediction['final_confidence']})"
         )
 
+        dims = prediction_view.get("dimensions", [])
+        contested = prediction_view.get("contested_dimensions", [])
+        if isinstance(dims, list):
+            audit.log_council_reconciliation(
+                reconciled_scores={
+                    d.get("name", ""): d.get("score")
+                    for d in dims
+                    if isinstance(d, dict) and d.get("name")
+                },
+                contested=contested if isinstance(contested, list) else [],
+                chairman_notes="",
+                model_scores=prediction_view.get("model_scores", {}) if isinstance(prediction_view.get("model_scores", {}), dict) else {},
+            )
+
+        # Preserve premium report enhancements in the real backend result.
+        try:
+            from .services.report_enhancements import (
+                find_similar_funded,
+                generate_score_forecast,
+                rewrite_exec_summary,
+            )
+
+            stage_for_enhancements = stage or getattr(extraction, "stage", "")
+            industry_for_enhancements = getattr(extraction, "industry", "")
+            raw_swarm = result.get("swarm") if isinstance(result.get("swarm"), dict) else {}
+            top_fixes = raw_swarm.get("top_fixes") if isinstance(raw_swarm, dict) else None
+            investor_matches = raw_swarm.get("investor_matches") if isinstance(raw_swarm, dict) else None
+
+            if top_fixes:
+                enhancements["top_fixes"] = top_fixes
+                current_scores = {
+                    d.get("name", ""): d.get("score")
+                    for d in dims
+                    if isinstance(d, dict) and d.get("name")
+                }
+                forecast = generate_score_forecast(top_fixes, current_scores, final_score_value, stage_for_enhancements)
+                if forecast:
+                    enhancements["score_forecast"] = forecast
+
+                rewritten = rewrite_exec_summary(exec_summary, top_fixes, stage_for_enhancements)
+                if rewritten:
+                    enhancements["rewritten_exec_summary"] = rewritten
+
+            if investor_matches:
+                enhancements["investor_matches"] = investor_matches
+
+            similar = find_similar_funded(industry_for_enhancements, stage_for_enhancements)
+            if similar:
+                enhancements["similar_funded"] = similar
+
+            if enhancements:
+                logger.info(f"[BI-REST] Report enhancements: {list(enhancements.keys())}")
+                result["enhancements"] = enhancements
+        except Exception as e:
+            logger.warning(f"[BI-REST] Report enhancements failed (non-fatal): {e}")
+            warnings.append(
+                f"Report enhancements failed (score forecast, exec rewrite, similar funded unavailable): {e}"
+            )
+
         # Generate narrative sections via ReportAgent (same as dashboard WebSocket path)
         try:
             from .services.report_agent import ReportAgent
             report_agent = ReportAgent()
+            report_sections_started_at = time.time()
             report_sections = report_agent.generate_report(result)
             result["report_sections"] = report_sections
             result["narrative"] = "\n\n".join(
                 f"{title}\n{content}" for title, content in report_sections.items()
             ) if report_sections else ""
+            audit.log_report(
+                "report_sections",
+                model="report_agent",
+                response_chars=len(result.get("narrative", "")),
+                latency_s=time.time() - report_sections_started_at,
+                success=True,
+            )
             logger.info(f"[BI-REST] ReportAgent: {len(report_sections)} sections generated")
         except Exception as e:
             logger.warning(f"[BI-REST] ReportAgent failed (non-fatal): {e}")
+            warnings.append(f"ReportAgent failed: narrative sections unavailable. Error: {e}")
+            audit.log_report(
+                "report_sections",
+                model="report_agent",
+                latency_s=0,
+                success=False,
+                error=str(e),
+            )
 
-        # Generate HTML report after OASIS/final-verdict enrichment so the shared
-        # report includes the full final state.
+        # Generate the stable HTML report after OASIS/final-verdict enrichment so
+        # the founder-facing shared report stays deterministic.
+        legacy_html = ""
         try:
             from .services.report_generator import generate_html_report
-            html = generate_html_report(result, narrative=result.get("narrative", ""))
-            if html:
-                result["report_html"] = html
+            legacy_started_at = time.time()
+            legacy_html = generate_html_report(result, narrative=result.get("narrative", ""))
+            audit.log_report(
+                "legacy_html_report",
+                model="deterministic_template",
+                response_chars=len(legacy_html or ""),
+                latency_s=time.time() - legacy_started_at,
+                success=bool(legacy_html),
+                error="" if legacy_html else "Legacy renderer returned empty HTML",
+            )
+            if legacy_html:
+                result["report_html"] = legacy_html
+                report_generation_status = "success"
+                renderer_used = "legacy"
+            else:
+                report_generation_status = "failed"
+                report_generation_error = "Legacy renderer returned empty HTML"
+                warnings.append(report_generation_error)
         except Exception as e:
             logger.warning(f"[BI-REST] Report generation failed (non-fatal): {e}")
+            report_generation_status = "failed"
+            report_generation_error = str(e)
+            warnings.append(f"Report generation failed: {e}")
+            audit.log_report(
+                "legacy_html_report",
+                model="deterministic_template",
+                latency_s=0,
+                success=False,
+                error=str(e),
+            )
 
+        if report_renderer == "llm" or generate_llm_preview:
+            try:
+                from .services.llm_report_generator import generate_llm_report
+
+                llm_started_at = time.time()
+                llm_html = generate_llm_report(result)
+                audit.log_report(
+                    "llm_html_report",
+                    model="claude-opus-4-6",
+                    response_chars=len(llm_html or ""),
+                    latency_s=time.time() - llm_started_at,
+                    success=bool(llm_html),
+                    error="" if llm_html else "LLM renderer returned empty HTML",
+                )
+                if llm_html:
+                    llm_preview_generated = True
+                    llm_preview_status = "generated"
+                    result["llm_report_html_preview"] = llm_html
+                    if report_renderer == "llm":
+                        result["report_html"] = llm_html
+                        renderer_used = "llm"
+                        report_generation_status = "success"
+                        report_generation_error = ""
+                else:
+                    llm_preview_status = "failed"
+                    llm_preview_error = "LLM renderer returned empty HTML"
+                    if report_renderer == "llm":
+                        warnings.append("LLM report renderer returned empty HTML — using legacy renderer instead.")
+            except Exception as e:
+                llm_preview_status = "failed"
+                llm_preview_error = str(e)
+                audit.log_report(
+                    "llm_html_report",
+                    model="claude-opus-4-6",
+                    latency_s=0,
+                    success=False,
+                    error=str(e),
+                )
+                if report_renderer == "llm":
+                    warnings.append(f"LLM report renderer failed — using legacy renderer instead. Error: {e}")
+                else:
+                    logger.warning(f"[BI-REST] LLM preview failed (non-fatal): {e}")
+
+        if report_renderer == "llm" and renderer_used != "llm" and legacy_html:
+            renderer_used = "legacy"
+            report_generation_status = "fallback_legacy"
+
+        if warnings:
+            result["warnings"] = warnings
+
+        audit_path = _finalize_audit_run(
+            audit,
+            extraction=extraction,
+            warnings=warnings,
+            verdict=final_verdict_value,
+            score=final_score_value,
+            confidence=final_confidence_value,
+        )
+        try:
+            analytics.track_analysis_complete(
+                company=getattr(extraction, "company", ""),
+                score=final_score_value,
+                verdict=final_verdict_value,
+                duration_s=time.time() - analysis_started_at,
+                agent_count=agent_count,
+            )
+        except Exception as analytics_err:
+            logger.debug(f"[BI-REST] Analytics complete tracking failed (non-fatal): {analytics_err}")
+
+        result["admin_summary"] = {
+            "analysis_id": analysis_id,
+            "submission_id": submission_id,
+            "duration_s": round(time.time() - analysis_started_at, 1),
+            "renderer_requested": report_renderer,
+            "renderer_used": renderer_used,
+            "report_generation_status": report_generation_status,
+            "report_generation_error": report_generation_error,
+            "report_sections_count": len(report_sections),
+            "warning_count": len(warnings),
+            "warnings": warnings[:10],
+            "enhancement_keys": sorted(enhancements.keys()),
+            "enhancement_count": len(enhancements),
+            "has_llm_preview": llm_preview_generated,
+            "llm_preview_status": llm_preview_status,
+            "llm_preview_error": llm_preview_error,
+            "audit_path": audit_path,
+        }
         return result
 
     # ── Async mode: return job ID, run in background ──

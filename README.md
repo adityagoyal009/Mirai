@@ -3,170 +3,119 @@
 
 ## Current State
 
-These notes reflect the current live pipeline as of 2026-03-30.
+These notes reflect the current runtime as of **2026-04-03**.
 
-- **Founder intake**: the website form now captures structured buyer, proof, pricing/GTM, implementation, substitute, evidence, founder-fit, and primary-risk fields. Those inputs are persisted and carried through the live pipeline as typed context.
-- **Live research**: OpenClaw is the primary fresh-facts engine. Gemini is fallback only. The old BI degraded research path is not used in the live website flow.
-- **Council**: 11-model council with peer review and chairman reconciliation. Council fact-checking now verifies council reasoning text, not the raw research JSON blob.
-- **Persona swarm**: 50-agent stage-aware, target-market-aware swarm. Persona selection now uses `industry + product + target_market + stage`, and pre-seed runs no longer receive late-stage finance personas.
-- **Wildcard control**: B2B / industrial startups now get fewer, more relevant wildcard seats instead of noisy generic personas.
-- **Final verdict**: REST and WebSocket share the same final-verdict math. Final score is numeric council + swarm + OASIS adjustment, not a simple conservative override.
-- **OASIS**: 4-round / 4-month simulation using structured company context and real live-search events. Trajectory is measured from the pre-simulation baseline, not only from month 1.
-- **Reports**: HTML report is generated after OASIS and final verdict enrichment. Fact-check data now surfaces correctly from swarm / prediction / top-level payloads. The report label is `Final Confidence`.
+- **Founder-facing production path**: the website intake on `vclabs.org` stores submissions in Prisma, queues them, and sends them to the internal FastAPI endpoint `/api/bi/analyze`.
+- **Primary backend**: [subconscious/swarm/app.py](/home/aditya/Downloads/mirai/subconscious/swarm/app.py) is the live FastAPI application. Old Flask wording in older docs is stale.
+- **Research**: OpenClaw is the primary fresh-facts engine. Gemini is fallback only.
+- **Council**: the main investment scoring path is the multi-model council in `business_intel.py`, with peer review, chairman reconciliation, and fact-check penalties.
+- **Swarm**: production swarm size is fixed at **50 agents**.
+- **OASIS**: the live simulation path runs **4 rounds** and feeds into the final verdict blend.
+- **Reports**: founder reports use the deterministic HTML renderer by default for consistency. Admin can request an optional LLM comparison render without changing the founder-facing default.
+- **Admin analytics**: backend diagnostics, warnings, renderer metadata, and enhancement coverage are persisted into website `Event` rows and surfaced in the admin analytics dashboard.
+- **WebSocket dashboard path**: `/ws/swarm` still exists for the live operator/dashboard flow, but it is **not** the primary founder submission path.
 
 ## What Mirai Does
 
-Give Mirai a startup's structured details → it preserves the founder's buyer / proof / pricing / implementation context, researches the market with OpenClaw live web search (Gemini fallback only if needed), scores across 10 dimensions using an 11-model council with peer review and chairman reconciliation, simulates crowd reaction with a 50-agent persona swarm across 6 zones, runs a 4-round OASIS market trajectory simulation, and generates a PitchBook-quality HTML report with inline SVG charts that show both founder-provided inputs and Mirai-verified findings.
+Mirai takes a startup’s structured submission, preserves the buyer / proof / pricing / implementation context from the founder, researches the company and market with OpenClaw, scores it with a multi-model council, pressure-tests the thesis with a 50-agent persona swarm, runs OASIS trajectory simulation, and generates a consistent HTML report that can be shared back to the founder.
 
-## Key Features
+## Primary Runtime Paths
 
-- **OpenClaw Web Research** — OpenClaw agent with native web search does deep 10-step research (company, team, funding, competitors, market, patents, regulatory, customers, pricing, risks). Gemini grounded search as fallback when Anthropic is down. Research cached 7 days with staleness indicator.
-- **10-Model Council (Karpathy Pattern)** — 10 LLMs across 8 families (Opus 4.6, GPT-5.4, Llama 3.3 70B, Llama 4 Scout, Kimi K2, Qwen3 235B, GPT-OSS 120B, Mistral Large 675B, Qwen3.5 397B, GLM-5) score 10 dimensions independently. Stage 2 peer review where models cross-evaluate each other anonymously. Chairman (Opus, Qwen3.5 fallback) reconciles with peer rankings + flagged claims. Disagreements classified as "disputed" or "heavily contested."
-- **88.5B+ Persona Swarm** — 50-100 agents generated from 16 trait dimensions (role, MBTI behavioral, risk profile, experience, cognitive bias, geographic lens, industry, fund context, backstory, decision framework, portfolio composition, thesis style, technical depth, failure scars, network strength, decision speed). Each persona evaluates from their unique perspective with "stay in your lane" domain focus. Hallucination guard on every agent's reasoning. 6 free models across 5 families (Groq: Llama 3.3, Scout, Kimi K2. SambaNova: DeepSeek V3.1, Maverick. Mistral: Small).
-- **Contextual Persona Curation** — Industry-aware panel selection: a CleanTech startup gets Impact Investor (climate), Environmental Compliance Officer, and a Farmer/Rancher instead of random generic roles. 10 industry mappings with priority roles per zone.
-- **Investment Committee Deliberation** — After independent evaluation, the most bullish and bearish agents argue with each other in a 2-round simulated debate. A committee chair synthesizes the tension and renders a recommendation. Committee members receive DELIBERATION_WEIGHT=1.5 in weighted aggregation. Adjusted scores feed back into the final verdict.
-- **Critical Divergence Analysis** — Z-score outlier detection across ALL swarm agents (Wave 1 + Wave 2) identifies which agents disagree most sharply with the consensus. Zone agreement tracking shows which perspectives are aligned and which are split. The gold is in the disagreements.
-- **OASIS Market Simulation** — 6-month multi-round simulation with real news-sourced market events, swarm-sourced panelists (strongest bull/bear, per-zone reps), uncertainty bands per round, graduated scoring, agent-to-agent visibility, and anti-herding safeguards.
-- **Source-Credibility-Weighted Research** — 31 premium domains (Gartner, SEC, Bloomberg, EPA) get 1.5-3x boost over random blogs. Industry-specific dimension weights tune scoring for each vertical.
-- **Real Fact Verification** — Brave Search, SEC EDGAR, Yahoo Finance, Jina DeepSearch verify quantitative claims against real sources. No circular LLM-asking-LLM.
-- **Hallucination Guard** — TF-IDF traceability check on every research synthesis. Claims not traceable to raw sources flagged as [LLM-INFERRED].
-- **Source Citations** — Every fact tracked from source URL through pipeline to PDF (Appendix D).
-- **Autonomous Cortex** — 10-second heartbeat loop that browses the web, executes sandboxed code, triggers analyses, and sends messages without human prompting. 4 self-learning loops (experience, reflection, skill forge, market radar).
-- **Pixel Art War Room** — 7-room pixel art office with animated agents, 8 council elders on sofas, zone labels, and hover tooltips.
-- **HTML Report with PitchBook-Density Charts** — LLM-generated HTML report opens in new tab. SVG charts: score radar, swarm donut, valuation step-up, TAM funnel, competitive positioning scatter. Full agent reasoning in editorial serif italic (Source Serif 4). Design system: Instrument Serif display, DM Sans body, navy #0f2440.
-- **Agent Chat** — Click any agent after voting to ask follow-up questions.
-- **Multi-Provider Free Inference** — Council and swarm use free APIs from Groq (300ms), Cerebras (200ms), SambaNova, Mistral, and NVIDIA NIM. Claude and GPT-5.4 via headless CLI (subscription). Gateway as fallback only. Zero marginal API cost for swarm.
-- **Zero External Dependencies** — All evaluation, dedup, fact-checking is Mirai-owned code. No semhash, deepeval, yfinance packages.
-- **Graceful Degradation** — Optional services (Mem0, OpenBB, CrewAI, E2B, Crawl4AI) enrich output when available but never block the pipeline.
-- **Calibration-Ready** — Every report generates structured training data (per-agent JSONL logs). Feedback API tracks outcomes against predictions. 22,818 companies with known outcomes for backtesting. The system gets more accurate with volume.
+### 1. Founder Submission Flow
 
-## Architecture
+1. Founder submits through the website intake.
+2. The website stores the submission in Prisma and enqueues it in a single-worker analysis queue.
+3. The queue calls FastAPI `/api/bi/analyze` with internal auth and polls `/api/bi/job/{id}`.
+4. FastAPI runs extraction → research → council → swarm → plan → OASIS → final verdict.
+5. FastAPI generates report sections, deterministic HTML, admin-only diagnostics, and optional admin-only LLM preview data.
+6. The website queue shares the HTML report, updates the submission, and writes analytics `Event` rows for the admin dashboard.
 
-```
-Dashboard (port 5000)        Free LLM APIs              CLI (subscriptions)
-    │                        ├── Groq (Llama, Scout,     ├── claude -p (Opus)
-    │ WebSocket              │   Kimi K2, GPT-OSS)       ├── codex exec (GPT-5.4)
-    ├────────────────────────├── Cerebras (Qwen3 235B)   │
-    │                        ├── SambaNova (DeepSeek V3)  OpenClaw (port 18789)
-    │                        ├── Mistral (Small)          └── Research agent
-    │                        ├── NVIDIA NIM (675B, 397B)      with web search
-    │                        └── Gemini (fallback research)
-    │
-    │  Phase 1: Research (OpenClaw primary → Gemini fallback)
-    │  Phase 2: Council (10 models, peer review, chairman reconciliation)
-    │  Phase 3: Swarm (50-100 agents across 6 free models)
-    │  Phase 4: OASIS (6-month market simulation, optional)
-    │  Phase 5: HTML Report (LLM-generated, PitchBook-density SVG charts)
-    │  → analysisComplete (VIEW REPORT opens HTML in new tab)
-```
+### 2. Live Dashboard Flow
 
-## Quick Start
+- The pixel dashboard uses WebSocket events from `/ws/swarm` for real-time phase streaming and operator visibility.
+- That path is useful for live debugging and parity work, but it is not the founder-facing production path.
 
-```bash
-git clone https://github.com/adityagoyal009/Mirai.git && cd Mirai
+### 3. Sensei Flow
 
-# Set API keys (free tier, no credit card needed)
-export GROQ_API_KEY="your-groq-key"           # console.groq.com
-export CEREBRAS_API_KEY="your-cerebras-key"     # cloud.cerebras.ai
-export SAMBANOVA_API_KEY="your-sambanova-key"   # cloud.sambanova.ai
-export MISTRAL_API_KEY="your-mistral-key"       # console.mistral.ai
-export NVIDIA_API_KEY="your-nvidia-key"         # build.nvidia.com
-export GOOGLE_AI_KEY="your-google-key"          # aistudio.google.com
+- Sensei runs on `/game/` and uses `/ws/sensei` on the same FastAPI backend.
+- It reuses Mirai research context and the shared persona system for mentor conversations.
 
-# Start Dashboard + Backend (port 5000)
-uvicorn subconscious.swarm.app:app --host 0.0.0.0 --port 5000
+## Analysis Pipeline
 
-# Open http://localhost:5000/dashboard/
-```
+### Phase 1: Research
+- OpenClaw performs the main agentic web research.
+- Gemini grounded search is used only as fallback.
+- Research is normalized into the `ResearchReport` schema consumed by the rest of the pipeline.
 
-## Models (10 Council + 6 Swarm + 2 Research)
+### Phase 2: Council
+- Blind scoring can run in parallel with research.
+- The council then rescoring pass uses the full research payload.
+- Deep mode adds peer review, reconciliation, chairman synthesis, and fact-check penalties.
 
-### Council (10 models, 8 families)
-| # | Model | Provider | Speed | Cost |
-|---|-------|----------|-------|------|
-| 1 | Claude Opus 4.6 | CLI (subscription) | ~20s | Subscription |
-| 2 | GPT-5.4 | CLI (subscription) | ~30s | Subscription |
-| 3 | Llama 3.3 70B | Groq | 248ms | Free |
-| 4 | Llama 4 Scout | Groq | 143ms | Free |
-| 5 | Kimi K2 | Groq | 181ms | Free |
-| 6 | GPT-OSS 120B | Groq | 350ms | Free |
-| 7 | Qwen3 235B | Cerebras | 204ms | Free |
-| 8 | Mistral Large 675B | NVIDIA NIM | 330ms | Free |
-| 9 | Qwen3.5 397B | NVIDIA NIM | 328ms | Free |
-| 10 | GLM-5 | NVIDIA NIM | 1.9s | Free |
+### Phase 3: Swarm
+- The production swarm uses **50 agents**.
+- Persona selection is context-aware: `industry`, `product`, `target_market`, and `stage`.
+- Swarm output includes not just aggregate sentiment, but also `top_fixes` and `investor_matches`.
 
-### Swarm (6 models, 5 families)
-| Model | Provider | Speed |
-|-------|----------|-------|
-| Llama 3.3 70B | Groq | 248ms |
-| Llama 4 Scout | Groq | 143ms |
-| Kimi K2 | Groq | 181ms |
-| DeepSeek V3.1 | SambaNova | 600ms |
-| Llama 4 Maverick | SambaNova | 1.0s |
-| Mistral Small | Mistral | 610ms |
+### Phase 4: OASIS
+- The active OASIS path runs **4 rounds**.
+- It produces a trajectory signal that feeds the final verdict blend.
 
-### Research
-| Engine | Provider | Web Search | Role |
-|--------|----------|-----------|------|
-| OpenClaw Agent | Anthropic (port 18789) | Native tools | Primary |
-| Gemini 2.5 Flash | Google AI Studio | Grounded search | Fallback |
+### Phase 5: Reporting
+- `ReportAgent` generates narrative sections.
+- `report_generator.py` is the production default renderer for founder consistency.
+- `llm_report_generator.py` is now used as an **admin comparison path**, not the default founder report path.
 
-Config: `~/.mirai/council.json`
-Env vars: `GROQ_API_KEY`, `CEREBRAS_API_KEY`, `SAMBANOVA_API_KEY`, `MISTRAL_API_KEY`, `NVIDIA_API_KEY`, `GOOGLE_AI_KEY`
+## Report Enhancements And Admin Diagnostics
 
-## 10-Dimension Scoring
+The real backend preserves these higher-value analysis artifacts:
 
-| Dimension | Weight | What it measures |
-|-----------|--------|-----------------|
-| market_timing | 15% | Is this the right moment? |
-| business_model_viability | 15% | Do unit economics work? |
-| competition_landscape | 12% | How defensible? |
-| pattern_match | 10% | Historical precedents |
-| team_execution_signals | 10% | Can THIS team build THIS? |
-| regulatory_news_environment | 8% | Help or hindrance? |
-| social_proof_demand | 8% | Is there real pull? |
-| capital_efficiency | 8% | Burn rate, runway, milestones |
-| scalability_potential | 7% | Can this 10x without breaking? |
-| exit_potential | 7% | Path to liquidity |
+- `top_fixes`
+- `investor_matches`
+- `score_forecast`
+- `rewritten_exec_summary`
+- `similar_funded`
+- warnings and degradation notes
+- report renderer metadata
+- audit log path
 
-## Data Sources
+These are kept for admins and internal operations. Founders still see the simple async workflow and final report delivery.
 
-| Source | Volume | Use |
-|--------|--------|-----|
-| FinePersonas (Argilla) | 1,200,000 | Persona generation |
-| Tencent PersonaHub Elite | 238,443 | Domain expert personas |
-| Tencent PersonaHub | 200,000 | General personas |
-| Company Database | 231,213 | Backtesting |
-| Claude Web Search | Built-in (subscription) | Primary research (Opus-web) |
-| GPT Web Search | Built-in (subscription) | Parallel research (GPT-5.4-web) |
-| SEC EDGAR | Unlimited free | Public company filing verification |
-| Yahoo Finance | Free | Revenue/market cap verification |
-| Jina DeepSearch | 1M tokens free | Claim grounding with evidence |
+## Key Files
+
+- [subconscious/swarm/app.py](/home/aditya/Downloads/mirai/subconscious/swarm/app.py): primary FastAPI backend
+- [subconscious/swarm/services/business_intel.py](/home/aditya/Downloads/mirai/subconscious/swarm/services/business_intel.py): research + council core
+- [subconscious/swarm/services/swarm_predictor.py](/home/aditya/Downloads/mirai/subconscious/swarm/services/swarm_predictor.py): 50-agent swarm
+- [subconscious/swarm/services/final_verdict.py](/home/aditya/Downloads/mirai/subconscious/swarm/services/final_verdict.py): council + swarm + OASIS blend
+- [subconscious/swarm/services/report_generator.py](/home/aditya/Downloads/mirai/subconscious/swarm/services/report_generator.py): deterministic founder-facing HTML
+- [subconscious/swarm/services/llm_report_generator.py](/home/aditya/Downloads/mirai/subconscious/swarm/services/llm_report_generator.py): admin-only comparison renderer
+- [website/lib/analysis-queue.ts](/home/aditya/Downloads/mirai/website/lib/analysis-queue.ts): website queue and submission orchestration
+- [website/app/api/admin/analytics/route.ts](/home/aditya/Downloads/mirai/website/app/api/admin/analytics/route.ts): admin analytics aggregation
+- [website/app/admin/analytics/page.tsx](/home/aditya/Downloads/mirai/website/app/admin/analytics/page.tsx): admin analytics dashboard UI
 
 ## Ports
 
 | Port | Service |
 |------|---------|
-| 4000 | claude-proxy (LLM + web search) |
-| 5000 | FastAPI + Dashboard |
-| 8100 | Cortex API Server (optional) |
+| 19789 | Mirai Gateway |
+| 5000 | FastAPI app: internal BI API, dashboard assets, `/ws/swarm`, `/ws/sensei` |
+| 8100 | Cortex API server |
+| 8888 | SearXNG (optional / deployment-dependent) |
 
-## API
+## Internal Endpoints
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/bi/analyze` | Full analysis, async job submission, internal callers only |
-| GET | `/api/bi/job/{id}` | Poll async analysis result, internal callers only |
-| POST | `/api/bi/report/pdf` | Generate PDF |
-| POST | `/api/report/share` | Persist shareable HTML report, internal callers only |
-| POST | `/api/bi/feedback` | Record outcome |
-| GET | `/api/bi/accuracy` | Accuracy stats |
-| GET | `/api/bi/history` | Past analyses |
-| WS | `/ws/swarm` | Real-time events |
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| POST | `/api/bi/analyze` | Internal async analysis submission |
+| GET | `/api/bi/job/{id}` | Internal job polling |
+| POST | `/api/report/share` | Persist shareable HTML report |
+| WS | `/ws/swarm` | Legacy/live dashboard streaming path |
+| WS | `/ws/sensei` | Sensei mentor sessions |
 
 ## Queue And Security Notes
 
-- Website submissions are serialized through an in-memory FIFO queue with an operating target of `50 analyses / 24h`.
-- Queue restart recovery reconstructs resumable `queued` and `reviewing` submissions from the database instead of only resetting status flags.
-- Website → swarm requests use `MIRAI_INTERNAL_API_KEY`, falling back to `NEXTAUTH_SECRET` for compatibility.
-- Swarm-side fallback throttling is only for loopback/no-key traffic and defaults to `50` analyses per `86400` seconds.
+- Website submissions are serialized through a single-worker FIFO queue.
+- Queue callers authenticate to FastAPI using `MIRAI_INTERNAL_API_KEY`, with `NEXTAUTH_SECRET` fallback for compatibility.
+- If no internal key is configured, internal BI endpoints only allow loopback callers.
+- Founder-facing status remains intentionally simple: queued, reviewing, report ready.
+- Detailed backend diagnostics belong in admin analytics, not in the founder-facing surface.

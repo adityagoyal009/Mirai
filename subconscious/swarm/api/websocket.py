@@ -105,7 +105,7 @@ def _handle_full_analysis(msg: dict):
     """Handle startAnalysis — run full BI pipeline with streaming events."""
     exec_summary = msg.get("execSummary", "")
     depth = msg.get("depth", "deep")
-    agent_count = msg.get("agentCount", 100)
+    agent_count = msg.get("agentCount", 50)
     stage = msg.get("stage", "")  # Explicit stage from frontend (Idea/Pre-seed/Seed/Series A/B/C/Growth/Pre-IPO)
 
     if not exec_summary:
@@ -116,10 +116,10 @@ def _handle_full_analysis(msg: dict):
         exec_summary = exec_summary[:50000]
         logger.warning(f"[WS] exec_summary truncated from {len(msg.get('execSummary', ''))} to 50000 chars")
 
-    # 50 or 100 agents; 0 disables swarm
-    valid_counts = [0, 50, 100]
+    # 50 agents only; 0 disables swarm for explicit no-swarm runs.
+    valid_counts = [0, 50]
     if agent_count not in valid_counts:
-        agent_count = 100
+        agent_count = 50
 
     logger.info(f"[WS] Starting full analysis: depth={depth}, agents={agent_count}")
     _analysis_start_time = time.time()
@@ -961,15 +961,15 @@ def _handle_agent_chat(msg: dict):
 def _handle_start_swarm(msg: dict):
     """Handle a startSwarm request — run prediction with streaming callbacks."""
     exec_summary = msg.get("execSummary", "")
-    agent_count = msg.get("agentCount", 100)
+    agent_count = msg.get("agentCount", 50)
 
     if not exec_summary:
         broadcast({"type": "error", "error": "Missing execSummary"})
         return
 
-    valid_counts = [10, 25, 50, 100, 250, 500, 1000]
+    valid_counts = [50]
     if agent_count not in valid_counts:
-        agent_count = min(valid_counts, key=lambda x: abs(x - agent_count))
+        agent_count = 50
 
     logger.info(f"[WS] Starting swarm: {agent_count} agents")
     broadcast({

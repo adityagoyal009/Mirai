@@ -1,10 +1,9 @@
 """
-Swarm Predictor — spawns 50-1000 agents with variable personalities
+Swarm Predictor — runs a fixed 50-agent panel with variable personalities
 to independently predict startup outcomes.
 
-Hybrid execution:
-  Wave 1: Up to 100 individual LLM calls with unique detailed personas
-  Wave 2: Batch remaining agents (each call simulates 25 personas)
+Execution:
+  Wave 1: 50 individual LLM calls with unique detailed personas
 
 Calls distributed round-robin across all logged-in models.
 """
@@ -131,7 +130,7 @@ class SwarmResult:
 # ── Constants ─────────────────────────────────────────────────────
 
 DELIBERATION_WEIGHT = 1.0  # Equal weight for all agents
-VALID_COUNTS = [50]  # 50 agents — optimal balance of diversity and speed
+VALID_COUNTS = [50]  # 50 agents — the only supported production swarm size
 
 
 def normalize_stage(raw_stage: str) -> str:
@@ -151,8 +150,8 @@ def normalize_stage(raw_stage: str) -> str:
     }
     return STAGE_MAP.get(s, s)
 
-WAVE1_MAX = 100  # All 100 agents run as individual calls (no batch mode)
-BATCH_SIZE = 5  # Retained for backward compat but Wave 2 won't trigger at 100 agents
+WAVE1_MAX = 50  # All 50 agents run as individual calls (no batch mode)
+BATCH_SIZE = 5  # Retained for backward compat; Wave 2 does not trigger for 50 agents
 # All 6 swarm models are NVIDIA (40 RPM limit). Each call takes ~30-60s.
 # 8 workers = max 8 concurrent NVIDIA calls. With ~30s per call that's ~16 RPM. Safe.
 WAVE1_WORKERS = 8
@@ -236,7 +235,7 @@ class SwarmPredictor:
         )
 
     def predict(self, exec_summary: str, research_context: str,
-                agent_count: int = 100,
+                agent_count: int = 50,
                 on_agent_complete=None,
                 on_agent_start=None,
                 on_deliberation_start=None,

@@ -3,13 +3,65 @@
 import { useSession } from "next-auth/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+interface RecentEvent {
+  event: string;
+  company: string;
+  industry: string;
+  ts: string;
+  submission_id?: number | null;
+  renderer_used?: string;
+  report_generation_status?: string;
+  duration_s?: number | null;
+  warning_count?: number;
+  has_report?: boolean;
+  enhancement_keys?: string[];
+  llm_preview_status?: string;
+  top_warning?: string;
+  audit_path?: string;
+  verdict?: string;
+  score?: number | null;
+}
+
+interface BackendRun {
+  ts: string;
+  submission_id?: number | null;
+  company: string;
+  industry: string;
+  renderer_used: string;
+  duration_s?: number | null;
+  warning_count: number;
+  has_report: boolean;
+  report_generation_status: string;
+  enhancement_keys: string[];
+  llm_preview_status: string;
+  top_warning: string;
+  audit_path: string;
+  verdict: string;
+  score?: number | null;
+}
+
 interface Analytics {
   totals: Record<string, number>;
   daily_submissions: Array<{ date: string; count: number }>;
   status_breakdown: Array<{ label: string; count: number }>;
   industry_breakdown: Array<{ label: string; count: number }>;
   stage_breakdown: Array<{ label: string; count: number }>;
-  recent_events: Array<{ event: string; company: string; industry: string; ts: string }>;
+  recent_events: RecentEvent[];
+  backend: {
+    total_runs: number;
+    avg_duration_s: number;
+    degraded_runs: number;
+    report_failures: number;
+    llm_preview_runs: number;
+    failed_runs: number;
+    needs_info_runs: number;
+    legacy_renderer_runs: number;
+    llm_renderer_runs: number;
+    renderer_breakdown: Array<{ label: string; count: number }>;
+    enhancement_coverage: Array<{ label: string; count: number }>;
+    recent_runs: BackendRun[];
+    recent_degraded_runs: BackendRun[];
+  };
   users: Array<{ id: number; name: string; email: string; isAdmin: boolean; submissionCount: number; createdAt: string }>;
   hourly_submissions: Array<{ hour: number; count: number }>;
 }
@@ -32,6 +84,12 @@ function timeAgo(dateStr: string): string {
 function formatDate(val: string): string {
   const d = new Date(val);
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
+function formatDuration(value?: number | null): string {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return "—";
+  if (value >= 60) return `${(value / 60).toFixed(1)}m`;
+  return `${value.toFixed(1)}s`;
 }
 
 function StatCard({ label, value, meta, accent }: { label: string; value: string | number; meta: string; accent?: string }) {
@@ -270,6 +328,68 @@ export default function AnalyticsPage() {
               </div>
             </div>
           )}
+
+          <div className="mt-6">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+              <StatCard label="Backend Runs" value={d.backend?.total_runs ?? 0} meta="Completed analyses" />
+              <StatCard label="Avg Runtime" value={formatDuration(d.backend?.avg_duration_s)} meta="Per completed run" accent="#196cff" />
+              <StatCard label="Degraded" value={d.backend?.degraded_runs ?? 0} meta="Warnings or missing report" accent="#f3b13f" />
+              <StatCard label="Report Fail" value={d.backend?.report_failures ?? 0} meta="Missing or failed report output" accent="#dc2626" />
+              <StatCard label="LLM Preview" value={d.backend?.llm_preview_runs ?? 0} meta="Admin-only comparisons" />
+              <StatCard label="Needs Info" value={d.backend?.needs_info_runs ?? 0} meta="Incomplete inputs" />
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mt-6">
+              <div className="p-6 rounded-[30px] border border-[rgba(11,26,47,0.1)] bg-white/85 shadow-lg">
+                <h3 className="font-bold text-sm mb-3">Renderer Breakdown</h3>
+                <HBar items={d.backend?.renderer_breakdown || []} />
+              </div>
+              <div className="p-6 rounded-[30px] border border-[rgba(11,26,47,0.1)] bg-white/85 shadow-lg">
+                <h3 className="font-bold text-sm mb-3">Enhancement Coverage</h3>
+                <HBar items={d.backend?.enhancement_coverage || []} />
+              </div>
+            </div>
+
+            <div className="mt-6 p-6 rounded-[30px] border border-[rgba(11,26,47,0.1)] bg-white/85 shadow-lg">
+              <h2 className="text-lg font-bold tracking-tight">Recent Backend Diagnostics</h2>
+              <p className="text-sm text-ink-soft mt-1">Admin-only run telemetry from the real `/api/bi/analyze` pipeline.</p>
+              {d.backend?.recent_degraded_runs?.length ? (
+                <div className="mt-4 space-y-3">
+                  {d.backend.recent_degraded_runs.map((run, i) => (
+                    <article key={`${run.ts}-${i}`} className="p-4 rounded-[18px] border border-[rgba(11,26,47,0.08)] bg-white/90">
+                      <div className="flex items-start justify-between gap-4">
+                        <div>
+                          <strong className="block text-sm">{run.company || run.industry || "Analysis run"}</strong>
+                          <span className="block mt-1 text-xs text-ink-soft">
+                            {run.verdict || "No verdict"} • {run.renderer_used || "legacy"} • {formatDuration(run.duration_s)}
+                          </span>
+                        </div>
+                        <span className="text-xs text-ink-faint whitespace-nowrap">{formatDate(run.ts)}</span>
+                      </div>
+                      <div className="flex flex-wrap gap-2 mt-3">
+                        <span className="inline-flex items-center px-2 py-1 rounded-full text-[11px] font-bold bg-[rgba(243,177,63,0.16)] text-[#8a5a00]">
+                          {run.warning_count} warning{run.warning_count === 1 ? "" : "s"}
+                        </span>
+                        <span className="inline-flex items-center px-2 py-1 rounded-full text-[11px] font-bold bg-[rgba(11,26,47,0.06)] text-ink-soft">
+                          report: {run.report_generation_status || "unknown"}
+                        </span>
+                        {run.llm_preview_status === "generated" && (
+                          <span className="inline-flex items-center px-2 py-1 rounded-full text-[11px] font-bold bg-[rgba(25,108,255,0.12)] text-[#196cff]">
+                            llm preview ready
+                          </span>
+                        )}
+                      </div>
+                      {run.top_warning && (
+                        <p className="mt-3 text-sm text-ink-soft">{run.top_warning}</p>
+                      )}
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-ink-soft text-sm mt-4">No degraded backend runs in the selected window.</p>
+              )}
+            </div>
+          </div>
         </>
       )}
 
@@ -367,6 +487,40 @@ export default function AnalyticsPage() {
                     </div>
                     <span className="text-xs text-ink-faint whitespace-nowrap">{formatDate(ev.ts)}</span>
                   </div>
+                  {(ev.renderer_used || ev.duration_s || ev.warning_count || ev.top_warning || ev.verdict || ev.score != null) && (
+                    <div className="mt-3">
+                      <div className="flex flex-wrap gap-2">
+                        {ev.renderer_used && (
+                          <span className="inline-flex items-center px-2 py-1 rounded-full text-[11px] font-bold bg-[rgba(11,26,47,0.06)] text-ink-soft">
+                            renderer: {ev.renderer_used}
+                          </span>
+                        )}
+                        {ev.duration_s != null && (
+                          <span className="inline-flex items-center px-2 py-1 rounded-full text-[11px] font-bold bg-[rgba(25,108,255,0.12)] text-[#196cff]">
+                            runtime: {formatDuration(ev.duration_s)}
+                          </span>
+                        )}
+                        {typeof ev.warning_count === "number" && ev.warning_count > 0 && (
+                          <span className="inline-flex items-center px-2 py-1 rounded-full text-[11px] font-bold bg-[rgba(243,177,63,0.16)] text-[#8a5a00]">
+                            {ev.warning_count} warning{ev.warning_count === 1 ? "" : "s"}
+                          </span>
+                        )}
+                        {ev.report_generation_status && (
+                          <span className="inline-flex items-center px-2 py-1 rounded-full text-[11px] font-bold bg-[rgba(11,26,47,0.06)] text-ink-soft">
+                            report: {ev.report_generation_status}
+                          </span>
+                        )}
+                        {ev.verdict && (
+                          <span className="inline-flex items-center px-2 py-1 rounded-full text-[11px] font-bold bg-[rgba(52,199,160,0.12)] text-[#1b8f73]">
+                            {ev.verdict}{typeof ev.score === "number" ? ` • ${ev.score.toFixed(1)}` : ""}
+                          </span>
+                        )}
+                      </div>
+                      {ev.top_warning && (
+                        <p className="mt-3 text-sm text-ink-soft">{ev.top_warning}</p>
+                      )}
+                    </div>
+                  )}
                 </article>
               ))}
             </div>

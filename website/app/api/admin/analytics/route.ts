@@ -4,6 +4,34 @@ import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { VALID_STATUSES } from "@/lib/utils";
 
+type EventMeta = Record<string, unknown>;
+
+function parseEventMeta(raw: string): EventMeta {
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed as EventMeta : {};
+  } catch {
+    return {};
+  }
+}
+
+function readString(meta: EventMeta, key: string): string {
+  const value = meta[key];
+  return typeof value === "string" ? value : "";
+}
+
+function readNumber(meta: EventMeta, key: string): number | null {
+  const value = meta[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function readStringArray(meta: EventMeta, key: string): string[] {
+  const value = meta[key];
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
+}
+
 export async function GET(request: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.isAdmin) {
@@ -82,15 +110,94 @@ export async function GET(request: NextRequest) {
   });
 
   const recentEvents = events.map((ev) => {
-    let meta: Record<string, string> = {};
-    try { meta = JSON.parse(ev.meta); } catch {}
+    const meta = parseEventMeta(ev.meta);
+    const warnings = readStringArray(meta, "warnings");
     return {
       event: ev.event,
-      company: meta.company || "",
-      industry: meta.industry || "",
+      company: readString(meta, "company"),
+      industry: readString(meta, "industry"),
       ts: ev.createdAt.toISOString(),
+      submission_id: ev.submissionId,
+      renderer_used: readString(meta, "renderer_used"),
+      report_generation_status: readString(meta, "report_generation_status"),
+      duration_s: readNumber(meta, "duration_s"),
+      warning_count: readNumber(meta, "warning_count") || 0,
+      has_report: Boolean(meta.has_report),
+      enhancement_keys: readStringArray(meta, "enhancement_keys"),
+      llm_preview_status: readString(meta, "llm_preview_status"),
+      top_warning: readString(meta, "top_warning") || warnings[0] || "",
+      audit_path: readString(meta, "audit_path"),
+      verdict: readString(meta, "verdict"),
+      score: readNumber(meta, "score"),
     };
   });
+
+  const backendEvents = await prisma.event.findMany({
+    where: {
+      createdAt: { gte: cutoffDaily },
+      event: { in: ["analysis_complete", "analysis_degraded", "analysis_failed", "analysis_needs_info"] },
+    },
+    orderBy: { createdAt: "desc" },
+    take: Math.max(limit * 10, 500),
+  });
+
+  const backendRuns = backendEvents
+    .filter((ev) => ev.event === "analysis_complete")
+    .map((ev) => {
+      const meta = parseEventMeta(ev.meta);
+      const warnings = readStringArray(meta, "warnings");
+      return {
+        ts: ev.createdAt.toISOString(),
+        submission_id: ev.submissionId,
+        company: readString(meta, "company"),
+        industry: readString(meta, "industry"),
+        renderer_used: readString(meta, "renderer_used") || "legacy",
+        duration_s: readNumber(meta, "duration_s"),
+        warning_count: readNumber(meta, "warning_count") || 0,
+        has_report: Boolean(meta.has_report),
+        report_generation_status: readString(meta, "report_generation_status") || "unknown",
+        enhancement_keys: readStringArray(meta, "enhancement_keys"),
+        llm_preview_status: readString(meta, "llm_preview_status") || "not_requested",
+        top_warning: readString(meta, "top_warning") || warnings[0] || "",
+        audit_path: readString(meta, "audit_path"),
+        verdict: readString(meta, "verdict"),
+        score: readNumber(meta, "score"),
+      };
+    });
+
+  const durations = backendRuns
+    .map((run) => run.duration_s)
+    .filter((value): value is number => typeof value === "number" && value > 0);
+  const avgDuration = durations.length
+    ? Math.round((durations.reduce((sum, value) => sum + value, 0) / durations.length) * 10) / 10
+    : 0;
+
+  const degradedRuns = backendRuns.filter(
+    (run) =>
+      run.warning_count > 0 ||
+      run.report_generation_status !== "success" ||
+      !run.has_report
+  );
+
+  const rendererCounts = new Map<string, number>();
+  const enhancementCounts = new Map<string, number>();
+  let llmPreviewRuns = 0;
+  let reportFailures = 0;
+  for (const run of backendRuns) {
+    rendererCounts.set(run.renderer_used, (rendererCounts.get(run.renderer_used) || 0) + 1);
+    if (run.llm_preview_status === "generated") {
+      llmPreviewRuns += 1;
+    }
+    if (run.report_generation_status !== "success" || !run.has_report) {
+      reportFailures += 1;
+    }
+    for (const key of run.enhancement_keys) {
+      enhancementCounts.set(key, (enhancementCounts.get(key) || 0) + 1);
+    }
+  }
+
+  const failedRuns = backendEvents.filter((ev) => ev.event === "analysis_failed").length;
+  const needsInfoRuns = backendEvents.filter((ev) => ev.event === "analysis_needs_info").length;
 
   // Users with submission counts
   const users = await prisma.user.findMany({
@@ -136,6 +243,23 @@ export async function GET(request: NextRequest) {
     industry_breakdown: industryBd.map((r) => ({ label: r.industry, count: r._count.id })),
     stage_breakdown: stageBd.map((r) => ({ label: r.stage, count: r._count.id })),
     recent_events: recentEvents,
+    backend: {
+      total_runs: backendRuns.length,
+      avg_duration_s: avgDuration,
+      degraded_runs: degradedRuns.length,
+      report_failures: reportFailures,
+      llm_preview_runs: llmPreviewRuns,
+      failed_runs: failedRuns,
+      needs_info_runs: needsInfoRuns,
+      legacy_renderer_runs: rendererCounts.get("legacy") || 0,
+      llm_renderer_runs: rendererCounts.get("llm") || 0,
+      renderer_breakdown: Array.from(rendererCounts.entries()).map(([label, count]) => ({ label, count })),
+      enhancement_coverage: Array.from(enhancementCounts.entries())
+        .sort((a, b) => b[1] - a[1])
+        .map(([label, count]) => ({ label, count })),
+      recent_runs: backendRuns.slice(0, limit),
+      recent_degraded_runs: degradedRuns.slice(0, Math.min(limit, 12)),
+    },
     users: userList,
     hourly_submissions: hourlySubmissions,
   });

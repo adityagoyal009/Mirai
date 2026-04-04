@@ -16,7 +16,7 @@ A lightweight, self-contained 4-round sentiment tracker built specifically for M
 - Runs 4 simulated "months" of market reaction after the council/swarm verdict
 - Each round fetches live news events via Brave Search and adjusts agent sentiment
 - Produces a trajectory (`improving` / `stable` / `declining`) that can adjust the final verdict
-- Called from `api/websocket.py` at the end of the analysis pipeline
+- Called from the real FastAPI analysis path in `app.py` and from the legacy live dashboard path in `api/websocket.py`
 
 This is what "OASIS" means in the context of a Mirai analysis.
 
@@ -29,7 +29,7 @@ This is what "OASIS" means in the context of a Mirai analysis.
 - `simulation_manager.py` (~400 lines)
 - `oasis_profile_generator.py` (~800 lines)
 
-These files implement a **full OASIS simulation framework** imported from a prior research prototype. They are **NOT connected to the main pipeline** and are never called from `websocket.py`, `swarm_predictor.py`, or any other active service.
+These files implement a **full OASIS simulation framework** imported from a prior research prototype. They are **NOT connected to the main pipeline** and are never called from `app.py`, `api/websocket.py`, `swarm_predictor.py`, or any other active production service.
 
 ### What they contain
 
