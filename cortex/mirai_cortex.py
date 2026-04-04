@@ -43,6 +43,13 @@ _GATEWAY_HEALTH_CHECK_INTERVAL = 10  # Check gateway every N cycles
 _WHATSAPP_NUMBER = os.environ.get("MIRAI_WHATSAPP_NUMBER", "")
 
 
+def _bool_env(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
 class MiraiBrain:
     """
     Connects to the local Mirai Gateway via the OpenAI SDK.
@@ -295,6 +302,15 @@ class MiraiCortex:
         working_dir = data.get("working_directory", None)
         print(f"[HANDS] Executing command: {command}")
 
+        if not _bool_env("MIRAI_CORTEX_ENABLE_TERMINAL_COMMANDS", False):
+            msg = (
+                "BLOCKED: terminal_command is disabled by default. "
+                "Set MIRAI_CORTEX_ENABLE_TERMINAL_COMMANDS=1 to allow sandboxed execution."
+            )
+            print(f"[SECURITY] {msg}")
+            self.last_action_result = msg
+            return
+
         if _BLOCKED_RE.search(command):
             msg = f"BLOCKED: Command matched a dangerous pattern: {command}"
             print(f"[SECURITY] {msg}")
@@ -324,7 +340,16 @@ class MiraiCortex:
             self.last_action_result = output
             return
 
-        # Fallback: direct subprocess (original behavior)
+        if not _bool_env("MIRAI_CORTEX_ALLOW_UNSANDBOXED_TERMINAL", False):
+            msg = (
+                "BLOCKED: no sandbox is available and unsandboxed terminal execution is disabled. "
+                "Set MIRAI_CORTEX_ALLOW_UNSANDBOXED_TERMINAL=1 only if you intentionally want local shell execution."
+            )
+            print(f"[SECURITY] {msg}")
+            self.last_action_result = msg
+            return
+
+        # Fallback: direct subprocess only when explicitly enabled.
         try:
             result = subprocess.run(
                 command, shell=True, capture_output=True, text=True,
@@ -483,6 +508,14 @@ class MiraiCortex:
         message_text = data.get("text", "")
         recipient = data.get("to", "")
         print(f"[COMMS] Messaging Human: {message_text}")
+        if not _bool_env("MIRAI_CORTEX_ENABLE_OUTBOUND_MESSAGES", False):
+            msg = (
+                "BLOCKED: message_human is disabled by default. "
+                "Set MIRAI_CORTEX_ENABLE_OUTBOUND_MESSAGES=1 to allow autonomous outbound messages."
+            )
+            print(f"[SECURITY] {msg}")
+            self.last_action_result = msg
+            return
         result = self.gateway.send_message(text=message_text, to=recipient)
         self.last_action_result = result
 

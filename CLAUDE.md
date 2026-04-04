@@ -34,7 +34,7 @@ Key rules:
 - Retry queue: 3 retries with 10s delay, health check before each attempt, 60 min timeout
 - Restart recovery rebuilds safe `queued` and `reviewing` jobs into the queue
 - Founder APIs expose `status_message` instead of raw `admin_notes`
-- Internal website → swarm auth uses `MIRAI_INTERNAL_API_KEY`, falling back to `NEXTAUTH_SECRET`
+- Internal website → swarm auth uses a dedicated `MIRAI_INTERNAL_API_KEY`
 
 ## Model Routing (llm_client.py)
 - `@cf/` models → Cloudflare Workers AI (kept but not in active council)

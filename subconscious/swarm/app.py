@@ -97,15 +97,16 @@ def _session_secret() -> str:
     secret = os.environ.get("MIRAI_SESSION_SECRET", "").strip()
     if secret:
         return secret
-    logger.warning("[Portal] MIRAI_SESSION_SECRET not set; using local development fallback")
-    return "mirai-dev-session-secret-change-me"
+    generated = secrets.token_urlsafe(48)
+    logger.warning(
+        "[Portal] MIRAI_SESSION_SECRET not set; generating an ephemeral session secret for this process. "
+        "Set MIRAI_SESSION_SECRET for persistent sessions."
+    )
+    return generated
 
 
 def _internal_api_key() -> str:
-    return (
-        os.environ.get("MIRAI_INTERNAL_API_KEY", "").strip()
-        or os.environ.get("NEXTAUTH_SECRET", "").strip()
-    )
+    return os.environ.get("MIRAI_INTERNAL_API_KEY", "").strip()
 
 
 def _request_internal_key(request: Request) -> str:
@@ -148,7 +149,7 @@ app.add_middleware(
     SessionMiddleware,
     secret_key=_session_secret(),
     same_site="lax",
-    https_only=_bool_env("MIRAI_SESSION_HTTPS_ONLY", False),
+    https_only=_bool_env("MIRAI_SESSION_HTTPS_ONLY", True),
     max_age=60 * 60 * 24 * 30,
 )
 

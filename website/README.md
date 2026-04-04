@@ -19,8 +19,7 @@ MIRAI_API_URL=http://127.0.0.1:5000
 Optional:
 
 ```bash
-# Preferred shared secret for website -> swarm calls.
-# If unset, website falls back to NEXTAUTH_SECRET.
+# Dedicated shared secret for website -> swarm calls.
 MIRAI_INTERNAL_API_KEY=
 ```
 

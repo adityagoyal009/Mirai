@@ -245,7 +245,7 @@ These diagnostics are persisted into website Prisma `Event` rows and surfaced in
 ## Security Boundary
 
 - Founder submissions reach the analysis backend only through internal website calls.
-- Website callers use `MIRAI_INTERNAL_API_KEY` with `NEXTAUTH_SECRET` fallback.
+- Website callers use a dedicated `MIRAI_INTERNAL_API_KEY`.
 - If no internal key is configured, internal BI endpoints only allow loopback callers.
 - Raw backend diagnostics stay in admin analytics and local audit files.
 

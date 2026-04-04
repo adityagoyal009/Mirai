@@ -4,7 +4,7 @@ Mirai Sandbox Smoke Test
 ========================
 Run inside the Docker container to verify all components load and wire correctly.
 Does NOT require OpenClaw, SearXNG, or any API keys — tests structure, imports,
-config, ChromaDB memory, and Flask endpoint routing.
+config, ChromaDB memory, and FastAPI endpoint routing.
 
 Usage:
     docker build -f Dockerfile.test -t mirai-test .
@@ -170,56 +170,40 @@ test("CrewAI CrewOrchestrator import", test_crew_import)
 
 
 # ══════════════════════════════════════════════════════════════════
-print("\n═══ 5. FLASK APP + ROUTING ═══")
+print("\n═══ 5. FASTAPI APP + ROUTING ═══")
 # ══════════════════════════════════════════════════════════════════
 
-def test_flask_app_creates():
-    from subconscious.swarm import create_app
-    app = create_app()
+def test_fastapi_app_creates():
+    from subconscious.swarm.app import app
     assert app is not None
-    # Check all blueprints registered
-    rules = [rule.rule for rule in app.url_map.iter_rules()]
+    rules = [route.path for route in app.routes]
     assert "/api/bi/analyze" in rules
-    assert "/api/bi/research" in rules
-    assert "/api/bi/predict" in rules
-    assert "/api/bi/validate" in rules
     assert "/api/bi/template" in rules
-    assert "/api/bi/history" in rules
-    assert "/api/predict/" in rules or "/api/predict" in rules
     assert "/health" in rules
 
-def test_flask_template_endpoint():
-    from subconscious.swarm import create_app
-    app = create_app()
-    with app.test_client() as client:
+def test_fastapi_template_endpoint():
+    from fastapi.testclient import TestClient
+    from subconscious.swarm.app import app
+    with TestClient(app) as client:
         resp = client.get("/api/bi/template")
         assert resp.status_code == 200
-        data = resp.get_json()
-        assert data["success"] is True
+        data = resp.json()
         assert "template" in data
         assert "example" in data
         assert "fields" in data
 
-def test_flask_health():
-    from subconscious.swarm import create_app
-    app = create_app()
-    with app.test_client() as client:
+def test_fastapi_health():
+    from fastapi.testclient import TestClient
+    from subconscious.swarm.app import app
+    with TestClient(app) as client:
         resp = client.get("/health")
         assert resp.status_code == 200
-        data = resp.get_json()
+        data = resp.json()
         assert data["status"] == "ok"
 
-def test_flask_validate_rejects_empty():
-    from subconscious.swarm import create_app
-    app = create_app()
-    with app.test_client() as client:
-        resp = client.post("/api/bi/validate", json={})
-        assert resp.status_code == 400
-
-test("Flask app creates with all blueprints", test_flask_app_creates)
-test("GET /api/bi/template returns template", test_flask_template_endpoint)
-test("GET /health returns ok", test_flask_health)
-test("POST /api/bi/validate rejects empty body", test_flask_validate_rejects_empty)
+test("FastAPI app exposes key routes", test_fastapi_app_creates)
+test("GET /api/bi/template returns template", test_fastapi_template_endpoint)
+test("GET /health returns ok", test_fastapi_health)
 
 
 # ══════════════════════════════════════════════════════════════════

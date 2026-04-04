@@ -1,5 +1,5 @@
 # Lightweight test image — skips heavy deps (openbb, crawl4ai, crewai, playwright)
-# that need API keys or long install times. Tests: Flask backend, BI imports,
+# that need API keys or long install times. Tests: FastAPI backend, BI imports,
 # ChromaDB memory, SearXNG client, config loading.
 FROM python:3.10-slim
 
@@ -12,8 +12,8 @@ COPY . /app/Mirai/
 RUN pip install --no-cache-dir \
     chromadb \
     requests \
-    flask \
-    flask-cors \
+    fastapi \
+    uvicorn \
     openai \
     python-dotenv
 

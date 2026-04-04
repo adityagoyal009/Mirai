@@ -117,7 +117,7 @@ These are kept for admins and internal operations. Founders still see the simple
 ## Queue And Security Notes
 
 - Website submissions are serialized through a single-worker FIFO queue.
-- Queue callers authenticate to FastAPI using `MIRAI_INTERNAL_API_KEY`, with `NEXTAUTH_SECRET` fallback for compatibility.
+- Queue callers authenticate to FastAPI using a dedicated `MIRAI_INTERNAL_API_KEY`.
 - If no internal key is configured, internal BI endpoints only allow loopback callers.
 - Founder-facing status remains intentionally simple: queued, reviewing, report ready.
 - Detailed backend diagnostics belong in admin analytics, not in the founder-facing surface.
