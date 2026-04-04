@@ -145,6 +145,7 @@ function SubmissionCard({ submission: sub, onRefresh }: { submission: Submission
   const [status, setStatus] = useState(sub.status);
   const [notes, setNotes] = useState(sub.admin_notes);
   const [saving, setSaving] = useState(false);
+  const [rerunning, setRerunning] = useState(false);
   const [message, setMessage] = useState("");
 
   async function handleSave() {
@@ -164,6 +165,28 @@ function SubmissionCard({ submission: sub, onRefresh }: { submission: Submission
       setMessage(e instanceof Error ? e.message : "Could not update.");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleRerun() {
+    setRerunning(true);
+    setMessage("");
+    try {
+      const res = await fetch(`/api/admin/submissions/${sub.id}/rerun`, {
+        method: "POST",
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to queue rerun.");
+      const queuePosition =
+        typeof data.queue_position === "number" && data.queue_position >= 0
+          ? ` Queue position: ${data.queue_position}.`
+          : "";
+      setMessage(`Queued rerun as submission #${data.submission?.id}.${queuePosition}`);
+      onRefresh();
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : "Could not queue rerun.");
+    } finally {
+      setRerunning(false);
     }
   }
 
@@ -288,7 +311,7 @@ function SubmissionCard({ submission: sub, onRefresh }: { submission: Submission
         </div>
       )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-[180px_1fr_auto] gap-3 items-start mt-4">
+      <div className="grid grid-cols-1 sm:grid-cols-[180px_1fr_auto_auto] gap-3 items-start mt-4">
         <select
           value={status}
           onChange={(e) => setStatus(e.target.value)}
@@ -304,6 +327,9 @@ function SubmissionCard({ submission: sub, onRefresh }: { submission: Submission
           placeholder="Internal notes..."
           className="w-full rounded-[16px] border border-[rgba(11,26,47,0.1)] bg-white p-3 text-sm outline-none min-h-[80px] resize-y"
         />
+        <button onClick={handleRerun} disabled={rerunning || saving} className="btn-secondary !min-h-[40px] text-sm">
+          {rerunning ? "Queueing..." : "Rerun"}
+        </button>
         <button onClick={handleSave} disabled={saving} className="btn-primary !min-h-[40px] text-sm">
           {saving ? "Saving..." : "Save"}
         </button>

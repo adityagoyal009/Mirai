@@ -6,13 +6,13 @@
  */
 
 import prisma from "./prisma";
-import { MIRAI_API, miraiInternalHeaders, miraiJsonHeaders } from "./mirai-api";
+import { MIRAI_API_INTERNAL, MIRAI_API_PUBLIC, miraiInternalHeaders, miraiJsonHeaders } from "./mirai-api";
 const DAILY_LIMIT = 50;
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 10_000; // 10 seconds between retries
 const FETCH_TIMEOUT_MS = 3_600_000; // 60 minute timeout per attempt (full analysis with council/swarm)
 
-interface StructuredFields {
+export interface StructuredFields {
   company: string;
   industry: string;
   product: string;
@@ -78,6 +78,12 @@ interface AnalysisAdminSummary {
   has_llm_preview?: boolean;
   llm_preview_status?: string;
   llm_preview_error?: string;
+  research_quality_score?: number;
+  research_coverage_score?: number;
+  research_source_quality_score?: number;
+  research_freshness_score?: number;
+  low_coverage_dimensions?: string[];
+  missing_evidence_flags?: string[];
   audit_path?: string;
 }
 
@@ -89,7 +95,7 @@ interface QueueJob {
   retries: number;
 }
 
-interface SubmissionRecord {
+export interface SubmissionRecord {
   id: number;
   status: string;
   reportUrl: string;
@@ -147,7 +153,7 @@ interface SubmissionRecord {
   createdAt: Date;
 }
 
-function buildExecSummaryFromSubmission(submission: SubmissionRecord): string {
+export function buildExecSummaryFromSubmission(submission: SubmissionRecord): string {
   const lines: string[] = [];
   const add = (label: string, value: string) => {
     if (value) lines.push(`${label}: ${value}`);
@@ -198,7 +204,7 @@ function buildExecSummaryFromSubmission(submission: SubmissionRecord): string {
   return lines.join("\n\n");
 }
 
-function buildStructuredFields(submission: SubmissionRecord): StructuredFields {
+export function buildStructuredFields(submission: SubmissionRecord): StructuredFields {
   return {
     company: submission.companyName,
     industry: submission.industry,
@@ -452,7 +458,7 @@ class AnalysisQueue {
 
   private async checkBackendHealth(): Promise<boolean> {
     try {
-      const res = await fetch(`${MIRAI_API}/health`, {
+      const res = await fetch(`${MIRAI_API_INTERNAL}/health`, {
         signal: AbortSignal.timeout(5000),
       });
       return res.ok;
@@ -505,7 +511,7 @@ class AnalysisQueue {
       }
 
       // Submit job to Mirai BI engine (async mode — returns immediately with job ID)
-      const submitRes = await fetch(`${MIRAI_API}/api/bi/analyze`, {
+      const submitRes = await fetch(`${MIRAI_API_INTERNAL}/api/bi/analyze`, {
         method: "POST",
         headers: miraiJsonHeaders(),
         body: JSON.stringify({
@@ -542,7 +548,7 @@ class AnalysisQueue {
         await this.delay(15_000); // wait 15s between polls
 
         try {
-          const pollRes = await fetch(`${MIRAI_API}/api/bi/job/${jobId}`, {
+          const pollRes = await fetch(`${MIRAI_API_INTERNAL}/api/bi/job/${jobId}`, {
             headers: miraiInternalHeaders(),
             signal: AbortSignal.timeout(10_000),
           });
@@ -646,6 +652,28 @@ class AnalysisQueue {
         typeof adminSummary.audit_path === "string"
           ? adminSummary.audit_path
           : "";
+      const researchQualityScore =
+        typeof adminSummary.research_quality_score === "number" && Number.isFinite(adminSummary.research_quality_score)
+          ? adminSummary.research_quality_score
+          : null;
+      const researchCoverageScore =
+        typeof adminSummary.research_coverage_score === "number" && Number.isFinite(adminSummary.research_coverage_score)
+          ? adminSummary.research_coverage_score
+          : null;
+      const researchSourceQualityScore =
+        typeof adminSummary.research_source_quality_score === "number" && Number.isFinite(adminSummary.research_source_quality_score)
+          ? adminSummary.research_source_quality_score
+          : null;
+      const researchFreshnessScore =
+        typeof adminSummary.research_freshness_score === "number" && Number.isFinite(adminSummary.research_freshness_score)
+          ? adminSummary.research_freshness_score
+          : null;
+      const lowCoverageDimensions = Array.isArray(adminSummary.low_coverage_dimensions)
+        ? adminSummary.low_coverage_dimensions.filter((item: unknown): item is string => typeof item === "string")
+        : [];
+      const missingEvidenceFlags = Array.isArray(adminSummary.missing_evidence_flags)
+        ? adminSummary.missing_evidence_flags.filter((item: unknown): item is string => typeof item === "string")
+        : [];
       const council = analysis.council || {};
       const score =
         analysis.prediction?.composite_score ??
@@ -664,7 +692,7 @@ class AnalysisQueue {
       const reportHtml = analysis.report_html || analysis.html_report;
       if (reportHtml) {
         try {
-          const shareRes = await fetch(`${MIRAI_API}/api/report/share`, {
+          const shareRes = await fetch(`${MIRAI_API_INTERNAL}/api/report/share`, {
             method: "POST",
             headers: miraiJsonHeaders(),
             body: JSON.stringify({
@@ -676,7 +704,7 @@ class AnalysisQueue {
             const shareData = await shareRes.json();
             reportUrl = shareData.url || "";
             if (reportUrl && !reportUrl.startsWith("http")) {
-              reportUrl = `${MIRAI_API}${reportUrl}`;
+              reportUrl = `${MIRAI_API_PUBLIC}${reportUrl}`;
             }
           }
         } catch (e) {
@@ -729,6 +757,12 @@ class AnalysisQueue {
             has_llm_preview: Boolean(adminSummary.has_llm_preview),
             llm_preview_status: llmPreviewStatus,
             llm_preview_error: llmPreviewError,
+            research_quality_score: researchQualityScore,
+            research_coverage_score: researchCoverageScore,
+            research_source_quality_score: researchSourceQualityScore,
+            research_freshness_score: researchFreshnessScore,
+            low_coverage_dimensions: lowCoverageDimensions,
+            missing_evidence_flags: missingEvidenceFlags,
             audit_path: auditPath,
           }),
         },
@@ -737,7 +771,8 @@ class AnalysisQueue {
       if (
         warningList.length > 0 ||
         reportGenerationStatus !== "success" ||
-        !reportUrl
+        !reportUrl ||
+        (typeof researchQualityScore === "number" && researchQualityScore < 0.65)
       ) {
         await prisma.event.create({
           data: {
@@ -751,7 +786,15 @@ class AnalysisQueue {
               renderer_used: rendererUsed,
               report_generation_status: reportGenerationStatus,
               warning_count: warningList.length,
-              top_warning: warningList[0] || reportGenerationError || (!reportUrl ? "Report share unavailable" : ""),
+              top_warning:
+                warningList[0] ||
+                reportGenerationError ||
+                missingEvidenceFlags[0] ||
+                (!reportUrl ? "Report share unavailable" : ""),
+              research_quality_score: researchQualityScore,
+              research_coverage_score: researchCoverageScore,
+              low_coverage_dimensions: lowCoverageDimensions,
+              missing_evidence_flags: missingEvidenceFlags,
               audit_path: auditPath,
             }),
           },

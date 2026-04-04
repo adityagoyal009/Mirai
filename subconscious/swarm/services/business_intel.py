@@ -3,7 +3,7 @@ Business Intelligence Engine — extract, score, and plan around live research.
 
 Given an executive summary, the engine:
   1. Extracts structured startup fields
-  2. Runs live external research (OpenClaw primary, Gemini fallback)
+  2. Runs live external research (Claude primary, OpenClaw fallback, Gemini final fallback)
   3. Predicts hit or miss across 7 dimensions (LLM Council in deep mode)
   4. Plans strategic next moves
 
@@ -13,6 +13,7 @@ OASIS, and reporting all consume the same grounded research object.
 """
 
 import os
+import re
 import time
 import uuid
 import json
@@ -25,6 +26,7 @@ from typing import List, Dict, Any, Optional, Tuple
 from ..utils.llm_client import LLMClient
 from ..utils.logger import get_logger
 from ..config import Config
+from .search_engine import SOURCE_CREDIBILITY, _extract_root_domain
 
 logger = get_logger('mirofish.bi')
 
@@ -193,6 +195,11 @@ class ResearchReport:
     founder_inputs: Dict[str, Any] = field(default_factory=dict)
     summary: str = ""
     company_profile: Dict[str, Any] = field(default_factory=dict)
+    team: List[Dict[str, Any]] = field(default_factory=list)
+    board_members: List[Dict[str, Any]] = field(default_factory=list)
+    deal_history: List[Dict[str, Any]] = field(default_factory=list)
+    total_raised: str = ""
+    last_valuation: str = ""
     market_data: Dict[str, Any] = field(default_factory=dict)
     competitors: List[str] = field(default_factory=list)
     competitor_details: List[Dict[str, Any]] = field(default_factory=list)
@@ -212,6 +219,7 @@ class ResearchReport:
     financial_data: Dict[str, Any] = field(default_factory=dict)
     mem0_context: List[str] = field(default_factory=list)
     data_sources_used: List[str] = field(default_factory=list)
+    research_quality: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -386,7 +394,7 @@ class BusinessIntelEngine:
     """
     Core BI engine. Three phases: research → predict → plan.
     Reuses LLMClient for all LLM calls, EpisodicMemoryStore for storage.
-    Runtime research is now the live OpenClaw/Gemini pipeline; legacy BI
+    Runtime research is now the live Claude/OpenClaw/Gemini pipeline; legacy BI
     web-enrichment components are retained only for non-runtime support code.
     """
 
@@ -659,7 +667,7 @@ class BusinessIntelEngine:
 
     # ── Phase 1: Research (Enrichment Layer) ────────────────────────
     # NOTE (2026-03-24): This is the ENRICHMENT layer, not the primary research engine.
-    # Primary web research is handled by AgenticResearcher (via OpenClaw gateway).
+    # Primary web research is handled by AgenticResearcher (Claude-first, OpenClaw fallback).
     # This method adds: ChromaDB semantic search, Mem0 relationships, OpenBB financial
     # data, funding signals, and company DB enrichment (231K companies).
     # The websocket runs both in parallel and merges results.
@@ -722,25 +730,46 @@ class BusinessIntelEngine:
                 website_url=extraction.website_url,
                 known_competitors=", ".join(extraction.known_competitors or []),
                 extra_context=founder_context,
+                adaptive_context={
+                    "stage": extraction.stage,
+                    "business_model": extraction.business_model,
+                    "end_user": extraction.end_user,
+                    "economic_buyer": extraction.economic_buyer,
+                    "switching_trigger": extraction.switching_trigger,
+                    "current_substitute": extraction.current_substitute,
+                    "pricing_model": extraction.pricing_model,
+                    "sales_motion": extraction.sales_motion,
+                    "typical_contract_size": extraction.typical_contract_size,
+                    "implementation_complexity": extraction.implementation_complexity,
+                    "time_to_value": extraction.time_to_value,
+                    "primary_risk_category": extraction.primary_risk_category,
+                },
                 on_progress=on_progress,
             )
             findings_dict = asdict(findings) if hasattr(findings, "__dataclass_fields__") else findings
-            report = self._normalize_live_research(findings_dict, extraction, engine_name="openclaw")
+            research_method = str(findings_dict.get("research_method", "") or "")
+            if research_method.startswith("claude"):
+                engine_name = "claude_cli"
+            elif research_method.startswith("openclaw"):
+                engine_name = "openclaw"
+            else:
+                engine_name = "live_research"
+            report = self._normalize_live_research(findings_dict, extraction, engine_name=engine_name)
             logger.info(
-                f"[BI] Live research complete via OpenClaw: "
+                f"[BI] Live research complete via {engine_name}: "
                 f"{len(report.facts)} facts, {len(report.competitors)} competitors, {len(report.sources)} sources"
             )
             return report
-        except Exception as openclaw_err:
-            logger.warning(f"[BI] OpenClaw research failed: {openclaw_err}")
+        except Exception as primary_research_err:
+            logger.warning(f"[BI] Primary live research failed: {primary_research_err}")
             if not allow_gemini_fallback:
-                raise RuntimeError(f"OpenClaw research failed: {openclaw_err}") from openclaw_err
+                raise RuntimeError(f"Primary live research failed: {primary_research_err}") from primary_research_err
 
         try:
             from .gemini_researcher import GeminiResearcher
 
             if on_progress:
-                on_progress(0, "OpenClaw failed, trying Gemini fallback...")
+                on_progress(0, "Claude/OpenClaw failed, trying Gemini fallback...")
 
             findings_dict = GeminiResearcher().research(
                 company=company,
@@ -760,7 +789,7 @@ class BusinessIntelEngine:
             return report
         except Exception as gemini_err:
             raise RuntimeError(
-                f"Live research failed. OpenClaw error: {openclaw_err}; Gemini error: {gemini_err}"
+                f"Live research failed. Claude/OpenClaw error: {primary_research_err}; Gemini error: {gemini_err}"
             ) from gemini_err
 
     def _normalize_live_research(
@@ -811,6 +840,18 @@ class BusinessIntelEngine:
         cited_facts = cited_facts if isinstance(cited_facts, list) else []
         sources = findings.get("sources", [])
         sources = sources if isinstance(sources, list) else []
+        team = findings.get("team", [])
+        team = team if isinstance(team, list) else []
+        board_members = findings.get("board_members", [])
+        board_members = board_members if isinstance(board_members, list) else []
+        deal_history = findings.get("deal_history", [])
+        deal_history = deal_history if isinstance(deal_history, list) else []
+        total_raised = str(findings.get("total_raised", "") or extraction.funding or "")
+        last_valuation = str(findings.get("last_valuation", "") or "")
+        financial_data = findings.get("financials", {})
+        financial_data = dict(financial_data) if isinstance(financial_data, dict) else {}
+        if extraction.revenue and not financial_data.get("revenue"):
+            financial_data["revenue"] = extraction.revenue
 
         market_data = findings.get("market_data", {})
         if not isinstance(market_data, dict):
@@ -873,6 +914,59 @@ class BusinessIntelEngine:
         if isinstance(trust_score, (int, float)):
             data_sources_used.append(f"trust:{trust_score:.2f}")
 
+        research_quality = self._score_research_quality(
+            extraction=extraction,
+            company_profile=company_profile,
+            team=team,
+            board_members=board_members,
+            deal_history=deal_history,
+            total_raised=total_raised,
+            last_valuation=last_valuation,
+            financial_data=financial_data,
+            market_data=market_data,
+            competitors=(
+                findings.get("competitors", [])
+                if isinstance(findings.get("competitors", []), list)
+                else []
+            ),
+            competitor_details=(
+                findings.get("competitor_details", [])
+                if isinstance(findings.get("competitor_details", []), list)
+                else []
+            ),
+            regulatory=(
+                findings.get("regulatory", [])
+                if isinstance(findings.get("regulatory", []), list)
+                else []
+            ),
+            pricing_analysis=(
+                findings.get("pricing_analysis", {})
+                if isinstance(findings.get("pricing_analysis", {}), dict)
+                else {}
+            ),
+            customer_evidence=(
+                findings.get("customer_evidence", [])
+                if isinstance(findings.get("customer_evidence", []), list)
+                else []
+            ),
+            patent_landscape=(
+                findings.get("patents", findings.get("patent_landscape", {}))
+                if isinstance(findings.get("patents", findings.get("patent_landscape", {})), dict)
+                else {}
+            ),
+            risks=findings.get("risks", []) if isinstance(findings.get("risks", []), list) else [],
+            facts=facts,
+            sources=sources,
+            parse_quality=parse_quality if isinstance(parse_quality, str) else "",
+            trust_score=trust_score if isinstance(trust_score, (int, float)) else None,
+            news=[
+                s.get("title", "")
+                for s in sources[:10]
+                if isinstance(s, dict) and s.get("title")
+            ],
+            summary=str(findings.get("summary", "") or ""),
+        )
+
         return ResearchReport(
             company=extraction.company or company_profile.get("name", "Unknown"),
             industry=extraction.industry or str(findings.get("industry", "Unknown") or "Unknown"),
@@ -884,6 +978,11 @@ class BusinessIntelEngine:
             founder_inputs=founder_inputs,
             summary=str(findings.get("summary", "") or ""),
             company_profile=company_profile,
+            team=team,
+            board_members=board_members,
+            deal_history=deal_history,
+            total_raised=total_raised,
+            last_valuation=last_valuation,
             market_data=market_data,
             competitors=(
                 findings.get("competitors", [])
@@ -928,10 +1027,222 @@ class BusinessIntelEngine:
             context_facts=facts[:20],
             cited_facts=cited_facts,
             browser_queries=browser_queries,
-            financial_data={},
+            financial_data=financial_data,
             mem0_context=[],
             data_sources_used=data_sources_used,
+            research_quality=research_quality,
         )
+
+    @staticmethod
+    def _coverage_ratio(parts: List[bool]) -> float:
+        if not parts:
+            return 0.0
+        return round(sum(1 for part in parts if part) / len(parts), 2)
+
+    @staticmethod
+    def _score_research_quality(
+        *,
+        extraction: ExtractionResult,
+        company_profile: Dict[str, Any],
+        team: List[Dict[str, Any]],
+        board_members: List[Dict[str, Any]],
+        deal_history: List[Dict[str, Any]],
+        total_raised: str,
+        last_valuation: str,
+        financial_data: Dict[str, Any],
+        market_data: Dict[str, Any],
+        competitors: List[str],
+        competitor_details: List[Dict[str, Any]],
+        regulatory: List[str],
+        pricing_analysis: Dict[str, Any],
+        customer_evidence: List[str],
+        patent_landscape: Dict[str, Any],
+        risks: List[str],
+        facts: List[str],
+        sources: List[Dict[str, Any]],
+        parse_quality: str,
+        trust_score: Optional[float],
+        news: List[str],
+        summary: str,
+    ) -> Dict[str, Any]:
+        parse_quality_scores = {
+            "json_clean": 1.0,
+            "json_repaired": 0.88,
+            "gateway_structured": 0.74,
+            "prose_only": 0.38,
+        }
+        parse_quality_score = parse_quality_scores.get(parse_quality or "", 0.65)
+
+        coverage_by_dimension = {
+            "company_basics": BusinessIntelEngine._coverage_ratio([
+                bool(company_profile.get("description") or company_profile.get("product_description")),
+                bool(company_profile.get("website") or extraction.website_url),
+                bool(company_profile.get("year_founded") or extraction.year_founded),
+                bool(company_profile.get("hq_location") or extraction.location),
+                bool(company_profile.get("pricing") or extraction.pricing),
+                bool(company_profile.get("traction") or extraction.traction),
+            ]),
+            "team": BusinessIntelEngine._coverage_ratio([
+                bool(team),
+                len(team) >= 2,
+                any(isinstance(member, dict) and member.get("background") for member in team),
+                bool(board_members) or bool(extraction.team),
+            ]),
+            "funding_financials": BusinessIntelEngine._coverage_ratio([
+                bool(deal_history),
+                bool(total_raised or extraction.funding),
+                bool(last_valuation),
+                bool(financial_data.get("revenue") or extraction.revenue),
+                bool(financial_data.get("revenue_growth") or extraction.growth_rate),
+            ]),
+            "competition": BusinessIntelEngine._coverage_ratio([
+                len(competitors) >= 3,
+                len(competitor_details) >= 2,
+                len(competitors) >= 5 or len(competitor_details) >= 4,
+            ]),
+            "market": BusinessIntelEngine._coverage_ratio([
+                bool(market_data.get("tam")),
+                bool(market_data.get("sam") or market_data.get("som")),
+                bool(market_data.get("growth_rate")),
+                bool(market_data.get("source")),
+            ]),
+            "pricing_gtm": BusinessIntelEngine._coverage_ratio([
+                bool(pricing_analysis.get("startup_pricing") or company_profile.get("pricing") or extraction.pricing),
+                bool(pricing_analysis.get("competitor_pricing")),
+                bool(pricing_analysis.get("assessment")),
+                bool(company_profile.get("sales_motion") or extraction.sales_motion),
+            ]),
+            "customer_evidence": BusinessIntelEngine._coverage_ratio([
+                bool(customer_evidence),
+                len(customer_evidence) >= 2,
+                bool(extraction.customer_proof_url or extraction.pilot_docs_url),
+                bool(extraction.loi_count or extraction.pilot_count or extraction.active_customer_count or extraction.paid_customer_count),
+            ]),
+            "regulatory": BusinessIntelEngine._coverage_ratio([
+                bool(regulatory),
+                len(regulatory) >= 2,
+                bool(extraction.primary_risk_category and "reg" in extraction.primary_risk_category.lower()),
+            ]),
+            "ip": BusinessIntelEngine._coverage_ratio([
+                bool(patent_landscape),
+                bool(patent_landscape.get("total_families") or patent_landscape.get("key_patents")),
+            ]),
+            "risk_assessment": BusinessIntelEngine._coverage_ratio([
+                bool(risks),
+                len(risks) >= 2,
+                bool(facts),
+            ]),
+        }
+        coverage_score = round(
+            sum(coverage_by_dimension.values()) / max(len(coverage_by_dimension), 1),
+            2,
+        )
+
+        website_domain = _extract_root_domain(extraction.website_url or company_profile.get("website", ""))
+        unique_domains: List[str] = []
+        domain_weights: List[float] = []
+        first_party_source_count = 0
+        for source in sources:
+            if not isinstance(source, dict):
+                continue
+            domain = _extract_root_domain(source.get("url", ""))
+            if not domain:
+                continue
+            if domain not in unique_domains:
+                unique_domains.append(domain)
+                weight = 1.0
+                for known_domain, known_weight in SOURCE_CREDIBILITY.items():
+                    if domain == known_domain or domain.endswith("." + known_domain):
+                        weight = known_weight
+                        break
+                domain_weights.append(weight)
+            if website_domain and (domain == website_domain or domain.endswith("." + website_domain)):
+                first_party_source_count += 1
+
+        avg_domain_weight = sum(domain_weights) / len(domain_weights) if domain_weights else 0.0
+        source_diversity_score = round(min(1.0, len(unique_domains) / 8.0), 2)
+        source_quality_score = round(
+            min(1.0, ((avg_domain_weight / 3.0) * 0.7) + (source_diversity_score * 0.3)),
+            2,
+        ) if unique_domains else 0.0
+
+        current_year = datetime.now(timezone.utc).year
+        recent_year_tokens = {str(current_year), str(current_year - 1)}
+        year_matches = re.findall(r"\b20\d{2}\b", " ".join(news + facts) + " " + summary)
+        recent_mentions = sum(1 for year in year_matches if year in recent_year_tokens)
+        stale_mentions = sum(1 for year in year_matches if year not in recent_year_tokens)
+        if recent_mentions >= 2:
+            freshness_score = 0.9
+        elif recent_mentions == 1 or len(news) >= 2:
+            freshness_score = 0.78
+        elif stale_mentions >= 2:
+            freshness_score = 0.48
+        else:
+            freshness_score = 0.65
+
+        trust_component = trust_score if isinstance(trust_score, (int, float)) else 0.55
+        overall_score = round(
+            (
+                coverage_score * 0.45
+                + source_quality_score * 0.2
+                + trust_component * 0.2
+                + parse_quality_score * 0.1
+                + freshness_score * 0.05
+            ),
+            2,
+        )
+
+        low_coverage_dimensions = [
+            name for name, score in coverage_by_dimension.items() if score < 0.45
+        ]
+        missing_evidence_flags: List[str] = []
+        if len(sources) < 4 or len(unique_domains) < 3:
+            missing_evidence_flags.append("thin_source_base")
+        if "competition" in low_coverage_dimensions:
+            missing_evidence_flags.append("weak_competitor_coverage")
+        if "customer_evidence" in low_coverage_dimensions:
+            missing_evidence_flags.append("weak_customer_proof")
+        if "pricing_gtm" in low_coverage_dimensions:
+            missing_evidence_flags.append("weak_pricing_or_gtm_evidence")
+        if "market" in low_coverage_dimensions:
+            missing_evidence_flags.append("weak_market_sizing")
+        if "team" in low_coverage_dimensions:
+            missing_evidence_flags.append("weak_team_evidence")
+        if "funding_financials" in low_coverage_dimensions:
+            missing_evidence_flags.append("weak_funding_or_financials")
+        if parse_quality in ("gateway_structured", "prose_only"):
+            missing_evidence_flags.append("research_parse_degraded")
+        if trust_score is None:
+            missing_evidence_flags.append("faithfulness_check_unavailable")
+        elif trust_score < 0.6:
+            missing_evidence_flags.append("low_faithfulness")
+        if freshness_score < 0.55:
+            missing_evidence_flags.append("freshness_signals_weak")
+
+        if parse_quality == "prose_only":
+            overall_score = min(overall_score, 0.45)
+        if len(low_coverage_dimensions) >= 3:
+            overall_score = min(overall_score, 0.6)
+        if len(unique_domains) < 3:
+            overall_score = min(overall_score, 0.65)
+        overall_score = round(overall_score, 2)
+
+        return {
+            "overall_score": overall_score,
+            "coverage_score": coverage_score,
+            "source_quality_score": source_quality_score,
+            "source_diversity_score": source_diversity_score,
+            "freshness_score": round(freshness_score, 2),
+            "parse_quality": parse_quality or "unknown",
+            "parse_quality_score": parse_quality_score,
+            "trust_score": trust_score,
+            "source_count": len(sources),
+            "unique_source_domains": unique_domains[:10],
+            "first_party_source_count": first_party_source_count,
+            "coverage_by_dimension": coverage_by_dimension,
+            "low_coverage_dimensions": low_coverage_dimensions,
+            "missing_evidence_flags": missing_evidence_flags[:10],
+        }
 
     # ── Phase 2: Predict ──────────────────────────────────────────
 
@@ -1500,6 +1811,14 @@ class BusinessIntelEngine:
         ) / len(model_results)
         confidence_penalty = len(contested) * 0.05
 
+        # Combine model reasoning before fact-check so the verifier can inspect
+        # the same synthesized council rationale that the final report uses.
+        all_reasonings = [
+            f"[{anon_map.get(label, label)}] {reasoning}"
+            for label, (_, reasoning, _) in model_results.items()
+        ]
+        combined_overall_reasoning = " | ".join(all_reasonings)
+
         # ── Fix 2: Fact-check adjusts dimension scores, not just confidence ──
         fact_check_result = None
         try:
@@ -1570,13 +1889,6 @@ class BusinessIntelEngine:
         overall = self._calc_weighted_score(reconciled_dims, industry)
 
         final_confidence = round(max(0.1, min(1.0, avg_confidence - confidence_penalty)), 2)
-
-        # Combine reasoning (anonymized to prevent brand bias)
-        all_reasonings = [
-            f"[{anon_map.get(label, label)}] {reasoning}"
-            for label, (_, reasoning, _) in model_results.items()
-        ]
-        combined_overall_reasoning = " | ".join(all_reasonings)
 
         if contested:
             combined_overall_reasoning += (
@@ -1768,6 +2080,7 @@ class BusinessIntelEngine:
 
         # Phase 2b: Swarm prediction (if requested)
         swarm_result = None
+        risk_panel_result = None
         if swarm_count > 0:
             try:
                 from .swarm_predictor import SwarmPredictor
@@ -1775,7 +2088,11 @@ class BusinessIntelEngine:
                     f"[BI:{analysis_id}] Phase 2b: Swarm Prediction ({swarm_count} agents)"
                 )
                 swarm = SwarmPredictor()
-                research_context = json.dumps(research.to_dict() if hasattr(research, 'to_dict') else research, indent=2, default=str)[:6000]
+                research_context = json.dumps(
+                    research.to_dict() if hasattr(research, 'to_dict') else research,
+                    indent=2,
+                    default=str,
+                )
                 swarm_result = swarm.predict(
                     exec_summary=exec_summary,
                     research_context=research_context,
@@ -1799,6 +2116,27 @@ class BusinessIntelEngine:
                 )
             except Exception as e:
                 logger.warning(f"[BI:{analysis_id}] Swarm prediction failed (non-fatal): {e}")
+
+        if swarm_result:
+            try:
+                from .risk_panel import RiskPanel
+
+                logger.info(f"[BI:{analysis_id}] Phase 2c: Risk Panel")
+                risk_panel = RiskPanel()
+                risk_panel_result = risk_panel.run(
+                    exec_summary=exec_summary,
+                    extraction=extraction.to_dict() if extraction and hasattr(extraction, "to_dict") else {},
+                    research=research.to_dict() if hasattr(research, "to_dict") else research,
+                    prediction=prediction.to_dict() if hasattr(prediction, "to_dict") else {},
+                    swarm=swarm_result.to_dict(),
+                )
+                logger.info(
+                    f"[BI:{analysis_id}] Risk panel complete — "
+                    f"{risk_panel_result.risk_found_count} material risks, "
+                    f"{risk_panel_result.insufficient_evidence_count} evidence gaps"
+                )
+            except Exception as e:
+                logger.warning(f"[BI:{analysis_id}] Risk panel failed (non-fatal): {e}")
 
         # Phase 3: Plan
         logger.info(f"[BI:{analysis_id}] Phase 3: Plan")
@@ -1834,6 +2172,8 @@ class BusinessIntelEngine:
         result["status"] = "complete"
         if swarm_result:
             result["swarm"] = swarm_result.to_dict()
+        if risk_panel_result:
+            result["risk_panel"] = risk_panel_result.to_dict()
         # Include quality metadata so consumers know how much to trust the output
         result["fields_present"] = extraction.fields_present
         result["fields_missing"] = extraction.fields_missing

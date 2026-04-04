@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { MIRAI_API, getMiraiInternalApiKey, miraiJsonHeaders } from "@/lib/mirai-api";
+import { MIRAI_API_INTERNAL, MIRAI_API_PUBLIC, getMiraiInternalApiKey, miraiJsonHeaders } from "@/lib/mirai-api";
 
 /**
  * Internal endpoint called after a submission is created.
@@ -50,7 +50,7 @@ async function runAnalysis(submissionId: number, execSummary: string) {
 
     // Call Mirai BI engine
     console.log(`[analyze] Starting analysis for submission ${submissionId}`);
-    const analyzeRes = await fetch(`${MIRAI_API}/api/bi/analyze`, {
+    const analyzeRes = await fetch(`${MIRAI_API_INTERNAL}/api/bi/analyze`, {
       method: "POST",
       headers: miraiJsonHeaders(),
       body: JSON.stringify({ exec_summary: execSummary, depth: "standard" }),
@@ -100,7 +100,7 @@ async function runAnalysis(submissionId: number, execSummary: string) {
     let reportUrl = "";
     const reportHtml = analysis.report_html || analysis.html_report;
     if (reportHtml) {
-      const shareRes = await fetch(`${MIRAI_API}/api/report/share`, {
+      const shareRes = await fetch(`${MIRAI_API_INTERNAL}/api/report/share`, {
         method: "POST",
         headers: miraiJsonHeaders(),
         body: JSON.stringify({
@@ -113,7 +113,7 @@ async function runAnalysis(submissionId: number, execSummary: string) {
         reportUrl = shareData.url || "";
         // Make it absolute
         if (reportUrl && !reportUrl.startsWith("http")) {
-          reportUrl = `${MIRAI_API}${reportUrl}`;
+          reportUrl = `${MIRAI_API_PUBLIC}${reportUrl}`;
         }
       }
     }

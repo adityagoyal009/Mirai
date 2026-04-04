@@ -112,6 +112,8 @@ export async function GET(request: NextRequest) {
   const recentEvents = events.map((ev) => {
     const meta = parseEventMeta(ev.meta);
     const warnings = readStringArray(meta, "warnings");
+    const lowCoverageDimensions = readStringArray(meta, "low_coverage_dimensions");
+    const missingEvidenceFlags = readStringArray(meta, "missing_evidence_flags");
     return {
       event: ev.event,
       company: readString(meta, "company"),
@@ -126,6 +128,12 @@ export async function GET(request: NextRequest) {
       enhancement_keys: readStringArray(meta, "enhancement_keys"),
       llm_preview_status: readString(meta, "llm_preview_status"),
       top_warning: readString(meta, "top_warning") || warnings[0] || "",
+      research_quality_score: readNumber(meta, "research_quality_score"),
+      research_coverage_score: readNumber(meta, "research_coverage_score"),
+      research_source_quality_score: readNumber(meta, "research_source_quality_score"),
+      research_freshness_score: readNumber(meta, "research_freshness_score"),
+      low_coverage_dimensions: lowCoverageDimensions,
+      missing_evidence_flags: missingEvidenceFlags,
       audit_path: readString(meta, "audit_path"),
       verdict: readString(meta, "verdict"),
       score: readNumber(meta, "score"),
@@ -146,6 +154,8 @@ export async function GET(request: NextRequest) {
     .map((ev) => {
       const meta = parseEventMeta(ev.meta);
       const warnings = readStringArray(meta, "warnings");
+      const lowCoverageDimensions = readStringArray(meta, "low_coverage_dimensions");
+      const missingEvidenceFlags = readStringArray(meta, "missing_evidence_flags");
       return {
         ts: ev.createdAt.toISOString(),
         submission_id: ev.submissionId,
@@ -159,6 +169,12 @@ export async function GET(request: NextRequest) {
         enhancement_keys: readStringArray(meta, "enhancement_keys"),
         llm_preview_status: readString(meta, "llm_preview_status") || "not_requested",
         top_warning: readString(meta, "top_warning") || warnings[0] || "",
+        research_quality_score: readNumber(meta, "research_quality_score"),
+        research_coverage_score: readNumber(meta, "research_coverage_score"),
+        research_source_quality_score: readNumber(meta, "research_source_quality_score"),
+        research_freshness_score: readNumber(meta, "research_freshness_score"),
+        low_coverage_dimensions: lowCoverageDimensions,
+        missing_evidence_flags: missingEvidenceFlags,
         audit_path: readString(meta, "audit_path"),
         verdict: readString(meta, "verdict"),
         score: readNumber(meta, "score"),
@@ -171,16 +187,29 @@ export async function GET(request: NextRequest) {
   const avgDuration = durations.length
     ? Math.round((durations.reduce((sum, value) => sum + value, 0) / durations.length) * 10) / 10
     : 0;
+  const researchScores = backendRuns
+    .map((run) => run.research_quality_score)
+    .filter((value): value is number => typeof value === "number" && value >= 0);
+  const avgResearchQuality = researchScores.length
+    ? Math.round((researchScores.reduce((sum, value) => sum + value, 0) / researchScores.length) * 100) / 100
+    : 0;
+  const lowResearchRuns = backendRuns.filter(
+    (run) =>
+      (typeof run.research_quality_score === "number" && run.research_quality_score < 0.65) ||
+      run.low_coverage_dimensions.length > 0
+  );
 
   const degradedRuns = backendRuns.filter(
     (run) =>
       run.warning_count > 0 ||
       run.report_generation_status !== "success" ||
-      !run.has_report
+      !run.has_report ||
+      (typeof run.research_quality_score === "number" && run.research_quality_score < 0.65)
   );
 
   const rendererCounts = new Map<string, number>();
   const enhancementCounts = new Map<string, number>();
+  const coverageGapCounts = new Map<string, number>();
   let llmPreviewRuns = 0;
   let reportFailures = 0;
   for (const run of backendRuns) {
@@ -193,6 +222,9 @@ export async function GET(request: NextRequest) {
     }
     for (const key of run.enhancement_keys) {
       enhancementCounts.set(key, (enhancementCounts.get(key) || 0) + 1);
+    }
+    for (const key of run.low_coverage_dimensions) {
+      coverageGapCounts.set(key, (coverageGapCounts.get(key) || 0) + 1);
     }
   }
 
@@ -246,7 +278,9 @@ export async function GET(request: NextRequest) {
     backend: {
       total_runs: backendRuns.length,
       avg_duration_s: avgDuration,
+      avg_research_quality_score: avgResearchQuality,
       degraded_runs: degradedRuns.length,
+      low_research_runs: lowResearchRuns.length,
       report_failures: reportFailures,
       llm_preview_runs: llmPreviewRuns,
       failed_runs: failedRuns,
@@ -255,6 +289,9 @@ export async function GET(request: NextRequest) {
       llm_renderer_runs: rendererCounts.get("llm") || 0,
       renderer_breakdown: Array.from(rendererCounts.entries()).map(([label, count]) => ({ label, count })),
       enhancement_coverage: Array.from(enhancementCounts.entries())
+        .sort((a, b) => b[1] - a[1])
+        .map(([label, count]) => ({ label, count })),
+      coverage_gap_breakdown: Array.from(coverageGapCounts.entries())
         .sort((a, b) => b[1] - a[1])
         .map(([label, count]) => ({ label, count })),
       recent_runs: backendRuns.slice(0, limit),

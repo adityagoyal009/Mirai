@@ -25,6 +25,10 @@ logger = get_logger('mirai.llm_client')
 _GATEWAY_URL = os.environ.get("MIRAI_GATEWAY_URL", "http://127.0.0.1:19789")
 _GATEWAY_TOKEN = os.environ.get("MIRAI_GATEWAY_TOKEN", "mirai-local-token")
 _GATEWAY_AVAILABLE: Optional[bool] = None  # None = not checked yet
+_PREFER_CODEX_CLI_FOR_OPENAI = os.environ.get("MIRAI_PREFER_CODEX_CLI_FOR_OPENAI", "").lower() in {
+    "1", "true", "yes", "on",
+}
+_CODEX_CLI_TIMEOUT_CAP = max(5, int(os.environ.get("MIRAI_CODEX_CLI_TIMEOUT_CAP", "45")))
 
 # ---------------------------------------------------------------------------
 # _LLMObserver — lightweight, file-based observability for every LLM call
@@ -148,6 +152,50 @@ def _is_gpt_oss_model(model: str) -> bool:
     }
 
 
+def _post_gateway_chat_completion(
+    model: str,
+    messages: List[Dict[str, str]],
+    max_tokens: int = 4096,
+    temperature: float = 0.7,
+    timeout: int = 180,
+    response_format: Optional[Dict[str, Any]] = None,
+    extra_body: Optional[Dict[str, Any]] = None,
+) -> str:
+    payload_obj: Dict[str, Any] = {
+        "model": model,
+        "messages": messages,
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+    }
+    if response_format:
+        payload_obj["response_format"] = response_format
+    if extra_body:
+        payload_obj.update(extra_body)
+
+    payload = json.dumps(payload_obj).encode("utf-8")
+    req = urllib.request.Request(
+        f"{_GATEWAY_URL}/v1/chat/completions",
+        data=payload,
+        headers={
+            "Authorization": f"Bearer {_GATEWAY_TOKEN}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        body = json.loads(resp.read().decode("utf-8"))
+
+    choices = body.get("choices", [])
+    if not choices:
+        raise RuntimeError(f"Gateway returned no choices for {model}: {body}")
+
+    content = choices[0].get("message", {}).get("content", "")
+    if not content:
+        raise RuntimeError(f"Gateway returned empty content for {model}: {body}")
+    return content
+
+
 def _call_gateway(
     model: str,
     messages: List[Dict[str, str]],
@@ -232,8 +280,24 @@ def _call_gateway(
     if "claude" in model.lower():
         return _call_claude_cli(model, messages, max_tokens, temperature, timeout)
 
-    # Route OpenAI models through Codex CLI first, gateway as fallback
+    # Route OpenAI models through the local gateway by default. CLI-first remains
+    # opt-in for interactive debugging, but backend jobs should not burn minutes
+    # waiting on Codex before using the faster internal gateway.
     if "gpt" in model.lower() or model.lower() in ("o3", "o4-mini"):
+        normalized = f"openai/{model}" if "/" not in model else model
+        if not _PREFER_CODEX_CLI_FOR_OPENAI and _check_gateway():
+            try:
+                return _post_gateway_chat_completion(
+                    normalized,
+                    messages,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    timeout=timeout,
+                    response_format=response_format,
+                    extra_body=extra_body,
+                )
+            except Exception as e:
+                logger.warning(f"[LLMClient] OpenAI gateway call failed for {normalized}: {e} — falling back to Codex CLI")
         return _call_codex_cli(model, messages, max_tokens, temperature, timeout)
 
     # Fallback: gateway for any unrecognized models
@@ -241,41 +305,15 @@ def _call_gateway(
         if "gemini" in model.lower():
             model = f"google/{model}"
 
-    payload_obj: Dict[str, Any] = {
-        "model": model,
-        "messages": messages,
-        "max_tokens": max_tokens,
-        "temperature": temperature,
-    }
-    if response_format:
-        payload_obj["response_format"] = response_format
-    if extra_body:
-        payload_obj.update(extra_body)
-
-    payload = json.dumps(payload_obj).encode("utf-8")
-
-    req = urllib.request.Request(
-        f"{_GATEWAY_URL}/v1/chat/completions",
-        data=payload,
-        headers={
-            "Authorization": f"Bearer {_GATEWAY_TOKEN}",
-            "Content-Type": "application/json",
-        },
-        method="POST",
+    return _post_gateway_chat_completion(
+        model,
+        messages,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        timeout=timeout,
+        response_format=response_format,
+        extra_body=extra_body,
     )
-
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        body = json.loads(resp.read().decode("utf-8"))
-
-    choices = body.get("choices", [])
-    if not choices:
-        raise RuntimeError(f"Gateway returned no choices: {body}")
-
-    content = choices[0].get("message", {}).get("content", "")
-    if not content:
-        raise RuntimeError(f"Gateway returned empty content: {body}")
-
-    return content
 
 
 # ── Claude CLI (headless, bypasses gateway) ──────────────────────────────
@@ -353,6 +391,8 @@ def _call_codex_cli(
     """Call OpenAI via Codex CLI. Uses Codex subscription auth directly."""
     import subprocess
 
+    timeout = min(timeout, _CODEX_CLI_TIMEOUT_CAP)
+
     parts = []
     for m in messages:
         if m["role"] == "system":
@@ -402,24 +442,13 @@ def _call_codex_cli(
     # Fallback to gateway
     logger.info(f"[Codex CLI] Falling back to gateway for {model}")
     normalized = f"openai/{model}" if "/" not in model else model
-    payload = json.dumps({
-        "model": normalized, "messages": messages,
-        "max_tokens": max_tokens, "temperature": temperature,
-    }).encode("utf-8")
-    req = urllib.request.Request(
-        f"{_GATEWAY_URL}/v1/chat/completions", data=payload,
-        headers={"Authorization": f"Bearer {_GATEWAY_TOKEN}", "Content-Type": "application/json"},
-        method="POST",
+    return _post_gateway_chat_completion(
+        normalized,
+        messages,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        timeout=timeout,
     )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        body = json.loads(resp.read().decode("utf-8"))
-    choices = body.get("choices", [])
-    if not choices:
-        raise RuntimeError(f"Gateway returned no choices for {model}: {body}")
-    content = choices[0].get("message", {}).get("content", "")
-    if not content:
-        raise RuntimeError(f"Gateway returned empty content for {model}")
-    return content
 
 
 # ── NVIDIA NIM API (OpenAI-compatible, free tier 40 req/min) ─────────────

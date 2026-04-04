@@ -81,6 +81,8 @@ def finalize_prediction(
     *,
     swarm: Optional[Dict[str, Any]] = None,
     oasis: Optional[Dict[str, Any]] = None,
+    research_quality: Optional[Dict[str, Any]] = None,
+    risk_panel: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Blend council, swarm, and OASIS signals into the final investor-facing view."""
     council_verdict = council_prediction.get("verdict", "Unknown")
@@ -101,6 +103,9 @@ def finalize_prediction(
     swarm_confidence = council_confidence
     swarm_score = council_score
     verdict_blended = False
+    risk_panel_penalty = 0.0
+    risk_panel_high_severity_count = 0
+    risk_panel_dimension_penalties: Dict[str, float] = {}
 
     if isinstance(swarm, dict) and swarm:
         swarm_verdict = swarm.get("verdict", council_verdict)
@@ -170,6 +175,77 @@ def finalize_prediction(
                 final_verdict = _numeric_to_verdict(final_score)
                 oasis_adjusted = True
 
+    research_quality_score: Optional[float] = None
+    if isinstance(research_quality, dict) and research_quality:
+        research_quality_score = _coerce_float(research_quality.get("overall_score"), -1.0)
+        if research_quality_score >= 0:
+            low_coverage_dimensions = research_quality.get("low_coverage_dimensions", []) or []
+            missing_evidence_flags = research_quality.get("missing_evidence_flags", []) or []
+            quality_penalty = 0.0
+
+            if research_quality_score < 0.75:
+                quality_penalty += min(0.35, (0.75 - research_quality_score) * 0.6)
+            if len(low_coverage_dimensions) >= 3:
+                quality_penalty += 0.08
+            elif len(low_coverage_dimensions) >= 1:
+                quality_penalty += 0.04
+            if "research_parse_degraded" in missing_evidence_flags:
+                quality_penalty += 0.07
+            if "low_faithfulness" in missing_evidence_flags:
+                quality_penalty += 0.08
+
+            if quality_penalty > 0:
+                final_confidence = round(max(0.1, final_confidence - min(0.4, quality_penalty)), 2)
+                warnings.append(
+                    f"Research quality is {research_quality_score:.2f}/1.00 — confidence reduced because evidence coverage is uneven."
+                )
+
+            if low_coverage_dimensions:
+                warnings.append(
+                    "Low research coverage in: " + ", ".join(low_coverage_dimensions[:4]) + "."
+                )
+
+    if isinstance(risk_panel, dict) and risk_panel:
+        risk_panel_penalty = _coerce_float(risk_panel.get("overall_penalty"), 0.0)
+        penalties = risk_panel.get("dimension_penalties", {})
+        if isinstance(penalties, dict):
+            risk_panel_dimension_penalties = {
+                str(key): round(_coerce_float(value, 0.0), 2)
+                for key, value in penalties.items()
+                if _coerce_float(value, 0.0) > 0
+            }
+
+        findings = risk_panel.get("findings", [])
+        if isinstance(findings, list):
+            material_findings = [
+                finding for finding in findings
+                if isinstance(finding, dict) and finding.get("status") == "risk_found"
+            ]
+            insufficient_count = sum(
+                1 for finding in findings
+                if isinstance(finding, dict) and finding.get("status") == "insufficient_evidence"
+            )
+            risk_panel_high_severity_count = sum(
+                1 for finding in material_findings if finding.get("severity") == "high"
+            )
+
+            if risk_panel_penalty > 0:
+                final_score = round(_clamp(final_score - min(1.2, risk_panel_penalty)), 2)
+                final_verdict = _numeric_to_verdict(final_score)
+                top_labels = [
+                    str(finding.get("label", finding.get("domain", "risk")))
+                    for finding in material_findings[:3]
+                ]
+                if top_labels:
+                    warnings.append(
+                        "Risk panel flagged material issues in: " + ", ".join(top_labels) + "."
+                    )
+            if insufficient_count >= 2:
+                final_confidence = round(max(0.1, final_confidence - min(0.15, insufficient_count * 0.03)), 2)
+                warnings.append(
+                    f"Risk panel reported {insufficient_count} domains with insufficient evidence."
+                )
+
     return {
         "council_verdict": council_verdict,
         "council_confidence": council_confidence,
@@ -183,5 +259,9 @@ def finalize_prediction(
         "trajectory": trajectory or "stable",
         "verdict_blended": verdict_blended,
         "oasis_adjusted": oasis_adjusted,
+        "research_quality_score": research_quality_score,
+        "risk_panel_penalty": round(risk_panel_penalty, 2),
+        "risk_panel_high_severity_count": risk_panel_high_severity_count,
+        "risk_panel_dimension_penalties": risk_panel_dimension_penalties,
         "warnings": warnings,
     }

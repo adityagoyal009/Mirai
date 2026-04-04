@@ -12,7 +12,7 @@ Key rules:
 - Dashboard (pixel art war room) has its own separate design system — do not apply report design rules to it
 
 ## Pipeline Architecture
-- Research: OpenClaw primary (port 18789), Gemini grounded search fallback, no degraded BI web-less fallback in the live pipeline
+- Research: Claude Code CLI primary (6-phase WebSearch/WebFetch), OpenClaw fallback, Gemini grounded search final fallback, no degraded BI web-less fallback in the live pipeline
 - Council: 11 models across 8 families. Karpathy 3-stage pattern (individual → peer review → chairman)
 - Chairman: Opus primary, Qwen3.5 397B (NVIDIA) fallback
 - Swarm: 50 agents across 6 NVIDIA NIM models, 8 concurrent workers (40 RPM safe)
@@ -50,10 +50,10 @@ Key rules:
 ## Key Decisions
 - No Gemini in council or swarm (unreliable CLI, hangs). Gemini used for research fallback only.
 - No backtest with known companies (temporal mismatch)
-- No research fallback/degraded mode — if both OpenClaw AND Gemini fail, pipeline stops
+- No research degraded mode — if Claude CLI, OpenClaw, and Gemini all fail, the pipeline stops
 - Swarm agents are blind to council scores (independent evaluation)
 - Frontend sends structured fields directly (bypasses LLM extraction for form data)
 - Pipeline bias fixes: no geographic stereotypes, no personality-based scoring, equal deliberation weight, no verdict hard-overrides, capped industry dimension weights, softened data quality penalty
-- REST API matches dashboard pipeline 1:1 (structured passthrough, blind scoring, OpenClaw/Gemini research, council deep, swarm 50, OASIS, HTML report)
+- REST API matches dashboard pipeline 1:1 (structured passthrough, blind scoring, Claude/OpenClaw/Gemini research chain, council deep, swarm 50, OASIS, HTML report)
 - Council fact-checking should operate on council reasoning text, not raw research JSON
 - `avg_scores["overall"]` is part of the swarm contract and is used by final verdict blending

@@ -1108,10 +1108,10 @@ async def bi_analyze(request: Request):
 
         # Phase 2b: Swarm prediction
         swarm_result = None
+        risk_panel_result = None
         if agent_count > 0:
             try:
                 swarm = SwarmPredictor()
-                research_context = json.dumps(research, indent=2, default=str)[:6000]
                 enriched_context = (
                     f"RESEARCH FINDINGS:\n{json.dumps(research, indent=2, default=str)}\n\n"
                     f"Given this research, evaluate this startup independently from your unique perspective."
@@ -1136,6 +1136,25 @@ async def bi_analyze(request: Request):
                            f"{swarm_result.negative_pct}% negative")
             except Exception as e:
                 logger.warning(f"[BI-REST] Swarm failed (non-fatal): {e}")
+
+        if swarm_result:
+            try:
+                from .services.risk_panel import RiskPanel
+
+                risk_panel = RiskPanel()
+                risk_panel_result = risk_panel.run(
+                    exec_summary=exec_summary,
+                    extraction=extraction.to_dict() if hasattr(extraction, "to_dict") else {},
+                    research=research if isinstance(research, dict) else {},
+                    prediction=prediction.to_dict() if hasattr(prediction, "to_dict") else prediction,
+                    swarm=swarm_result.to_dict(),
+                )
+                logger.info(
+                    f"[BI-REST] Risk panel: {risk_panel_result.risk_found_count} material risks, "
+                    f"{risk_panel_result.insufficient_evidence_count} evidence gaps"
+                )
+            except Exception as e:
+                logger.warning(f"[BI-REST] Risk panel failed (non-fatal): {e}")
 
         # Phase 3: Strategy plan
         plan_dict = {}
@@ -1163,6 +1182,8 @@ async def bi_analyze(request: Request):
             result["swarm"] = swarm_result.to_dict()
             if getattr(swarm_result, "fact_check", None):
                 result["fact_check"] = swarm_result.fact_check
+        if risk_panel_result:
+            result["risk_panel"] = risk_panel_result.to_dict()
 
         # Phase 4: OASIS Market Simulation
         if simulate_market:
@@ -1191,12 +1212,19 @@ async def bi_analyze(request: Request):
         prediction_view = result.get("prediction", {})
         if not isinstance(prediction_view, dict):
             prediction_view = prediction.to_dict() if hasattr(prediction, "to_dict") else {}
+        research_quality = {}
+        if isinstance(result.get("research"), dict):
+            rq = result["research"].get("research_quality")
+            if isinstance(rq, dict):
+                research_quality = rq
 
         try:
             final_prediction = finalize_prediction(
                 prediction_view,
                 swarm=result.get("swarm") if isinstance(result.get("swarm"), dict) else None,
                 oasis=result.get("oasis") if isinstance(result.get("oasis"), dict) else None,
+                research_quality=research_quality,
+                risk_panel=result.get("risk_panel") if isinstance(result.get("risk_panel"), dict) else None,
             )
         except Exception as e:
             _fatal_pipeline_error("final_verdict", e)
@@ -1210,6 +1238,9 @@ async def bi_analyze(request: Request):
             "swarm_verdict": final_prediction["swarm_verdict"],
             "swarm_confidence": final_prediction["swarm_confidence"],
             "swarm_score": final_prediction["swarm_score"],
+            "research_quality_score": final_prediction.get("research_quality_score"),
+            "risk_panel_penalty": final_prediction.get("risk_panel_penalty"),
+            "risk_panel_high_severity_count": final_prediction.get("risk_panel_high_severity_count"),
         })
         result["prediction"] = prediction_view
         result["final_verdict"] = final_prediction["final_verdict"]
@@ -1443,6 +1474,12 @@ async def bi_analyze(request: Request):
             "has_llm_preview": llm_preview_generated,
             "llm_preview_status": llm_preview_status,
             "llm_preview_error": llm_preview_error,
+            "research_quality_score": research_quality.get("overall_score"),
+            "research_coverage_score": research_quality.get("coverage_score"),
+            "research_source_quality_score": research_quality.get("source_quality_score"),
+            "research_freshness_score": research_quality.get("freshness_score"),
+            "low_coverage_dimensions": research_quality.get("low_coverage_dimensions", [])[:10] if isinstance(research_quality.get("low_coverage_dimensions", []), list) else [],
+            "missing_evidence_flags": research_quality.get("missing_evidence_flags", [])[:10] if isinstance(research_quality.get("missing_evidence_flags", []), list) else [],
             "audit_path": audit_path,
         }
         return result

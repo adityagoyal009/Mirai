@@ -774,6 +774,16 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
     strategy_narrative = _strip_markdown(report_sections.get('Strategic Recommendations', ''))
     verdict_summary = _strip_markdown(report_sections.get('Investment Verdict', ''))
     exec_summary = _strip_markdown(report_sections.get('Executive Summary', ''))
+    risk_panel = analysis.get('risk_panel', {})
+    risk_panel_findings = risk_panel.get('findings', []) if isinstance(risk_panel, dict) else []
+    risk_panel_material = [
+        finding for finding in risk_panel_findings
+        if isinstance(finding, dict) and finding.get('status') == 'risk_found'
+    ]
+    risk_panel_gaps = [
+        finding for finding in risk_panel_findings
+        if isinstance(finding, dict) and finding.get('status') == 'insufficient_evidence'
+    ]
 
     # Council reasoning
     council_reasoning = prediction.get('reasoning', '')
@@ -1502,6 +1512,31 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
 
     if risk_narrative:
         html += f'<div class="narrative">{_to_paragraphs(_replace_em_dashes(risk_narrative))}</div>\n'
+
+    if risk_panel_material or risk_panel_gaps:
+        html += '<div class="section-heading">Deterministic Risk Panel</div>\n'
+        html += '<table>\n<tr><th>Domain</th><th>Status</th><th>Severity</th><th>Evidence</th><th>Mitigation</th></tr>\n'
+        for finding in (risk_panel_material[:6] + risk_panel_gaps[:2]):
+            label = _replace_em_dashes(str(finding.get('label', finding.get('domain', 'Risk panel'))))
+            status = str(finding.get('status', 'insufficient_evidence')).replace('_', ' ').upper()
+            severity = str(finding.get('severity', 'medium')).upper()
+            evidence_items = finding.get('evidence', []) if isinstance(finding.get('evidence', []), list) else []
+            evidence_text = '<br>'.join(
+                f'- {_replace_em_dashes(str(item))}'
+                for item in evidence_items[:3]
+            ) or _replace_em_dashes(str(finding.get('summary', '')))
+            mitigation = _replace_em_dashes(str(finding.get('mitigation', '')))
+            html += (
+                f'<tr><td>{label}</td><td>{status}</td><td>{severity}</td>'
+                f'<td>{evidence_text}</td><td>{mitigation}</td></tr>\n'
+            )
+        html += '</table>\n'
+        if isinstance(risk_panel, dict) and risk_panel.get('summary'):
+            html += (
+                f'<div class="narrative"><p style="margin-bottom: 10px;">'
+                f'{_replace_em_dashes(str(risk_panel.get("summary", "")))}'
+                f'</p></div>\n'
+            )
 
     if moves:
         html += '<div class="section-heading">Strategic Recommendations</div>\n'

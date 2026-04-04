@@ -13,7 +13,8 @@ NEXTAUTH_SECRET=
 NEXTAUTH_URL=http://localhost:3000
 MIRAI_ADMIN_EMAILS=your-email@example.com
 DATABASE_URL=file:./data/mirai_portal.db
-MIRAI_API_URL=http://127.0.0.1:5000
+MIRAI_API_INTERNAL_URL=http://127.0.0.1:5000
+MIRAI_API_PUBLIC_URL=https://vclabs.org
 ```
 
 Optional:

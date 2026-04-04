@@ -1347,7 +1347,7 @@ class Persona:
 ZONE_DISTRIBUTION = {
     10:  {"investor": 2, "customer": 2, "operator": 2, "analyst": 1, "contrarian": 1, "wildcard": 2},
     25:  {"investor": 6, "customer": 4, "operator": 4, "analyst": 3, "contrarian": 3, "wildcard": 5},
-    50:  {"investor": 10, "customer": 12, "operator": 10, "analyst": 7, "contrarian": 6, "wildcard": 5},
+    50:  {"investor": 10, "customer": 14, "operator": 11, "analyst": 7, "contrarian": 3, "wildcard": 5},
     100: {"investor": 12, "customer": 15, "operator": 12, "analyst": 18, "contrarian": 18, "wildcard": 25},
     250: {"investor": 50, "customer": 40, "operator": 35, "analyst": 35, "contrarian": 35, "wildcard": 55},
 }
@@ -2022,6 +2022,14 @@ class PersonaEngine:
         if "revenue_traction" in context_keys and tuned.get("wildcard", 0) > 1:
             tuned["wildcard"] -= 1
             tuned["investor"] = tuned.get("investor", 0) + 1
+        total_agents = sum(tuned.values())
+        if total_agents <= 50 and tuned.get("contrarian", 0) > 3:
+            shift = tuned["contrarian"] - 3
+            tuned["contrarian"] = 3
+            receivers = ["customer", "operator"]
+            for idx in range(shift):
+                zone = receivers[idx % len(receivers)]
+                tuned[zone] = tuned.get(zone, 0) + 1
         return tuned
 
     def _count_lines(self, filepath: str = _PERSONAS_FILE) -> int:
