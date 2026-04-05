@@ -1,5 +1,38 @@
 # Mirai Changelog
 
+## [0.12.0] — 2026-04-04
+
+### Changed — Claude CLI Research, Risk Panel, Scoring Reforms, Outcome Tracking
+
+**Research Engine**
+- Primary research engine is now Claude Code CLI with native WebSearch/WebFetch (6-phase pipeline: company/product, team, funding, competitors, market/regulatory/IP, evidence/pricing/risks/synthesis).
+- OpenClaw demoted to fallback. Gemini remains final fallback.
+- Each phase receives compact context from prior phases. Full research flows to council/swarm without truncation ([:6000] clipping removed from scoring path).
+
+**Deterministic Risk Panel**
+- NEW: 10 domain-specific risk agents run post-swarm, pre-OASIS (IP, regulatory, competition, unit economics, platform dependency, technical, market timing, team, customer concentration, legal/corporate).
+- Each agent produces status/severity/confidence/evidence/mitigation. Overall penalty max 1.2 points, per-dimension max 0.6.
+- Founder reports now render a structured risk panel table.
+- Contrarian zone reduced from 6 to 3 agents. Freed slots moved to customer (+2) and operator (+1).
+
+**Scoring Reforms**
+- Zone prompts rewritten with calibrated 4-tier scales. No more "write a check / quit your job" binary pressure.
+- MBTI, backstory, risk posture, and scar tissue reframed as attention directors (what to stress-test), not score anchors.
+- Mid-range 5.0-7.0 scores explicitly validated for mixed evidence.
+- Wildcard weight reduced to 0.2 for serious B2B contexts (was 1.0).
+- `SCORING_DISCIPLINE_DIRECTIVE` appended to all persona prompts.
+
+**Final Verdict Rebalance**
+- Council weight 78%, swarm weight 22% (was co-equal). Swarm further dampened when internally noisy.
+- Risk panel penalty subtracted from final score. Insufficient evidence reduces confidence.
+- OASIS trajectory adjustment unchanged.
+
+**Outcome Tracking & Calibration**
+- NEW Prisma models: AnalysisResult (45 flat queryable columns), Outcome (company progress), FollowUp (3/6/12 month reminders).
+- Analysis queue now persists structured AnalysisResult + auto-creates follow-ups after every analysis.
+- NEW APIs: admin outcome recording, founder self-reporting, follow-up management, calibration queries (score distributions, verdict-outcome correlation, dimension predictive power, percentile ranking).
+- Founder dashboard shows follow-up prompts and outcome self-reporting.
+
 ## [0.11.3] — 2026-03-30
 
 ### Changed — Structured Founder Intake And Pipeline Wiring

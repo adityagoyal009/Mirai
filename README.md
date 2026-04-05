@@ -3,21 +3,22 @@
 
 ## Current State
 
-These notes reflect the current runtime as of **2026-04-03**.
+These notes reflect the current runtime as of **2026-04-04** (v0.12.0).
 
 - **Founder-facing production path**: the website intake on `vclabs.org` stores submissions in Prisma, queues them, and sends them to the internal FastAPI endpoint `/api/bi/analyze`.
-- **Primary backend**: [subconscious/swarm/app.py](/home/aditya/Downloads/mirai/subconscious/swarm/app.py) is the live FastAPI application. Old Flask wording in older docs is stale.
-- **Research**: OpenClaw is the primary fresh-facts engine. Gemini is fallback only.
-- **Council**: the main investment scoring path is the multi-model council in `business_intel.py`, with peer review, chairman reconciliation, and fact-check penalties.
-- **Swarm**: production swarm size is fixed at **50 agents**.
-- **OASIS**: the live simulation path now runs **6 deep rounds** and feeds into the final verdict blend.
-- **Reports**: founder reports use the deterministic HTML renderer by default for consistency. Admin can request an optional LLM comparison render without changing the founder-facing default.
-- **Admin analytics**: backend diagnostics, warnings, renderer metadata, and enhancement coverage are persisted into website `Event` rows and surfaced in the admin analytics dashboard.
-- **WebSocket dashboard path**: `/ws/swarm` still exists for the live operator/dashboard flow, but it is **not** the primary founder submission path.
+- **Primary backend**: [subconscious/swarm/app.py](/home/aditya/Downloads/mirai/subconscious/swarm/app.py) is the live FastAPI application.
+- **Research**: Claude Code CLI is the primary research engine (6-phase WebSearch/WebFetch). OpenClaw is fallback. Gemini is final fallback.
+- **Council**: 11 models across 8 families with peer review, chairman reconciliation, and fact-check penalties.
+- **Swarm**: **50 agents** with calibrated scoring (contrarian capped at 3, wildcard weight 0.2 for B2B, 5-7 mid-range scores validated). Council weight **78%**, swarm weight **22%** in final blend.
+- **Risk panel**: **10 deterministic domain-specific risk agents** run post-swarm. Subtractive penalty (max 1.2 points) applied to final score.
+- **OASIS**: 4-round market trajectory simulation, feeds trajectory signal into the final blend.
+- **Reports**: deterministic HTML renderer with risk panel table. Admin can request optional LLM comparison render.
+- **Outcome tracking**: structured AnalysisResult persisted per analysis (45 queryable columns). Outcomes tracked via admin/founder APIs. Calibration endpoint for score distributions and predictive analysis.
+- **Admin analytics**: backend diagnostics, warnings, calibration summary, and follow-up management surfaced in admin dashboard.
 
 ## What Mirai Does
 
-Mirai takes a startup’s structured submission, preserves the buyer / proof / pricing / implementation context from the founder, researches the company and market with OpenClaw, scores it with a multi-model council, pressure-tests the thesis with a 50-agent persona swarm, runs deep OASIS trajectory simulation, and generates a consistent HTML report that can be shared back to the founder.
+Mirai takes a startup’s structured submission, preserves the buyer / proof / pricing / implementation context from the founder, researches the company and market via Claude Code CLI (6-phase deep research), scores it with a multi-model council, pressure-tests the thesis with a 50-agent persona swarm, runs a deterministic 10-domain risk panel, simulates market trajectory with OASIS, blends all signals into a final verdict, generates a consistent HTML report, and stores structured results for calibration.
 
 ## Primary Runtime Paths
 
@@ -26,9 +27,9 @@ Mirai takes a startup’s structured submission, preserves the buyer / proof / p
 1. Founder submits through the website intake.
 2. The website stores the submission in Prisma and enqueues it in a single-worker analysis queue.
 3. The queue calls FastAPI `/api/bi/analyze` with internal auth and polls `/api/bi/job/{id}`.
-4. FastAPI runs extraction → research → council → swarm → plan → OASIS → final verdict.
-5. FastAPI generates report sections, deterministic HTML, admin-only diagnostics, and optional admin-only LLM preview data.
-6. The website queue shares the HTML report, updates the submission, and writes analytics `Event` rows for the admin dashboard.
+4. FastAPI runs extraction → 6-phase Claude CLI research → council → swarm → risk panel → plan → OASIS → final verdict.
+5. FastAPI generates report sections, deterministic HTML with risk panel table, admin-only diagnostics, and optional admin-only LLM preview data.
+6. The website queue shares the HTML report, updates the submission, persists structured AnalysisResult, creates follow-ups, and writes analytics `Event` rows.
 
 ### 2. Live Dashboard Flow
 
@@ -43,9 +44,9 @@ Mirai takes a startup’s structured submission, preserves the buyer / proof / p
 ## Analysis Pipeline
 
 ### Phase 1: Research
-- OpenClaw performs the main agentic web research.
-- Gemini grounded search is used only as fallback.
-- Research is normalized into the `ResearchReport` schema consumed by the rest of the pipeline.
+- Claude Code CLI performs 6-phase deep web research (company, team, funding, competitors, market/regulatory/IP, evidence/pricing/risks/synthesis).
+- OpenClaw is fallback if Claude CLI fails. Gemini grounded search is final fallback.
+- Full research flows to council/swarm without truncation.
 
 ### Phase 2: Council
 - Blind scoring can run in parallel with research.
@@ -53,15 +54,20 @@ Mirai takes a startup’s structured submission, preserves the buyer / proof / p
 - Deep mode adds peer review, reconciliation, chairman synthesis, and fact-check penalties.
 
 ### Phase 3: Swarm
-- The production swarm uses **50 agents**.
-- Persona selection is driven by first-class intake context, especially `industry`, `product`, `target_market`, `end_user`, `economic_buyer`, `switching_trigger`, `current_substitute`, and `stage`.
-- The `customer` lane is intentionally the most sector-biased lane, while investor selection stays stage-first.
-- Detailed routing rules live in [docs/PERSONA_ROUTING.md](/home/aditya/Downloads/mirai/docs/PERSONA_ROUTING.md).
-- Swarm output includes not just aggregate sentiment, but also `top_fixes` and `investor_matches`.
+- **50 agents** (investor=10, customer=14, operator=11, analyst=7, contrarian=3, wildcard=5).
+- Contrarian capped at 3 — the risk panel now handles domain-specific risk analysis.
+- Wildcard weight 0.2 for B2B contexts. All other zones weight 1.0.
+- Scoring: calibrated 4-tier scales, 5-7 mid-range validated, MBTI/backstory deanchored from scores.
+- Final blend: council 78%, swarm 22% (swarm dampened when internally noisy).
+
+### Phase 3b: Risk Panel
+- **10 deterministic domain-specific agents** (IP, regulatory, competition, unit economics, platform, technical, market timing, team, customer concentration, legal/corporate).
+- Subtractive penalty max 1.2 points. Per-dimension max 0.6.
+- Structured findings rendered in the founder report.
 
 ### Phase 4: OASIS
-- The active OASIS path runs **6 rounds**.
-- It produces a trajectory signal that feeds the final verdict blend.
+- 4-round market trajectory simulation with real news headline sourcing.
+- 12 diverse panelists selected from the swarm.
 
 ### Phase 5: Reporting
 - `ReportAgent` generates narrative sections.
@@ -88,11 +94,12 @@ These are kept for admins and internal operations. Founders still see the simple
 - [subconscious/swarm/app.py](/home/aditya/Downloads/mirai/subconscious/swarm/app.py): primary FastAPI backend
 - [subconscious/swarm/services/business_intel.py](/home/aditya/Downloads/mirai/subconscious/swarm/services/business_intel.py): research + council core
 - [subconscious/swarm/services/swarm_predictor.py](/home/aditya/Downloads/mirai/subconscious/swarm/services/swarm_predictor.py): 50-agent swarm
-- [subconscious/swarm/services/final_verdict.py](/home/aditya/Downloads/mirai/subconscious/swarm/services/final_verdict.py): council + swarm + OASIS blend
-- [subconscious/swarm/services/report_generator.py](/home/aditya/Downloads/mirai/subconscious/swarm/services/report_generator.py): deterministic founder-facing HTML
-- [subconscious/swarm/services/llm_report_generator.py](/home/aditya/Downloads/mirai/subconscious/swarm/services/llm_report_generator.py): admin-only comparison renderer
-- [website/lib/analysis-queue.ts](/home/aditya/Downloads/mirai/website/lib/analysis-queue.ts): website queue and submission orchestration
-- [website/app/api/admin/analytics/route.ts](/home/aditya/Downloads/mirai/website/app/api/admin/analytics/route.ts): admin analytics aggregation
+- [subconscious/swarm/services/risk_panel.py](/home/aditya/Downloads/mirai/subconscious/swarm/services/risk_panel.py): 10-domain deterministic risk panel
+- [subconscious/swarm/services/final_verdict.py](/home/aditya/Downloads/mirai/subconscious/swarm/services/final_verdict.py): council + swarm + risk panel + OASIS blend
+- [subconscious/swarm/services/report_generator.py](/home/aditya/Downloads/mirai/subconscious/swarm/services/report_generator.py): deterministic founder-facing HTML with risk panel table
+- [website/lib/analysis-queue.ts](/home/aditya/Downloads/mirai/website/lib/analysis-queue.ts): queue, AnalysisResult persistence, follow-up creation
+- [website/app/api/admin/calibration/route.ts](/home/aditya/Downloads/mirai/website/app/api/admin/calibration/route.ts): calibration queries
+- [website/app/api/admin/analytics/route.ts](/home/aditya/Downloads/mirai/website/app/api/admin/analytics/route.ts): admin analytics + calibration summary
 - [website/app/admin/analytics/page.tsx](/home/aditya/Downloads/mirai/website/app/admin/analytics/page.tsx): admin analytics dashboard UI
 
 ## Ports

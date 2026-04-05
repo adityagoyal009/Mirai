@@ -198,18 +198,22 @@ That means:
 - stage determines investor maturity band
 - sector and context refine which investor archetypes are most relevant
 
-### Analyst And Contrarian Lanes
+### Contrarian Lane
 
-These are mixed lanes.
+As of v0.12.0, contrarian is **capped at 3 agents** (was 6). The freed slots go to customer (+2) and operator (+1). Domain-specific risk analysis is now handled by the **deterministic risk panel** (10 agents post-swarm), not the randomized contrarian lane. The remaining 3 contrarians focus on creative adversarial thinking — "what kills this in 18 months?" — not structured IP/regulatory/competition analysis.
 
-They are driven more by:
+### Analyst Lane
 
-- regulation
-- technical depth
-- incumbent risk
-- platform risk
-- market structure
-- workflow complexity
+Analyst is a mixed lane driven by market structure, benchmarks, and category positioning.
+
+### Scoring Discipline (v0.12.0)
+
+All persona prompts now include:
+
+- Calibrated 4-tier zone prompts (8-10 exceptional, 6-7.9 credible, 4-5.9 mixed, 0-3.9 weak).
+- `SCORING_DISCIPLINE_DIRECTIVE` — anchors scores to evidence, validates 5-7 mid-range.
+- MBTI, backstory, risk posture, and scar tissue are framed as **attention directors** (what to stress-test), not score anchors.
+- Wildcard weight is **0.2 for serious B2B contexts** (procurement, enterprise, industrial). All other zones weight 1.0.
 
 ## Sector Bias Versus Generic Routing
 
@@ -265,7 +269,7 @@ Research uses the structured extraction to anchor:
 - stage
 - competitor and traction context
 
-This improves OpenClaw research quality because the researcher starts from typed facts instead of guessing from a loose summary alone.
+This improves research quality because the 6-phase Claude CLI researcher starts from typed facts instead of guessing from a loose summary alone.
 
 ### Council
 
@@ -317,9 +321,11 @@ The form therefore influences not just the score, but also which issues get emph
 ## Current Production Notes
 
 - Founder submissions use the website queue plus FastAPI structured passthrough.
-- Production swarm size is fixed at `50`.
-- The founder-facing report renderer remains deterministic by default.
-- Admin-only diagnostics preserve richer routing and runtime details without exposing them to founders.
+- Production swarm size is fixed at `50` (investor=10, customer=14, operator=11, analyst=7, contrarian=3, wildcard=5).
+- A **deterministic risk panel** (10 domain-specific agents) runs post-swarm.
+- Final verdict: council 78%, swarm 22%, risk panel penalty (max 1.2 points).
+- The founder-facing report renderer remains deterministic by default, now including a risk panel table.
+- **Outcome tracking** stores structured AnalysisResult + auto-creates 3/6/12 month follow-ups.
 
 ## Practical Rule For Future Changes
 

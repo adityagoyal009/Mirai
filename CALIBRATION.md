@@ -1,208 +1,129 @@
-# Mirai — Calibration & Backtest Methodology
+# Mirai — Calibration & Outcome Tracking
 
-> How to validate whether the swarm actually predicts startup outcomes better than chance.
-> Created: 2026-03-30
+> How to validate that Mirai's scores predict real startup outcomes.
+> Updated: 2026-04-04
 
 ---
 
-## The Bias Problem
+## Current Approach: Live Outcome Tracking
 
-### Why naive backtesting is useless
+Mirai now has production infrastructure for calibrating scores against reality. Every analysis stores structured results, and outcomes are tracked over time.
+
+### What's Built
+
+| Component | Status | Purpose |
+|-----------|--------|---------|
+| **AnalysisResult** (Prisma model) | Live | 45 flat queryable columns — council/swarm dimension scores, risk panel findings, OASIS trajectory, research quality |
+| **Outcome** (Prisma model) | Live | Company progress: raised_round, revenue_milestone, shut_down, pivoted, acquired, operating, stalled |
+| **FollowUp** (Prisma model) | Live | Auto-created at 3/6/12 months after each analysis |
+| **Admin outcome API** | Live | `POST /api/admin/submissions/{id}/outcome` |
+| **Founder self-reporting** | Live | `POST /api/portal/submissions/{id}/outcome` — dashboard prompts founders to update |
+| **Calibration API** | Live | `GET /api/admin/calibration` — score distributions, verdict-outcome correlation, dimension predictive power |
+
+### How It Works
+
+```
+Analysis completes
+  ↓
+AnalysisResult row persisted (council/swarm/risk scores per dimension)
+  ↓
+3 FollowUp records created (due at 3mo, 6mo, 12mo)
+  ↓
+Admin dashboard surfaces overdue follow-ups
+Founder dashboard prompts "How is [Company] doing?"
+  ↓
+Outcomes recorded (admin verified or founder self-reported)
+  ↓
+Calibration API computes:
+  - Score distributions by industry/stage
+  - Verdict vs actual outcome correlation
+  - Which dimensions best predict positive/negative outcomes
+  - Percentile ranking for any submission
+```
+
+### Calibration Milestones
+
+| Milestone | Sample size | What it enables |
+|-----------|------------|-----------------|
+| **Sanity check** | 10 analyses + expert review | "Do scores directionally match VC intuition?" |
+| **Pattern detection** | 50 analyses + outcomes | "Are higher scores correlated with better outcomes at all?" |
+| **Statistical significance** | 200 analyses + outcomes | "Which dimensions are most predictive? Should weights change?" |
+| **Publishable calibration** | 500 analyses + outcomes | "Companies scoring 7+ raised 3.2x more often" |
+
+---
+
+## The Bias Problem (Still Real)
+
+### Why historical backtesting is limited
 
 If you feed "Figma" into Mirai in 2026:
 1. **Web research finds the outcome** — "Adobe acquired Figma for $20B"
 2. **LLMs already know** — Claude/GPT have Figma's outcome in training data
-3. **The swarm isn't predicting** — it's just reading the answer
+3. **The system isn't predicting** — it's reading the answer
 
-This makes any backtest against known companies meaningless unless we control for information leakage.
+This makes backtesting against known companies unreliable. The live outcome tracking approach avoids this entirely because Mirai evaluates companies **before** outcomes are known.
 
-### Two layers of contamination
+### What the historical data is good for
 
-| Layer | Source | Problem |
-|-------|--------|---------|
-| Research bias | Web search, news, Wikipedia | Finds acquisition/IPO/failure directly |
-| Training bias | LLM weights (pre-training data) | Models "know" outcomes of famous companies |
+The `companies.db` database (231K companies, 22.8K with known outcomes from Crunchbase + YC) is useful for:
 
----
+- **Score stability testing** — run the same company 3x, check if scores vary by <0.5 points
+- **Internal consistency checks** — do council and swarm agree? Does the risk panel contradict council scores?
+- **Prompt engineering validation** — does rewording a prompt change the score distribution?
 
-## Unbiased Calibration Method
-
-### 1. Anonymized Blind Mode
-
-Strip all identifying information. Feed the swarm ONLY structured features:
-
-```json
-{
-  "name": "Company_4821",
-  "industry": "SaaS",
-  "market": "B2B Enterprise",
-  "founded_year": 2013,
-  "location": "San Francisco, CA",
-  "funding_total_usd": 2100000,
-  "funding_rounds": 2,
-  "last_round_type": "Seed",
-  "team_size": 8,
-  "time_first_to_last_funding_days": 180,
-  "has_international_presence": false,
-  "category": "Software"
-}
-```
-
-**No company name. No web research. No product description.**
-
-The swarm evaluates purely on structural signals — which is exactly what early-stage investors often do.
-
-### 2. Use Obscure Companies
-
-The 50K+ Crunchbase dataset contains thousands of companies LLMs likely DON'T know:
-- Small startups that raised <$1M and quietly died
-- Companies in niche verticals outside tech media coverage
-- Companies from 2005-2012 that never made headlines
-
-If Claude doesn't know "Acme Widget Corp, Des Moines, 2011" then training bias doesn't apply.
-
-### 3. Time-Locked Evaluation
-
-For any company, only provide information that existed BEFORE the outcome:
-- Founding date, early funding rounds, team size at founding
-- Industry and location (static facts)
-- NO subsequent events, pivots, acquisitions, or failure news
-
-### 4. Novel Companies (Production)
-
-In production, Mirai evaluates companies that haven't had outcomes yet. Bias only matters for calibration/backtesting, not for actual predictions on new startups.
+It is NOT useful for measuring predictive accuracy because the LLMs have information leakage.
 
 ---
-
-## Calibration Pipeline
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    Calibration Pipeline                       │
-│                                                               │
-│  1. Load Dataset     2. Anonymize        3. Run Swarm        │
-│  ┌──────────┐       ┌──────────┐       ┌──────────┐         │
-│  │ 50K+     │──────>│ Strip    │──────>│ Blind    │         │
-│  │ companies│       │ names    │       │ eval     │         │
-│  │ w/known  │       │ No web   │       │ Score    │         │
-│  │ outcomes │       │ search   │       │ 1-10     │         │
-│  └──────────┘       └──────────┘       └──────────┘         │
-│       │                                      │               │
-│       │         4. Compare                   │               │
-│       │         ┌──────────┐                 │               │
-│       └────────>│ Swarm    │<────────────────┘               │
-│                 │ score vs │                                  │
-│                 │ actual   │                                  │
-│                 │ outcome  │                                  │
-│                 └──────────┘                                  │
-│                      │                                        │
-│              5. Metrics                                       │
-│              ┌──────────┐                                     │
-│              │ AUC-ROC  │                                     │
-│              │ Recall   │                                     │
-│              │ Precision│                                     │
-│              │ F1       │                                     │
-│              │ Calibr.  │                                     │
-│              └──────────┘                                     │
-│                                                               │
-│  Baseline to beat: 73% AUC-ROC (ML-only, no LLM)            │
-│  If swarm < baseline, LLM approach isn't adding value        │
-└─────────────────────────────────────────────────────────────┘
-```
 
 ## Outcome Definitions
 
-From the academic literature (Żbikowski & Antosiuk 2021):
+| Outcome | Type | Definition |
+|---------|------|------------|
+| Raised round | Positive | Raised seed, Series A, B, etc. |
+| Revenue milestone | Positive | Hit meaningful ARR target |
+| Acquired | Positive | Company was acquired |
+| Operating | Neutral | Still running, no clear signal |
+| Pivoted | Neutral | Changed direction significantly |
+| Stalled | Negative | No progress, zombie state |
+| Shut down | Negative | Company ceased operations |
 
-| Outcome | Label | Definition |
-|---------|-------|------------|
-| Acquired | SUCCESS | Company was acquired |
-| IPO | SUCCESS | Company went public |
-| Operating | EXCLUDE | Still running, outcome unknown |
-| Closed | FAILURE | Company shut down |
-
-**Important:** "Operating" companies must be excluded — they haven't had an outcome yet. Including them biases toward failure (most operating companies haven't been acquired YET).
-
----
-
-## Datasets
-
-### Primary: Crunchbase 50K+ (RyanFabrick)
-- **Repo:** github.com/RyanFabrick/ML-Startup-Success-Prediction
-- **Size:** 50,000+ companies, 1990-2015
-- **Features:** 22 engineered features (geographic, industry, temporal)
-- **Labels:** Success/failure based on Crunchbase status
-- **Method:** Bias-free (founding-time info only)
-- **Baseline:** 79% AUC-ROC with XGBoost
-- **Paper:** Żbikowski & Antosiuk (2021)
-
-### Secondary: Startup Classification (ntdoris)
-- **Repo:** github.com/ntdoris/startup-classification
-- **Size:** Crunchbase data, companies 1902-2014
-- **Source:** Kaggle Crunchbase dataset (included in repo `data/` folder)
-- **Baseline:** 80% recall, 73% AUC-ROC
-- **Key features:** funding_total_usd, founded_year, time_first_to_last_funding, international
-
-### Tertiary: Startup Success Prediction (sumitjhaleriya)
-- **Repo:** github.com/sumitjhaleriya/Startup-Success-Prediction-using-Machine-Learning
-- **Size:** Several thousand companies
-- **Source:** Crunchbase via Kaggle
-- **Features:** Funding, location, industry, team size
-
-### Also: Mirai's Existing Database
-- **Location:** Mirai's SQLite DB
-- **Size:** 231K companies, 22.8K with known outcomes
-- **Can cross-reference** with above datasets to expand labeled set
+"Operating" companies should be treated carefully in calibration — they haven't had a definitive outcome yet.
 
 ---
 
-## Implementation Plan
+## What Calibration Will Answer
 
-### Phase 1: Build Calibration Mode
-1. Clone datasets, extract CSV/data files
-2. Build anonymizer: strips names, URLs, descriptions — keeps only structural features
-3. Add `--calibration` flag to Mirai pipeline that:
-   - Disables web research (Phase 1)
-   - Disables fact checking
-   - Uses anonymized company profiles
-   - Runs council + swarm on structural features only
-4. Collect swarm scores for N companies (start with 100, scale to 1000)
+Once we have 200+ analyses with tracked outcomes:
 
-### Phase 2: Measure Performance
-1. Compare swarm scores vs actual outcomes (success/failure)
-2. Calculate AUC-ROC, precision, recall, F1
-3. Compare against ML baselines (79% AUC from RyanFabrick, 73% from ntdoris)
-4. Identify which persona types/models are most predictive
+1. **Do higher composite scores predict better outcomes?** — The core question. If a 7.0 and a 4.0 have the same outcome distribution, the score means nothing.
 
-### Phase 3: Calibration Flywheel
-1. Feed results back: "personas of type X overpredict success in SaaS"
-2. Adjust persona weights in production
-3. Track accuracy over time as more outcomes become known
-4. Re-run calibration quarterly
+2. **Which dimensions are most predictive?** — `council_team_execution_signals` might strongly predict fundraising success while `council_market_timing` might predict nothing. The `/api/admin/calibration` endpoint computes this automatically.
+
+3. **Should the 78/22 council/swarm blend change?** — If swarm scores predict outcomes better than council on certain dimensions, the weights should shift.
+
+4. **Does the risk panel add real signal?** — If `risk_panel_penalty > 0` companies have worse outcomes, the panel is doing its job. If not, it's noise.
+
+5. **Is the 5.0-7.0 mid-range meaningful?** — With enough outcome data, we can check if 5.5 and 6.5 companies have distinguishably different outcomes or if they're just noise within the mid-range.
 
 ---
 
-## Key Question to Answer
+## Historical Datasets (Reference)
 
-**Does the LLM swarm add predictive value over basic ML features?**
+Available in `subconscious/swarm/data/companies.db`:
 
-- If swarm AUC > 79% (RyanFabrick baseline): YES, LLMs add value. Ship it.
-- If swarm AUC ≈ 79%: Maybe. LLMs add qualitative insights but not predictive accuracy.
-- If swarm AUC < 73% (ntdoris baseline): NO. The swarm is worse than logistic regression on 5 features. Rethink the approach.
+| Source | Count | Outcomes | Limitations |
+|--------|-------|----------|-------------|
+| yc-oss | 5,690 | Active/Inactive/Acquired/Public | Best labels, but LLMs know YC companies |
+| crunchbase-success-fail | 65,095 | Operating/closed/acquired/IPO | No descriptions, stale dates |
+| crunchbase-large | 159,894 | Operating/acquired/IPO/closed | 35% have descriptions, data ends 2014 |
+| unicorns-2021 | 534 | All unicorn (no failure signal) | Selection bias |
 
-The honest answer matters more than a flattering one.
+### Academic References
 
----
-
-## References
-
-1. Żbikowski, K., & Antosiuk, P. (2021). "A machine learning, bias-free approach for predicting business success using Crunchbase data." Information Processing & Management.
-2. RyanFabrick/ML-Startup-Success-Prediction — github.com/RyanFabrick/ML-Startup-Success-Prediction
-3. ntdoris/startup-classification — github.com/ntdoris/startup-classification
-4. sumitjhaleriya/Startup-Success-Prediction — github.com/sumitjhaleriya/Startup-Success-Prediction-using-Machine-Learning
-5. yogeshwaran-shanmuganathan/Success-Prediction-Analysis-for-Startups — github.com/yogeshwaran-shanmuganathan/Success-Prediction-Analysis-for-Startups
-6. RamkishanPanthena/Startup-Success-Prediction — github.com/RamkishanPanthena/Startup-Success-Prediction
+1. Żbikowski & Antosiuk (2021). "A machine learning, bias-free approach for predicting business success using Crunchbase data." Information Processing & Management.
+2. RyanFabrick/ML-Startup-Success-Prediction (79% AUC-ROC with XGBoost on structural features)
+3. ntdoris/startup-classification (73% AUC-ROC baseline)
 
 ---
 
-*The calibration question is existential: if we can't beat a basic XGBoost model, the swarm is theater, not intelligence.*
+*The real calibration comes from tracking what happens to the companies we evaluate today — not from backtesting on companies whose outcomes are already known.*
