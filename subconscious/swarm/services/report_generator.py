@@ -131,6 +131,33 @@ def _sanitize_reasoning(text: str) -> str:
     return text
 
 
+def _build_elder_map(
+    council_models: List[Any],
+    council_model_scores: Dict[str, Any],
+    contested: List[Any],
+) -> Dict[str, str]:
+    """Build a stable anonymized label map for council evaluators."""
+    ordered_labels: List[str] = []
+
+    def _remember(label: Any) -> None:
+        text = str(label or '').strip()
+        if text and text not in ordered_labels:
+            ordered_labels.append(text)
+
+    for label in council_models:
+        _remember(label)
+    for label in council_model_scores.keys():
+        _remember(label)
+    for item in contested:
+        if isinstance(item, dict):
+            scores = item.get('scores', {})
+            if isinstance(scores, dict):
+                for label in scores.keys():
+                    _remember(label)
+
+    return {label: f'Elder {idx + 1}' for idx, label in enumerate(ordered_labels)}
+
+
 def _truncate(text: str, max_len: int) -> str:
     """Truncate text at word boundary, never mid-word."""
     if not text or len(text) <= max_len:
@@ -744,6 +771,11 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
     council_models = council_models if isinstance(council_models, list) else []
     council_model_scores = prediction.get('model_scores', council_meta.get('model_scores', {}))
     council_model_scores = council_model_scores if isinstance(council_model_scores, dict) else {}
+    elder_map = _build_elder_map(council_models, council_model_scores, contested)
+    council_model_scores_public = {
+        elder_map.get(str(model_label), str(model_label)): scores
+        for model_label, scores in council_model_scores.items()
+    }
     risks = plan.get('risks', []) or []
     risks = risks if isinstance(risks, list) else []
     moves = plan.get('next_moves', plan.get('moves', [])) or []
@@ -1306,20 +1338,20 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
         html += '</div>\n'
 
     # Per-model score breakdown (if council used multiple models)
-    if council_model_scores and isinstance(council_model_scores, dict) and len(council_model_scores) > 1:
+    if council_model_scores_public and isinstance(council_model_scores_public, dict) and len(council_model_scores_public) > 1:
         html += '<div style="margin-top: 12px;">\n'
-        html += '<p style="font-size: 11px; color: #666; margin-bottom: 6px;">Per-model dimension scores:</p>\n'
-        html += '<table>\n<tr><th>Model</th>'
+        html += '<p style="font-size: 11px; color: #666; margin-bottom: 6px;">Per-elder dimension scores:</p>\n'
+        html += '<table>\n<tr><th>Evaluator</th>'
         # Use whatever dimension names the first model has
-        first_model_scores = list(council_model_scores.values())[0]
+        first_model_scores = list(council_model_scores_public.values())[0]
         dim_names = list(first_model_scores.keys()) if isinstance(first_model_scores, dict) else []
         for d in dim_names[:7]:
             html += f'<th style="font-size:8px;text-align:center;">{d.replace("_"," ").title()[:14]}</th>'
         html += '</tr>\n'
-        for model_label, scores in council_model_scores.items():
+        for model_label, scores in council_model_scores_public.items():
             if not isinstance(scores, dict):
                 continue
-            html += f'<tr><td style="font-weight:bold;font-size:10px;">{_sanitize_reasoning(str(model_label)[:20])}</td>'
+            html += f'<tr><td style="font-weight:bold;font-size:10px;">{str(model_label)[:20]}</td>'
             for d in dim_names[:7]:
                 s = float(scores.get(d, 0))
                 color = _color_for_score(s)
@@ -1331,8 +1363,36 @@ def generate_html_report(analysis: Dict[str, Any], narrative: str = '') -> str:
         html += '<div style="margin-top: 12px; padding: 10px; background: #fff3e0; border-left: 4px solid #f57c00;">\n'
         html += '<strong style="color: #f57c00;">Contested Dimensions</strong><br/>\n'
         for c in contested:
-            c_name = c if isinstance(c, str) else str(c)
-            html += f'<span style="color: #333;">{c_name.replace("_", " ").title()} - Models disagreed significantly on this dimension.</span><br/>\n'
+            if isinstance(c, dict):
+                c_name = str(c.get('dimension', '') or c.get('name', '') or 'Unknown Dimension')
+                spread = c.get('spread')
+                severity = str(c.get('severity', '') or '').replace('_', ' ').title()
+                scores = c.get('scores', {})
+                score_line = ''
+                if isinstance(scores, dict) and scores:
+                    rendered_scores = []
+                    for label, value in scores.items():
+                        rendered_scores.append(f"{elder_map.get(str(label), str(label))}: {value}")
+                    score_line = '; '.join(rendered_scores)
+                detail_bits = []
+                if spread not in (None, ''):
+                    detail_bits.append(f'Spread {spread}')
+                if severity:
+                    detail_bits.append(severity)
+                if score_line:
+                    detail_bits.append(f'Council range: {score_line}')
+                details = '. '.join(detail_bits) if detail_bits else 'Council evaluators disagreed significantly on this dimension'
+                html += (
+                    f'<span style="color: #333;">'
+                    f'{c_name.replace("_", " ").title()} - {details}.</span><br/>\n'
+                )
+            else:
+                c_name = str(c)
+                html += (
+                    f'<span style="color: #333;">'
+                    f'{c_name.replace("_", " ").title()} - Council evaluators disagreed significantly on this dimension.'
+                    f'</span><br/>\n'
+                )
         html += '</div>\n'
 
     # ═══ C1: KEY THEMES (positive + negative) ═══

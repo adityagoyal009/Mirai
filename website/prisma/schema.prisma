@@ -83,13 +83,135 @@ model Submission {
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
 
-  user   User    @relation(fields: [userId], references: [id])
-  events Event[]
+  user           User             @relation(fields: [userId], references: [id])
+  events         Event[]
+  analysisResult AnalysisResult?
+  outcomes       Outcome[]
+  followUps      FollowUp[]
 
   @@index([userId])
   @@index([status])
   @@index([createdAt])
   @@map("submissions")
+}
+
+model AnalysisResult {
+  id             Int      @id @default(autoincrement())
+  submissionId   Int      @unique @map("submission_id")
+  analysisId     String   @default("") @map("analysis_id")
+
+  // Final blended verdict
+  compositeScore   Float  @map("composite_score")
+  finalVerdict     String @map("final_verdict")
+  finalConfidence  Float  @map("final_confidence")
+
+  // Council dimension scores (reconciled)
+  councilMarketTiming           Float? @map("council_market_timing")
+  councilCompetitionLandscape   Float? @map("council_competition_landscape")
+  councilBusinessModelViability Float? @map("council_business_model_viability")
+  councilTeamExecutionSignals   Float? @map("council_team_execution_signals")
+  councilRegulatoryNewsEnv      Float? @map("council_regulatory_news_env")
+  councilSocialProofDemand      Float? @map("council_social_proof_demand")
+  councilPatternMatch           Float? @map("council_pattern_match")
+  councilCapitalEfficiency      Float? @map("council_capital_efficiency")
+  councilScalabilityPotential   Float? @map("council_scalability_potential")
+  councilExitPotential          Float? @map("council_exit_potential")
+  councilOverall                Float? @map("council_overall")
+  councilConfidence             Float? @map("council_confidence")
+
+  // Swarm aggregated scores
+  swarmMarketTiming           Float? @map("swarm_market_timing")
+  swarmCompetitionLandscape   Float? @map("swarm_competition_landscape")
+  swarmBusinessModelViability Float? @map("swarm_business_model_viability")
+  swarmTeamExecutionSignals   Float? @map("swarm_team_execution_signals")
+  swarmRegulatoryNewsEnv      Float? @map("swarm_regulatory_news_env")
+  swarmSocialProofDemand      Float? @map("swarm_social_proof_demand")
+  swarmPatternMatch           Float? @map("swarm_pattern_match")
+  swarmCapitalEfficiency      Float? @map("swarm_capital_efficiency")
+  swarmScalabilityPotential   Float? @map("swarm_scalability_potential")
+  swarmExitPotential          Float? @map("swarm_exit_potential")
+  swarmOverall                Float? @map("swarm_overall")
+  swarmStdOverall             Float? @map("swarm_std_overall")
+  swarmMedianOverall          Float? @map("swarm_median_overall")
+  swarmPositivePct            Float? @map("swarm_positive_pct")
+  swarmNegativePct            Float? @map("swarm_negative_pct")
+  swarmAgentCount             Int?   @map("swarm_agent_count")
+
+  // Risk panel
+  riskPanelPenalty        Float? @map("risk_panel_penalty")
+  riskHighSeverityCount   Int?   @map("risk_high_severity_count")
+  riskMediumSeverityCount Int?   @map("risk_medium_severity_count")
+  riskLowSeverityCount    Int?   @map("risk_low_severity_count")
+  riskFindings            String @default("[]") @map("risk_findings")
+
+  // OASIS simulation
+  oasisTrajectory     String @default("") @map("oasis_trajectory")
+  oasisStartSentiment Float? @map("oasis_start_sentiment")
+  oasisFinalSentiment Float? @map("oasis_final_sentiment")
+  oasisRounds         Int?   @map("oasis_rounds")
+
+  // Research quality
+  researchQualityScore       Float? @map("research_quality_score")
+  researchCoverageScore      Float? @map("research_coverage_score")
+  researchSourceQualityScore Float? @map("research_source_quality_score")
+  researchFreshnessScore     Float? @map("research_freshness_score")
+
+  // Metadata
+  durationSeconds Float?   @map("duration_seconds")
+  auditPath       String   @default("") @map("audit_path")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  submission Submission @relation(fields: [submissionId], references: [id])
+
+  @@index([finalVerdict])
+  @@index([compositeScore])
+  @@index([createdAt])
+  @@map("analysis_results")
+}
+
+model Outcome {
+  id               Int      @id @default(autoincrement())
+  submissionId     Int      @map("submission_id")
+  recordedBy       String   @default("") @map("recorded_by")
+  recordedByUserId Int?     @map("recorded_by_user_id")
+
+  outcomeType      String   @map("outcome_type")
+  details          String   @default("")
+  verificationUrl  String   @default("") @map("verification_url")
+  verified         Boolean  @default(false)
+
+  roundType        String   @default("") @map("round_type")
+  amountRaised     String   @default("") @map("amount_raised")
+  revenueRange     String   @default("") @map("revenue_range")
+
+  outcomeDate          String @default("") @map("outcome_date")
+  monthsAfterAnalysis  Int?   @map("months_after_analysis")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  submission Submission @relation(fields: [submissionId], references: [id])
+
+  @@index([submissionId])
+  @@index([outcomeType])
+  @@index([createdAt])
+  @@map("outcomes")
+}
+
+model FollowUp {
+  id           Int       @id @default(autoincrement())
+  submissionId Int       @map("submission_id")
+  dueAt        DateTime  @map("due_at")
+  status       String    @default("pending")
+  monthsAfter  Int       @map("months_after")
+  completedAt  DateTime? @map("completed_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  submission Submission @relation(fields: [submissionId], references: [id])
+
+  @@index([status, dueAt])
+  @@index([submissionId])
+  @@map("follow_ups")
 }
 
 model Event {

@@ -805,6 +805,110 @@ class AnalysisQueue {
         },
       });
 
+      // ── Persist structured analysis result for calibration ──
+      try {
+        const predictionView = analysis.prediction || {};
+        const swarm = analysis.swarm || {};
+        const riskPanel = analysis.risk_panel || {};
+        const oasis = analysis.oasis || {};
+        const researchQuality = analysis.research?.research_quality || {};
+
+        // Extract council reconciled dimension scores
+        const councilDims: Record<string, number> = {};
+        const dims = predictionView.dimensions;
+        if (Array.isArray(dims)) {
+          for (const d of dims) {
+            if (d && typeof d === "object" && d.name && typeof d.score === "number") {
+              councilDims[d.name] = d.score;
+            }
+          }
+        }
+
+        // Extract swarm avg_scores
+        const swarmAvg: Record<string, number> = swarm.avg_scores || {};
+
+        const safeFloat = (v: unknown): number | null =>
+          typeof v === "number" && Number.isFinite(v) ? v : null;
+        const safeInt = (v: unknown): number | null =>
+          typeof v === "number" && Number.isFinite(v) ? Math.round(v) : null;
+
+        await prisma.analysisResult.create({
+          data: {
+            submissionId,
+            analysisId: analysisId || "",
+            compositeScore: typeof score === "number" ? score : 0,
+            finalVerdict: verdict || "",
+            finalConfidence: safeFloat(analysis.final_confidence ?? predictionView.confidence) ?? 0,
+
+            councilMarketTiming: safeFloat(councilDims.market_timing),
+            councilCompetitionLandscape: safeFloat(councilDims.competition_landscape),
+            councilBusinessModelViability: safeFloat(councilDims.business_model_viability),
+            councilTeamExecutionSignals: safeFloat(councilDims.team_execution_signals),
+            councilRegulatoryNewsEnv: safeFloat(councilDims.regulatory_news_environment),
+            councilSocialProofDemand: safeFloat(councilDims.social_proof_demand),
+            councilPatternMatch: safeFloat(councilDims.pattern_match),
+            councilCapitalEfficiency: safeFloat(councilDims.capital_efficiency),
+            councilScalabilityPotential: safeFloat(councilDims.scalability_potential),
+            councilExitPotential: safeFloat(councilDims.exit_potential),
+            councilOverall: safeFloat(predictionView.overall_score),
+            councilConfidence: safeFloat(predictionView.confidence),
+
+            swarmMarketTiming: safeFloat(swarmAvg.market_timing),
+            swarmCompetitionLandscape: safeFloat(swarmAvg.competition_landscape),
+            swarmBusinessModelViability: safeFloat(swarmAvg.business_model_viability),
+            swarmTeamExecutionSignals: safeFloat(swarmAvg.team_execution_signals),
+            swarmRegulatoryNewsEnv: safeFloat(swarmAvg.regulatory_news_environment),
+            swarmSocialProofDemand: safeFloat(swarmAvg.social_proof_demand),
+            swarmPatternMatch: safeFloat(swarmAvg.pattern_match),
+            swarmCapitalEfficiency: safeFloat(swarmAvg.capital_efficiency),
+            swarmScalabilityPotential: safeFloat(swarmAvg.scalability_potential),
+            swarmExitPotential: safeFloat(swarmAvg.exit_potential),
+            swarmOverall: safeFloat(swarmAvg.overall),
+            swarmStdOverall: safeFloat(swarm.std_overall),
+            swarmMedianOverall: safeFloat(swarm.median_overall),
+            swarmPositivePct: safeFloat(swarm.positive_pct),
+            swarmNegativePct: safeFloat(swarm.negative_pct),
+            swarmAgentCount: safeInt(swarm.total_agents),
+
+            riskPanelPenalty: safeFloat(riskPanel.overall_penalty),
+            riskHighSeverityCount: safeInt(riskPanel.high_severity_count),
+            riskMediumSeverityCount: safeInt(riskPanel.medium_severity_count),
+            riskLowSeverityCount: safeInt(riskPanel.low_severity_count),
+            riskFindings: JSON.stringify(riskPanel.findings || []),
+
+            oasisTrajectory: oasis.trajectory || "",
+            oasisStartSentiment: safeFloat(oasis.start_sentiment),
+            oasisFinalSentiment: safeFloat(oasis.final_sentiment ?? oasis.end_sentiment),
+            oasisRounds: safeInt(oasis.rounds ?? oasis.total_rounds),
+
+            researchQualityScore: safeFloat(researchQuality.overall_score ?? researchQualityScore),
+            researchCoverageScore: safeFloat(researchQuality.coverage_score ?? researchCoverageScore),
+            researchSourceQualityScore: safeFloat(researchQuality.source_quality_score ?? researchSourceQualityScore),
+            researchFreshnessScore: safeFloat(researchQuality.freshness_score ?? researchFreshnessScore),
+
+            durationSeconds: safeFloat(durationS),
+            auditPath: auditPath || "",
+          },
+        });
+      } catch (arErr) {
+        console.error(`[queue] Failed to persist AnalysisResult for ${submissionId}:`, arErr);
+      }
+
+      // ── Create follow-up schedule (3/6/12 months) ──
+      try {
+        const now = Date.now();
+        await prisma.followUp.createMany({
+          data: [3, 6, 12].map((months) => ({
+            submissionId,
+            monthsAfter: months,
+            dueAt: new Date(now + months * 30 * 24 * 60 * 60 * 1000),
+            status: "pending",
+          })),
+        });
+      } catch (fuErr) {
+        console.error(`[queue] Failed to create follow-ups for ${submissionId}:`, fuErr);
+      }
+
       await prisma.event.create({
         data: {
           event: "analysis_complete",

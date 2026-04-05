@@ -299,5 +299,27 @@ export async function GET(request: NextRequest) {
     },
     users: userList,
     hourly_submissions: hourlySubmissions,
+    calibration_summary: await (async () => {
+      try {
+        const totalAnalysisResults = await prisma.analysisResult.count();
+        const totalOutcomes = await prisma.outcome.count();
+        const pendingFollowUps = await prisma.followUp.count({
+          where: { status: "pending", dueAt: { lte: new Date() } },
+        });
+        const submissionsWithOutcomes = await prisma.outcome.groupBy({
+          by: ["submissionId"],
+        });
+        return {
+          total_analysis_results: totalAnalysisResults,
+          total_outcomes: totalOutcomes,
+          pending_follow_ups: pendingFollowUps,
+          outcome_rate: totalAnalysisResults > 0
+            ? Math.round((submissionsWithOutcomes.length / totalAnalysisResults) * 100)
+            : 0,
+        };
+      } catch {
+        return null;
+      }
+    })(),
   });
 }
