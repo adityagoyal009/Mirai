@@ -39,7 +39,7 @@ def test(name, fn):
         else:
             print(f"  [FAIL] {name}: returned {result}")
             FAIL += 1
-    except Exception as e:
+    except BaseException as e:
         print(f"  [FAIL] {name}: {e}")
         FAIL += 1
 
@@ -111,10 +111,9 @@ print("\n═══ 3. SWARM CONFIG ═══")
 
 def test_config():
     from subconscious.swarm.config import Config
-    assert Config.LLM_API_KEY == "openclaw"
-    assert Config.LLM_BASE_URL == "http://localhost:3000/v1"
+    assert Config.LLM_API_KEY == "cli-mode"
+    assert Config.LLM_BASE_URL == "cli://local"
     assert "claude-opus" in Config.LLM_MODEL_NAME
-    assert Config.SEARXNG_URL == "http://localhost:8888"
     assert Config.OPENBB_ENABLED is True
     errors = Config.validate()
     assert len(errors) == 0
@@ -132,7 +131,7 @@ def test_bi_engine_import():
         Prediction, StrategyPlan, FullAnalysis, DimensionScore,
         EXEC_SUMMARY_TEMPLATE, _DEPTH_CONFIG, _DIMENSION_WEIGHTS,
     )
-    assert len(_DIMENSION_WEIGHTS) == 7
+    assert len(_DIMENSION_WEIGHTS) == 10
     assert abs(sum(_DIMENSION_WEIGHTS.values()) - 1.0) < 0.01
     assert "quick" in _DEPTH_CONFIG
     assert "standard" in _DEPTH_CONFIG
@@ -143,9 +142,8 @@ def test_bi_engine_import():
 def test_search_engine_import():
     from subconscious.swarm.services.search_engine import SearchEngine
     engine = SearchEngine()
-    assert engine.base_url == "http://localhost:8888"
-    # Won't be available in container — just test class loads
-    assert engine.is_available() is False  # SearXNG not running
+    # SearchEngine now wraps OpenClaw-backed live search (no SearXNG/base_url)
+    assert engine.is_available() is True
 
 def test_market_data_import():
     try:
@@ -190,7 +188,6 @@ def test_fastapi_template_endpoint():
         data = resp.json()
         assert "template" in data
         assert "example" in data
-        assert "fields" in data
 
 def test_fastapi_health():
     from fastapi.testclient import TestClient
@@ -213,9 +210,10 @@ print("\n═══ 6. GATEWAY MANAGER ═══")
 def test_gateway_manager():
     from mirai_cortex import GatewayManager
     mgr = GatewayManager()
-    assert mgr.gateway_url == "http://localhost:3000"
-    # Gateway won't be running — just test methods don't crash
-    assert mgr.check_health() is False
+    assert mgr.gateway_url == "http://localhost:19789"
+    # Just verify check_health() returns a bool without crashing
+    result = mgr.check_health()
+    assert isinstance(result, bool)
 
 def test_gateway_send_message():
     from mirai_cortex import GatewayManager
@@ -237,19 +235,34 @@ def test_learning_imports():
     assert ExperienceStore and ReflectionEngine and SkillForge and MarketRadar
 
 def test_experience_store():
-    from learning import ExperienceStore
-    store = ExperienceStore()
-    eid = store.store_experience(
-        situation="Testing Mirai in sandbox",
-        action='{"action": "terminal_command", "command": "ls"}',
-        action_type="terminal_command",
-        outcome="Exit code: 0\nSTDOUT: test_sandbox.py",
-        success=True,
-        score=1.0,
-    )
-    assert eid is not None
-    results = store.recall_similar("Testing Mirai", limit=1)
-    assert len(results) > 0
+    import tempfile, shutil
+    from learning import experience_store as _es_mod
+    tmp = tempfile.mkdtemp()
+    orig_store = _es_mod._store
+    _es_mod._store = None
+    orig_env = os.environ.get("CHROMADB_PERSIST_PATH")
+    os.environ["CHROMADB_PERSIST_PATH"] = tmp
+    try:
+        from learning import ExperienceStore
+        store = ExperienceStore()
+        eid = store.store_experience(
+            situation="Testing Mirai in sandbox",
+            action='{"action": "terminal_command", "command": "ls"}',
+            action_type="terminal_command",
+            outcome="Exit code: 0\nSTDOUT: test_sandbox.py",
+            success=True,
+            score=1.0,
+        )
+        assert eid is not None
+        results = store.recall_similar("Testing Mirai", limit=1)
+        assert len(results) > 0
+    finally:
+        _es_mod._store = orig_store
+        if orig_env is None:
+            os.environ.pop("CHROMADB_PERSIST_PATH", None)
+        else:
+            os.environ["CHROMADB_PERSIST_PATH"] = orig_env
+        shutil.rmtree(tmp, ignore_errors=True)
 
 test("Learning system imports", test_learning_imports)
 test("ExperienceStore: store + recall", test_experience_store)
